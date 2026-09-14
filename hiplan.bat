@@ -584,7 +584,7 @@ function Show-Menu {
         Clear-Host
         Write-Host ""
         Write-Host "$C_CYAN------------------------------------------------------------$C_RESET"
-        Write-Host "  $C_BOLD${C_WHITE}H I P L A N$C_RESET  $C_GRAY|$C_RESET  $C_DIM`Pannello di Controllo$C_RESET"
+        Write-Host "  $C_BOLD${C_WHITE}HIPLAN$C_RESET  $C_GRAY|$C_RESET  $C_DIM`Pannello di Controllo$C_RESET"
         Write-Host "$C_CYAN------------------------------------------------------------$C_RESET"
         Write-Host ""
         Write-Host "  $C_CYAN 1$C_RESET)  $C_WHITE`Avvia Server$C_RESET       $C_GRAY(start)$C_RESET"

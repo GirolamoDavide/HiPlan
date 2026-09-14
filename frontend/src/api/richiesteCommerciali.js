@@ -86,6 +86,20 @@ export async function uploadAttachmentsArticolo(richiestaId, articoloId, files) 
   return res.data;
 }
 
+export async function deleteAttachmentArticolo(richiestaId, articoloId, url) {
+  const res = await api.delete(`${BASE}/${richiestaId}/articoli/${articoloId}/attachments`, {
+    params: { url },
+  });
+  return res.data;
+}
+
+export async function deleteAttachmentRichiesta(richiestaId, url) {
+  const res = await api.delete(`${BASE}/${richiestaId}/attachments`, {
+    params: { url },
+  });
+  return res.data;
+}
+
 export async function inviaAdAdmin(id, data = {}) {
   const res = await api.put(`${BASE}/${id}/invia-a-admin`, data);
   return res.data;

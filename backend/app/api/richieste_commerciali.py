@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Union, Dict, Any, Optional
 
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 # pyrefly: ignore [missing-import]
 from sqlalchemy.ext.asyncio import AsyncSession
 # pyrefly: ignore [missing-import]
@@ -128,15 +128,31 @@ async def _get_user_emails_by_usernames(db: AsyncSession, usernames: List[str]) 
     return [str(u.email) for u in users if u.email]
 
 
-def _parse_attachments(attachments_str: str) -> List[Dict[str, str]]:
+def _parse_attachments(
+    attachments_str: str,
+    default_author_id: Optional[str] = None,
+    default_author_name: Optional[str] = None,
+    default_author_role: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     try:
         raw = json.loads(attachments_str) if attachments_str else []
         normalized = []
         for item in raw:
             if isinstance(item, dict):
+                up_id = str(item["uploaded_by_id"]) if item.get("uploaded_by_id") is not None else default_author_id
+                up_role = item.get("uploaded_by_role")
+                if not up_role:
+                    if up_id and default_author_id and up_id == default_author_id:
+                        up_role = default_author_role
+                    elif not up_id:
+                        up_role = default_author_role
                 normalized.append({
                     "name": str(item.get("name") or "Allegato"),
                     "url": str(item.get("url") or item.get("path") or ""),
+                    "uploaded_by_id": up_id,
+                    "uploaded_by_name": item.get("uploaded_by_name") or default_author_name,
+                    "uploaded_by_role": up_role,
+                    "uploaded_at": item.get("uploaded_at"),
                 })
             elif isinstance(item, str) and item.strip():
                 filename = item.split("/")[-1]
@@ -145,7 +161,14 @@ def _parse_attachments(attachments_str: str) -> List[Dict[str, str]]:
                     display_name = filename.split("_", 1)[1]
                 else:
                     display_name = filename
-                normalized.append({"name": display_name, "url": item})
+                normalized.append({
+                    "name": display_name,
+                    "url": item,
+                    "uploaded_by_id": default_author_id,
+                    "uploaded_by_name": default_author_name,
+                    "uploaded_by_role": default_author_role,
+                    "uploaded_at": None,
+                })
         return normalized
     except Exception:
         return []
@@ -227,6 +250,9 @@ def _record_field_modification(
     curr_user_name = current_user.full_name or current_user.username
     curr_user_id = str(current_user.id)
 
+    default_author = "Ufficio Tecnico / Acquisti" if field_name == "costo" else "Commerciale"
+    old_author = old_author_name if (old_author_name and (field_name != "costo" or old_author_name != "Commerciale")) else default_author
+
     prev_mod = modifiche_dict.get(field_name, {})
     existing_steps = prev_mod.get("steps")
 
@@ -236,13 +262,13 @@ def _record_field_modification(
         steps = [
             {
                 "value": prev_mod.get("old_value", old_str),
-                "author_name": prev_mod.get("old_author_name") or old_author_name or "Commerciale",
+                "author_name": prev_mod.get("old_author_name") or old_author,
                 "created_at": prev_mod.get("old_created_at") or old_created_at or now_iso,
                 "author_id": "",
             },
             {
                 "value": prev_mod.get("new_value", old_str),
-                "author_name": prev_mod.get("author_name") or old_author_name or "Commerciale",
+                "author_name": prev_mod.get("author_name") or old_author,
                 "created_at": prev_mod.get("updated_at") or now_iso,
                 "author_id": prev_mod.get("author_id", ""),
             },
@@ -253,7 +279,7 @@ def _record_field_modification(
             steps = [
                 {
                     "value": init_str,
-                    "author_name": old_author_name or "Commerciale",
+                    "author_name": old_author,
                     "created_at": old_created_at or now_iso,
                     "author_id": "",
                 },
@@ -268,7 +294,24 @@ def _record_field_modification(
             steps = [
                 {
                     "value": old_str,
-                    "author_name": old_author_name or "Commerciale",
+                    "author_name": old_author,
+                    "created_at": old_created_at or now_iso,
+                    "author_id": "",
+                }
+            ]
+
+    # Per il campo costo, il Commerciale non può aver inserito il costo
+    if field_name == "costo" and steps:
+        steps = [
+            s for s in steps
+            if s.get("author_name") != "Commerciale"
+            and not (str(s.get("value", "")).strip() in ["0 €", "0.00 €", "0.0 €", "0"] and s.get("author_name") in ["Commerciale", None, ""])
+        ]
+        if not steps:
+            steps = [
+                {
+                    "value": old_str,
+                    "author_name": old_author,
                     "created_at": old_created_at or now_iso,
                     "author_id": "",
                 }
@@ -284,6 +327,9 @@ def _record_field_modification(
         "created_at": now_iso,
         "author_id": curr_user_id,
     })
+
+    if len(steps) < 2:
+        return
 
     modifiche_dict[field_name] = {
         "field": field_name,
@@ -306,8 +352,10 @@ def _filter_visible_modifiche(modifiche_dict: dict, role: str, current_user: Opt
     for k, m in modifiche_dict.items():
         if not isinstance(m, dict):
             continue
-        if role == "admin":
-            visible[k] = m
+        # Differenze tra vecchio e nuovo costo: visibili SOLO all'admin
+        if k == "costo":
+            if role == "admin":
+                visible[k] = m
             continue
         if user_id:
             is_author = str(m.get("author_id", "")) == user_id
@@ -377,7 +425,12 @@ def _serialize_richiesta(richiesta: RichiestaCommerciale, role: str, current_use
         "description": richiesta.description,
         "numero_offerta": richiesta.numero_offerta,
         "cliente": richiesta.cliente,
-        "attachments": _parse_attachments(str(richiesta.attachments)),
+        "attachments": _parse_attachments(
+            str(richiesta.attachments),
+            str(richiesta.author.id) if richiesta.author else (str(richiesta.author_id) if getattr(richiesta, "author_id", None) else None),
+            (richiesta.author.full_name or richiesta.author.username) if richiesta.author else None,
+            default_author_role="commerciale",
+        ),
         "status": richiesta.status,
         "author": {
             "id": richiesta.author.id,
@@ -449,10 +502,35 @@ def _serialize_articolo(
     modifiche = _parse_json_dict(getattr(articolo, "modifiche", None))
     for k, m in modifiche.items():
         if isinstance(m, dict) and "steps" not in m and m.get("old_value") and m.get("new_value"):
+            default_orig = "Ufficio Tecnico / Acquisti" if k == "costo" else "Commerciale"
             m["steps"] = [
-                {"value": m["old_value"], "author_name": m.get("old_author_name", "Commerciale"), "created_at": m.get("old_created_at", ""), "author_id": ""},
+                {"value": m["old_value"], "author_name": m.get("old_author_name") or default_orig, "created_at": m.get("old_created_at", ""), "author_id": ""},
                 {"value": m["new_value"], "author_name": m.get("author_name", "Utente"), "created_at": m.get("updated_at", ""), "author_id": m.get("author_id", "")},
             ]
+
+    # Per il campo costo, il Commerciale non inserisce il costo:
+    # rimuoviamo qualsiasi step attribuito a Commerciale o originato da 0.00 € (Commerciale)
+    if "costo" in modifiche and isinstance(modifiche["costo"], dict):
+        costo_mod = modifiche["costo"]
+        if "steps" in costo_mod and isinstance(costo_mod["steps"], list):
+            filtered_steps = [
+                s for s in costo_mod["steps"]
+                if s.get("author_name") != "Commerciale"
+                and not (str(s.get("value", "")).strip() in ["0 €", "0.00 €", "0.0 €", "0"] and s.get("author_name") in ["Commerciale", None, ""])
+            ]
+            if len(filtered_steps) < 2:
+                del modifiche["costo"]
+            else:
+                costo_mod["steps"] = filtered_steps
+                costo_mod["old_value"] = filtered_steps[0]["value"]
+                costo_mod["old_author_name"] = filtered_steps[0].get("author_name") or "Ufficio Tecnico / Acquisti"
+                costo_mod["old_created_at"] = filtered_steps[0].get("created_at", "")
+                costo_mod["new_value"] = filtered_steps[-1]["value"]
+                costo_mod["author_name"] = filtered_steps[-1].get("author_name")
+                costo_mod["author_id"] = filtered_steps[-1].get("author_id", "")
+                costo_mod["updated_at"] = filtered_steps[-1].get("created_at", "")
+        elif costo_mod.get("old_author_name") == "Commerciale" or str(costo_mod.get("old_value", "")).strip() in ["0 €", "0.00 €", "0.0 €", "0"]:
+            del modifiche["costo"]
 
     snap_comm = _parse_json_dict(getattr(articolo, "testo_originale_commerciale", None))
     snap_acq = _parse_json_dict(getattr(articolo, "testo_originale_acquisti", None))
@@ -555,6 +633,7 @@ def _serialize_articolo(
     base = {
         "id": articolo.id,
         "richiesta_id": articolo.richiesta_id,
+        "author_id": str(articolo.author_id) if getattr(articolo, "author_id", None) else None,
         "author": author_info,
         "updated_by": updated_by_info,
         "titolo": articolo.titolo,
@@ -563,7 +642,12 @@ def _serialize_articolo(
         "is_atex": articolo.is_atex,
         "is_alimentare": articolo.is_alimentare,
         "tipo_fornitura": articolo.tipo_fornitura,
-        "attachments": _parse_attachments(str(articolo.attachments)),
+        "attachments": _parse_attachments(
+            str(articolo.attachments),
+            str(articolo.author.id) if getattr(articolo, "author", None) and articolo.author else (str(articolo.author_id) if getattr(articolo, "author_id", None) else None),
+            (articolo.author.full_name or articolo.author.username) if getattr(articolo, "author", None) and articolo.author else None,
+            default_author_role="commerciale",
+        ),
         "testo_originale_commerciale": getattr(articolo, "testo_originale_commerciale", None),
         "modifiche": _filter_visible_modifiche(modifiche, role, current_user),
         "created_at": _to_utc_iso(articolo.created_at),
@@ -578,9 +662,10 @@ def _serialize_articolo(
     elif role == "acquisti":
         base["costo"] = articolo.costo
     else:
-        # Commerciale: MAI il costo dell'ufficio acquisti! Solo prezzo listino e note admin
+        # Commerciale: MAI il costo dell'ufficio acquisti e MAI il tipo fornitura! Solo prezzo listino e note admin
         base["prezzo_listino"] = articolo.prezzo_listino
         base["note_admin"] = articolo.note_admin
+        base["tipo_fornitura"] = None
 
     return base
 
@@ -614,13 +699,8 @@ async def list_richieste(
         .order_by(RichiestaCommerciale.created_at.desc())
     )
 
-    if role == "commerciale":
-        # Il commerciale vede solo le proprie richieste
-        query = query.where(RichiestaCommerciale.author_id == current_user.id)
-    elif role == "acquisti":
-        # L'acquisti vede tutte le richieste (ma non i prezzi di listino)
-        pass
-    # admin vede tutto senza filtri
+    # Commerciale, acquisti e admin vedono tutte le richieste
+    # I dati sensibili (es. prezzi di costo, tipo fornitura) vengono filtrati a valle in _serialize_richiesta
 
     res = await db.execute(query)
     richieste = res.scalars().all()
@@ -870,10 +950,8 @@ async def get_richiesta(
     if not richiesta:
         raise HTTPException(status_code=404, detail="Richiesta non trovata")
 
-    # Commerciale: accede solo alle proprie richieste
-    if role == "commerciale" and str(richiesta.author_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Non autorizzato")
-
+    # Commerciale, acquisti e admin possono visualizzare la richiesta
+    # Dati sensibili (es. costi e margini) vengono filtrati in _serialize_richiesta
     return _serialize_richiesta(richiesta, role, current_user)
 
 
@@ -907,8 +985,6 @@ async def update_richiesta(
         raise HTTPException(status_code=404, detail="Richiesta non trovata")
 
     if role == "commerciale":
-        if str(richiesta.author_id) != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Non puoi modificare richieste di altri utenti")
         if richiesta.status not in (RichiestaStatus.APERTA, RichiestaStatus.IN_LAVORAZIONE):
             raise HTTPException(status_code=400, detail="Non puoi modificare la richiesta: è già stata inviata a listino o completata")
         if data.status is not None and data.status != richiesta.status:
@@ -987,8 +1063,8 @@ async def upload_attachments_richiesta(
     if not richiesta:
         raise HTTPException(status_code=404, detail="Richiesta non trovata")
 
-    if role == "commerciale" and str(richiesta.author_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Non autorizzato")
+    if role == "commerciale" and richiesta.status not in (RichiestaStatus.APERTA, RichiestaStatus.IN_LAVORAZIONE):
+        raise HTTPException(status_code=400, detail="Non puoi caricare allegati: la richiesta è già a listino o completata")
 
     saved_entries = []
     folder = os.path.join(UPLOAD_DIR, richiesta_id)
@@ -1006,14 +1082,89 @@ async def upload_attachments_richiesta(
         saved_entries.append({
             "name": original_name,
             "url": f"/uploads/richieste_commerciali/{richiesta_id}/{filename}",
+            "uploaded_by_id": str(current_user.id),
+            "uploaded_by_name": current_user.full_name or current_user.username,
+            "uploaded_by_role": role,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
         })
 
-    current = _parse_attachments(str(richiesta.attachments))
+    current = _parse_attachments(
+        str(richiesta.attachments),
+        str(richiesta.author_id) if getattr(richiesta, "author_id", None) else None,
+        default_author_role="commerciale",
+    )
     current.extend(saved_entries)
     richiesta.attachments = json.dumps(current)  # type: ignore
     await db.commit()
 
     return {"attachments": current}
+
+
+@router.delete("/{richiesta_id}/attachments")
+async def delete_attachment_richiesta(
+    richiesta_id: str,
+    url: str = Query(..., description="URL dell'allegato da eliminare"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Elimina un allegato della richiesta (solo chi lo ha caricato, il rispettivo reparto, o un admin)."""
+    user_role = await _require_role(db, current_user, ["commerciale", "acquisti", "admin"])
+
+    res = await db.execute(
+        select(RichiestaCommerciale)
+        .options(*_richiesta_options())
+        .where(RichiestaCommerciale.id == richiesta_id)
+    )
+    richiesta = res.scalar_one_or_none()
+    if not richiesta:
+        raise HTTPException(status_code=404, detail="Richiesta non trovata")
+
+    author_id = str(richiesta.author_id) if getattr(richiesta, "author_id", None) else None
+    author_name = (richiesta.author.full_name or richiesta.author.username) if getattr(richiesta, "author", None) else None
+    current = _parse_attachments(str(richiesta.attachments), author_id, author_name, default_author_role="commerciale")
+
+    is_admin = (user_role == "admin" or current_user.role == "admin")
+    if not is_admin:
+        if user_role == "commerciale":
+            raise HTTPException(
+                status_code=400,
+                detail="Gli allegati non possono essere rimossi una volta inviata la richiesta",
+            )
+        if user_role == "acquisti" and richiesta.status != RichiestaStatus.IN_LAVORAZIONE:
+            raise HTTPException(
+                status_code=400,
+                detail="Gli allegati non possono essere rimossi dopo l'invio all'admin per il listino",
+            )
+
+    target = next((a for a in current if a.get("url") == url), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Allegato non trovato")
+
+    uploader_id = target.get("uploaded_by_id")
+    uploader_role = target.get("uploaded_by_role")
+    is_owner_user = bool(uploader_id and str(uploader_id) == str(current_user.id))
+    is_owner_role = bool(uploader_role and uploader_role == user_role)
+
+    if not (is_admin or is_owner_user or is_owner_role):
+        raise HTTPException(
+            status_code=403,
+            detail="Non puoi eliminare gli allegati caricati da un altro reparto o utente"
+        )
+
+    updated_list = [a for a in current if a.get("url") != url]
+    richiesta.attachments = json.dumps(updated_list)
+
+    if url.startswith("/uploads/richieste_commerciali/"):
+        rel_path = url[len("/uploads/richieste_commerciali/"):]
+        file_path = os.path.join(UPLOAD_DIR, rel_path)
+        if os.path.isfile(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+    await db.commit()
+    return {"attachments": updated_list}
 
 
 @router.put("/{richiesta_id}/prendi-in-carico")
@@ -1108,7 +1259,7 @@ async def add_articolo(
     await db.commit()
     res_reloaded = await db.execute(
         select(ArticoloRichiesta)
-        .options(selectinload(ArticoloRichiesta.author))
+        .options(selectinload(ArticoloRichiesta.author), selectinload(ArticoloRichiesta.updated_by))
         .where(ArticoloRichiesta.id == articolo.id)
     )
     articolo = res_reloaded.scalar_one_or_none()
@@ -1185,9 +1336,16 @@ async def update_articolo(
         articolo.titolo = data.titolo.strip()  # type: ignore
 
     if data.costo is not None and data.costo != articolo.costo:
-        old_costo_str = f"{articolo.costo:.2f} €" if articolo.costo is not None else "0.00 €"
-        new_costo_str = f"{data.costo:.2f} €"
-        _record_field_modification(mod_dict, "costo", "Costo Acquisti", old_costo_str, new_costo_str, current_user, orig_author, orig_date)
+        old_costo = articolo.costo
+        if old_costo is not None and old_costo > 0:
+            old_costo_str = f"{old_costo:.2f} €"
+            new_costo_str = f"{data.costo:.2f} €"
+            snap_acq = _parse_json_dict(getattr(articolo, "testo_originale_acquisti", None))
+            costo_author = (articolo.updated_by.full_name or articolo.updated_by.username) if getattr(articolo, "updated_by", None) else (snap_acq.get("author_name") or "Ufficio Tecnico / Acquisti")
+            costo_date = snap_acq.get("created_at") or _to_utc_iso(articolo.updated_at or articolo.created_at)
+            _record_field_modification(mod_dict, "costo", "Costo Acquisti", old_costo_str, new_costo_str, current_user, costo_author, costo_date)
+        else:
+            mod_dict.pop("costo", None)
         articolo.costo = data.costo  # type: ignore
 
     if data.descrizione is not None and (data.descrizione.strip() or "") != (articolo.descrizione or "").strip():
@@ -1286,7 +1444,7 @@ async def upload_attachments_articolo(
     current_user: User = Depends(get_current_user),
 ):
     """Upload allegati per un articolo."""
-    role = await _require_role(db, current_user, ["acquisti", "admin"])
+    role = await _require_role(db, current_user, ["commerciale", "acquisti", "admin"])
 
     res_req = await db.execute(
         select(RichiestaCommerciale).where(RichiestaCommerciale.id == richiesta_id)
@@ -1295,13 +1453,13 @@ async def upload_attachments_articolo(
     if not richiesta:
         raise HTTPException(status_code=404, detail="Richiesta non trovata")
 
-    if richiesta.status == RichiestaStatus.APERTA:
-        raise HTTPException(
-            status_code=400,
-            detail="La richiesta deve essere presa in carico dall'Ufficio Acquisti prima di poter caricare allegati",
-        )
-
-    if role != "admin" and richiesta.status != RichiestaStatus.IN_LAVORAZIONE:
+    if role == "commerciale":
+        if richiesta.status not in (RichiestaStatus.APERTA, RichiestaStatus.IN_LAVORAZIONE):
+            raise HTTPException(
+                status_code=400,
+                detail="Puoi caricare allegati solo finché la richiesta è aperta o in lavorazione",
+            )
+    elif role != "admin" and richiesta.status != RichiestaStatus.IN_LAVORAZIONE:
         raise HTTPException(
             status_code=400,
             detail="Puoi caricare allegati solo quando la richiesta è IN LAVORAZIONE",
@@ -1333,14 +1491,94 @@ async def upload_attachments_articolo(
         saved_entries.append({
             "name": original_name,
             "url": f"/uploads/richieste_commerciali/{richiesta_id}/articoli/{articolo_id}/{filename}",
+            "uploaded_by_id": str(current_user.id),
+            "uploaded_by_name": current_user.full_name or current_user.username,
+            "uploaded_by_role": role,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
         })
 
-    current = _parse_attachments(str(articolo.attachments))
+    author_id = str(articolo.author_id) if getattr(articolo, "author_id", None) else None
+    current = _parse_attachments(str(articolo.attachments), author_id, default_author_role="commerciale")
     current.extend(saved_entries)
     articolo.attachments = json.dumps(current)  # type: ignore
     await db.commit()
 
     return {"attachments": current}
+
+
+@router.delete("/{richiesta_id}/articoli/{articolo_id}/attachments")
+async def delete_attachment_articolo(
+    richiesta_id: str,
+    articolo_id: str,
+    url: str = Query(..., description="URL dell'allegato da eliminare"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Elimina un allegato di un articolo (solo chi lo ha caricato, il rispettivo reparto, o un admin)."""
+    user_role = await _require_role(db, current_user, ["commerciale", "acquisti", "admin"])
+
+    res = await db.execute(
+        select(ArticoloRichiesta).where(
+            ArticoloRichiesta.id == articolo_id,
+            ArticoloRichiesta.richiesta_id == richiesta_id,
+        )
+    )
+    articolo = res.scalar_one_or_none()
+    if not articolo:
+        raise HTTPException(status_code=404, detail="Articolo non trovato")
+
+    author_id = str(articolo.author_id) if getattr(articolo, "author_id", None) else None
+    current = _parse_attachments(str(articolo.attachments), author_id, default_author_role="commerciale")
+
+    res_req = await db.execute(
+        select(RichiestaCommerciale).where(RichiestaCommerciale.id == richiesta_id)
+    )
+    richiesta = res_req.scalar_one_or_none()
+    if not richiesta:
+        raise HTTPException(status_code=404, detail="Richiesta non trovata")
+
+    is_admin = (user_role == "admin" or current_user.role == "admin")
+    if not is_admin:
+        if user_role == "commerciale":
+            raise HTTPException(
+                status_code=400,
+                detail="Gli allegati non possono essere rimossi una volta inviata la richiesta",
+            )
+        if user_role == "acquisti" and richiesta.status != RichiestaStatus.IN_LAVORAZIONE:
+            raise HTTPException(
+                status_code=400,
+                detail="Gli allegati non possono essere rimossi dopo l'invio all'admin per il listino",
+            )
+
+    target = next((a for a in current if a.get("url") == url), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Allegato non trovato")
+
+    uploader_id = target.get("uploaded_by_id")
+    uploader_role = target.get("uploaded_by_role")
+    is_owner_user = bool(uploader_id and str(uploader_id) == str(current_user.id))
+    is_owner_role = bool(uploader_role and uploader_role == user_role)
+
+    if not (is_admin or is_owner_user or is_owner_role):
+        raise HTTPException(
+            status_code=403,
+            detail="Non puoi eliminare gli allegati caricati da un altro reparto o utente"
+        )
+
+    updated_list = [a for a in current if a.get("url") != url]
+    articolo.attachments = json.dumps(updated_list)
+
+    if url.startswith("/uploads/richieste_commerciali/"):
+        rel_path = url[len("/uploads/richieste_commerciali/"):]
+        file_path = os.path.join(UPLOAD_DIR, rel_path)
+        if os.path.isfile(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+    await db.commit()
+    return {"attachments": updated_list}
 
 
 @router.put("/{richiesta_id}/articoli-bulk")
@@ -1371,9 +1609,41 @@ async def salva_articoli_bulk(
         )
 
     if data.articoli:
-        art_map = {a.id: a for a in richiesta.articoli}
+        art_map: dict[str, ArticoloRichiesta] = {str(a.id): a for a in (richiesta.articoli or [])}
         for art_in in data.articoli:
-            art = art_map.get(art_in.id)
+            art = art_map.get(art_in.id) if art_in.id else None
+            if not art:
+                snap_comm = {
+                    "titolo": (art_in.titolo or "").strip(),
+                    "descrizione": (art_in.descrizione or "").strip(),
+                    "is_standard": bool(art_in.is_standard),
+                    "is_atex": bool(art_in.is_atex),
+                    "is_alimentare": bool(art_in.is_alimentare),
+                    "tipo_fornitura": art_in.tipo_fornitura.value if hasattr(art_in.tipo_fornitura, "value") else art_in.tipo_fornitura,
+                    "author_name": current_user.full_name or current_user.username,
+                    "created_at": _to_utc_iso(datetime.now(timezone.utc)),
+                }
+                new_art = ArticoloRichiesta(
+                    richiesta_id=richiesta_id,
+                    author_id=current_user.id,
+                    titolo=(art_in.titolo or "Nuovo Articolo").strip(),
+                    costo=art_in.costo or 0,
+                    descrizione=(art_in.descrizione or "").strip() or None,
+                    is_standard=bool(art_in.is_standard),
+                    is_atex=bool(art_in.is_atex),
+                    is_alimentare=bool(art_in.is_alimentare),
+                    tipo_fornitura=art_in.tipo_fornitura,
+                    prezzo_listino=art_in.prezzo_listino if role == "admin" else None,
+                    note_admin=art_in.note_admin if role == "admin" else None,
+                    attachments="[]",
+                    testo_originale_commerciale=json.dumps(snap_comm),
+                )
+                db.add(new_art)
+                richiesta.articoli.append(new_art)
+                if art_in.id:
+                    art_map[art_in.id] = new_art
+                continue
+
             if art:
                 if not getattr(art, "testo_originale_commerciale", None):
                     orig_author = None
@@ -1401,9 +1671,16 @@ async def salva_articoli_bulk(
                     _record_field_modification(mod_dict, "titolo", "Titolo Articolo", art.titolo, art_in.titolo.strip(), current_user, orig_author, orig_date)
                     art.titolo = art_in.titolo.strip()
                 if art_in.costo is not None and art_in.costo != art.costo:
-                    old_costo_str = f"{art.costo:.2f} €" if art.costo is not None else "0.00 €"
-                    new_costo_str = f"{art_in.costo:.2f} €"
-                    _record_field_modification(mod_dict, "costo", "Costo Acquisti", old_costo_str, new_costo_str, current_user, orig_author, orig_date)
+                    old_costo = art.costo
+                    if old_costo is not None and old_costo > 0:
+                        old_costo_str = f"{old_costo:.2f} €"
+                        new_costo_str = f"{art_in.costo:.2f} €"
+                        snap_acq = _parse_json_dict(getattr(art, "testo_originale_acquisti", None))
+                        costo_author = (art.updated_by.full_name or art.updated_by.username) if getattr(art, "updated_by", None) else (snap_acq.get("author_name") or "Ufficio Tecnico / Acquisti")
+                        costo_date = snap_acq.get("created_at") or _to_utc_iso(art.updated_at or art.created_at)
+                        _record_field_modification(mod_dict, "costo", "Costo Acquisti", old_costo_str, new_costo_str, current_user, costo_author, costo_date)
+                    else:
+                        mod_dict.pop("costo", None)
                     art.costo = art_in.costo
                 if art_in.descrizione is not None and (art_in.descrizione.strip() or "") != (art.descrizione or "").strip():
                     _record_field_modification(mod_dict, "descrizione", "Descrizione Articolo", art.descrizione or "", art_in.descrizione.strip(), current_user, orig_author, orig_date)
@@ -1499,17 +1776,47 @@ async def invia_a_admin(
             detail="La richiesta deve essere IN LAVORAZIONE per inviarla all'admin",
         )
 
-    if not richiesta.articoli:
+    if not richiesta.articoli and not (data and data.articoli):
         raise HTTPException(
             status_code=400,
             detail="Aggiungi almeno un articolo prima di inviare all'admin",
         )
 
-    # Se passati articoli nel payload, aggiornali prima della transizione
+    # Se passati articoli nel payload, aggiornali o creali prima della transizione
     if data and data.articoli:
-        art_map = {a.id: a for a in richiesta.articoli}
+        art_map: dict[str, ArticoloRichiesta] = {str(a.id): a for a in (richiesta.articoli or [])}
         for art_in in data.articoli:
-            art = art_map.get(art_in.id)
+            art = art_map.get(art_in.id) if art_in.id else None
+            if not art:
+                snap_comm = {
+                    "titolo": (art_in.titolo or "").strip(),
+                    "descrizione": (art_in.descrizione or "").strip(),
+                    "is_standard": bool(art_in.is_standard),
+                    "is_atex": bool(art_in.is_atex),
+                    "is_alimentare": bool(art_in.is_alimentare),
+                    "tipo_fornitura": art_in.tipo_fornitura.value if hasattr(art_in.tipo_fornitura, "value") else art_in.tipo_fornitura,
+                    "author_name": current_user.full_name or current_user.username,
+                    "created_at": _to_utc_iso(datetime.now(timezone.utc)),
+                }
+                new_art = ArticoloRichiesta(
+                    richiesta_id=richiesta_id,
+                    author_id=current_user.id,
+                    titolo=(art_in.titolo or "Nuovo Articolo").strip(),
+                    costo=art_in.costo or 0,
+                    descrizione=(art_in.descrizione or "").strip() or None,
+                    is_standard=bool(art_in.is_standard),
+                    is_atex=bool(art_in.is_atex),
+                    is_alimentare=bool(art_in.is_alimentare),
+                    tipo_fornitura=art_in.tipo_fornitura,
+                    attachments="[]",
+                    testo_originale_commerciale=json.dumps(snap_comm),
+                )
+                db.add(new_art)
+                richiesta.articoli.append(new_art)
+                if art_in.id:
+                    art_map[art_in.id] = new_art
+                continue
+
             if art:
                 if not getattr(art, "testo_originale_commerciale", None):
                     orig_author = None
@@ -1537,9 +1844,16 @@ async def invia_a_admin(
                     _record_field_modification(mod_dict, "titolo", "Titolo Articolo", art.titolo, art_in.titolo.strip(), current_user, orig_author, orig_date)
                     art.titolo = art_in.titolo.strip()
                 if art_in.costo is not None and art_in.costo != art.costo:
-                    old_costo_str = f"{art.costo:.2f} €" if art.costo is not None else "0.00 €"
-                    new_costo_str = f"{art_in.costo:.2f} €"
-                    _record_field_modification(mod_dict, "costo", "Costo Acquisti", old_costo_str, new_costo_str, current_user, orig_author, orig_date)
+                    old_costo = art.costo
+                    if old_costo is not None and old_costo > 0:
+                        old_costo_str = f"{old_costo:.2f} €"
+                        new_costo_str = f"{art_in.costo:.2f} €"
+                        snap_acq = _parse_json_dict(getattr(art, "testo_originale_acquisti", None))
+                        costo_author = (art.updated_by.full_name or art.updated_by.username) if getattr(art, "updated_by", None) else (snap_acq.get("author_name") or "Ufficio Tecnico / Acquisti")
+                        costo_date = snap_acq.get("created_at") or _to_utc_iso(art.updated_at or art.created_at)
+                        _record_field_modification(mod_dict, "costo", "Costo Acquisti", old_costo_str, new_costo_str, current_user, costo_author, costo_date)
+                    else:
+                        mod_dict.pop("costo", None)
                     art.costo = art_in.costo
                 if art_in.descrizione is not None and (art_in.descrizione.strip() or "") != (art.descrizione or "").strip():
                     _record_field_modification(mod_dict, "descrizione", "Descrizione Articolo", art.descrizione or "", art_in.descrizione.strip(), current_user, orig_author, orig_date)
@@ -1657,16 +1971,48 @@ async def completa_richiesta(
         )
 
     # Aggiorna ogni articolo con prezzo listino e eventuali modifiche
-    articolo_map = {str(a.id): a for a in richiesta.articoli}
+    articolo_map: dict[str, ArticoloRichiesta] = {str(a.id): a for a in (richiesta.articoli or [])}
     for item in data.articoli:
-        articolo = articolo_map.get(item.id)
+        articolo = articolo_map.get(item.id) if item.id else None
         if not articolo:
+            snap_comm = {
+                "titolo": (item.titolo or "").strip(),
+                "descrizione": (item.descrizione or "").strip(),
+                "author_name": current_user.full_name or current_user.username,
+                "created_at": _to_utc_iso(datetime.now(timezone.utc)),
+            }
+            new_art = ArticoloRichiesta(
+                richiesta_id=richiesta_id,
+                author_id=current_user.id,
+                titolo=(item.titolo or "Nuovo Articolo").strip(),
+                costo=item.costo or 0,
+                descrizione=(item.descrizione or "").strip() or None,
+                prezzo_listino=item.prezzo_listino,
+                note_admin=item.note_admin.strip() if item.note_admin else None,
+                attachments="[]",
+                testo_originale_commerciale=json.dumps(snap_comm),
+            )
+            db.add(new_art)
+            richiesta.articoli.append(new_art)
+            if item.id:
+                articolo_map[item.id] = new_art
             continue
         art_mod = _parse_json_dict(getattr(articolo, "modifiche", None))
         orig_author = None
         if getattr(articolo, "author", None):
             orig_author = articolo.author.full_name or articolo.author.username
         old_created = _to_utc_iso(articolo.created_at)
+
+        if item.costo is not None and item.costo != articolo.costo:
+            old_costo = articolo.costo
+            if old_costo is not None and old_costo > 0:
+                old_costo_str = f"{old_costo:.2f} €"
+                new_costo_str = f"{item.costo:.2f} €"
+                snap_acq = _parse_json_dict(getattr(articolo, "testo_originale_acquisti", None))
+                costo_author = (articolo.updated_by.full_name or articolo.updated_by.username) if getattr(articolo, "updated_by", None) else (snap_acq.get("author_name") or "Ufficio Tecnico / Acquisti")
+                costo_date = snap_acq.get("created_at") or _to_utc_iso(articolo.updated_at or articolo.created_at)
+                _record_field_modification(art_mod, "costo", "Costo Acquisti", old_costo_str, new_costo_str, current_user, costo_author, costo_date)
+            articolo.costo = item.costo  # type: ignore
 
         if item.prezzo_listino is not None and item.prezzo_listino != articolo.prezzo_listino:
             old_pl = f"{articolo.prezzo_listino:.2f} €" if articolo.prezzo_listino is not None else "0.00 €"

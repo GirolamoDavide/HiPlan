@@ -444,7 +444,7 @@ show_menu() {
     clear 2>/dev/null || true
     echo
     echo "${C_CYAN}------------------------------------------------------------${C_RESET}"
-    echo "  ${C_BOLD}${C_WHITE}H I P L A N${C_RESET}  ${C_GRAY}|${C_RESET}  ${C_DIM}Pannello di Controllo${C_RESET}"
+    echo "  ${C_BOLD}${C_WHITE}HIPLAN${C_RESET}  ${C_GRAY}|${C_RESET}  ${C_DIM}Pannello di Controllo${C_RESET}"
     echo "${C_CYAN}------------------------------------------------------------${C_RESET}"
     echo
     echo "  ${C_CYAN}1${C_RESET})  ${C_WHITE}Avvia Server${C_RESET}       ${C_GRAY}(start)${C_RESET}"

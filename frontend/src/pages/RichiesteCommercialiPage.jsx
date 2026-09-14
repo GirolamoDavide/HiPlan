@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment, forwardRef, useImperativeHandle } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -19,6 +19,8 @@ import {
   updateArticolo,
   deleteArticolo,
   uploadAttachmentsArticolo,
+  deleteAttachmentArticolo,
+  deleteAttachmentRichiesta,
   inviaAdAdmin,
   salvaArticoli,
   completaRichiesta,
@@ -62,7 +64,7 @@ function getAttachmentUrl(pathOrUrl) {
 }
 
 function getAttachmentInfo(att) {
-  if (!att) return { name: '', url: '' };
+  if (!att) return { name: '', url: '', rawUrl: '', uploaded_by_id: null, uploaded_by_name: null, uploaded_by_role: null };
   if (typeof att === 'string') {
     let name = att.split('/').pop() || att;
     if (name.includes('_')) {
@@ -74,11 +76,19 @@ function getAttachmentInfo(att) {
     return {
       name: decodeURIComponent(name),
       url: getAttachmentUrl(att),
+      rawUrl: att,
+      uploaded_by_id: null,
+      uploaded_by_name: null,
+      uploaded_by_role: null,
     };
   }
   return {
     name: att.name || (att.url ? decodeURIComponent(att.url.split('/').pop()) : 'Allegato'),
     url: getAttachmentUrl(att.url || att.path),
+    rawUrl: att.url || att.path || '',
+    uploaded_by_id: att.uploaded_by_id || null,
+    uploaded_by_name: att.uploaded_by_name || null,
+    uploaded_by_role: att.uploaded_by_role || null,
   };
 }
 
@@ -180,8 +190,11 @@ function TextDiffBadges({ original, current, origAuthor, origDate, currAuthor, c
 }
 
 /** Visualizza il diff di un campo basandosi sulla sequenza completa di passaggi o modifiche locali in corso */
-function FieldDiffBadge({ mod, origFallback, currentVal, isDirty, dirtyAuthor, dirtyDate }) {
+function FieldDiffBadge({ mod, origFallback, origAuthor, currentVal, isDirty, dirtyAuthor, dirtyDate, isCosto }) {
   if (!isDirty && !mod) return null;
+
+  const isCostoField = isCosto || mod?.field === 'costo';
+  const defaultAuthor = isCostoField ? (origAuthor || 'Ufficio Acquisti') : (origAuthor || 'Commerciale');
 
   let steps = [];
   if (mod && Array.isArray(mod.steps) && mod.steps.length > 0) {
@@ -194,7 +207,7 @@ function FieldDiffBadge({ mod, origFallback, currentVal, isDirty, dirtyAuthor, d
     steps = [
       {
         value: mod.old_value,
-        author_name: mod.old_author_name || 'Commerciale',
+        author_name: mod.old_author_name || defaultAuthor,
         created_at: mod.old_created_at,
       },
       {
@@ -207,18 +220,27 @@ function FieldDiffBadge({ mod, origFallback, currentVal, isDirty, dirtyAuthor, d
     steps = [
       {
         value: origFallback,
-        author_name: 'Commerciale',
+        author_name: defaultAuthor,
         created_at: '',
       },
     ];
   }
 
+  // Per il campo costo, il Commerciale non può aver inserito il costo:
+  // rimuoviamo qualsiasi step attribuito a Commerciale o originato da 0 € da Commerciale
+  if (isCostoField && steps.length > 0) {
+    steps = steps.filter(s =>
+      s.author_name !== 'Commerciale' &&
+      !(s.author_name === 'Commerciale' || (!s.author_name && /^0(\.00?)?\s*€?$/.test(String(s.value || '').trim())))
+    );
+  }
+
   if (isDirty && currentVal !== undefined && currentVal !== null) {
     const trimmedDirty = String(currentVal).trim();
     if (steps.length === 0) {
-      if (origFallback && String(origFallback).trim() !== trimmedDirty) {
+      if (origFallback && String(origFallback).trim() !== trimmedDirty && (!isCostoField || (parseFloat(origFallback) > 0))) {
         steps = [
-          { value: origFallback, author_name: 'Commerciale', created_at: '' },
+          { value: origFallback, author_name: defaultAuthor, created_at: '' },
           { value: trimmedDirty, author_name: dirtyAuthor || 'Tu', created_at: dirtyDate || 'Adesso' },
         ];
       }
@@ -269,12 +291,13 @@ function formatTipologiaLabel(tip) {
 
 // ─── Dropzone Component ───────────────────────────────────────────────────────
 
-function Dropzone({ files, onFilesChange, existingUrls = [] }) {
+function Dropzone({ files, onFilesChange, existingUrls = [], compact = false, placeholder = "Trascina i file qui o clicca per selezionare allegati" }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef();
 
   const handleDrop = (e) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragging(false);
     const dropped = Array.from(e.dataTransfer.files);
     onFilesChange([...files, ...dropped]);
@@ -283,14 +306,20 @@ function Dropzone({ files, onFilesChange, existingUrls = [] }) {
   return (
     <div>
       <div
-        className={`rc-dropzone${dragging ? ' dragover' : ''}`}
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
+        className={`rc-dropzone${compact ? ' rc-dropzone--article' : ''}${dragging ? ' dragover' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(false); }}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
       >
-        <span className="rc-dropzone__icon"><AppIcon name="paperclip" size={22} /></span>
-        <span>Trascina i file qui o clicca per selezionare allegati</span>
+        <span className="rc-dropzone__icon"><AppIcon name="paperclip" size={compact ? 16 : 22} /></span>
+        {compact ? (
+          <span className="rc-dropzone__text">
+            <strong>Trascina i file qui</strong> oppure <span className="rc-dropzone__link">clicca per selezionare allegati</span>
+          </span>
+        ) : (
+          <span>{placeholder}</span>
+        )}
         <input
           ref={inputRef}
           type="file"
@@ -303,8 +332,27 @@ function Dropzone({ files, onFilesChange, existingUrls = [] }) {
         {files.map((f, i) => (
           <div key={i} className="rc-attachment-chip">
             <AppIcon name="fileText" size={14} />
-            <span className="rc-attachment-name">{f.name}</span>
-            <button type="button" className="rc-attachment-remove" onClick={() => onFilesChange(files.filter((_, j) => j !== i))}>
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                const blobUrl = URL.createObjectURL(f);
+                window.open(blobUrl, '_blank');
+              }}
+              className="rc-attachment-link"
+              title={`Apri ${f.name} in anteprima`}
+            >
+              {f.name}
+            </a>
+            <button
+              type="button"
+              className="rc-attachment-delete-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFilesChange(files.filter((_, j) => j !== i));
+              }}
+              title="Rimuovi allegato"
+            >
               <AppIcon name="close" size={12} />
             </button>
           </div>
@@ -331,7 +379,16 @@ function Dropzone({ files, onFilesChange, existingUrls = [] }) {
   );
 }
 
-function ArticleDropzone({ existingAttachments = [], pendingFiles = [], onUpload, onRemovePending, isUploading }) {
+function ArticleDropzone({
+  existingAttachments = [],
+  pendingFiles = [],
+  onUpload,
+  onRemovePending,
+  onDeleteExisting,
+  isDeletingUrl,
+  canDeleteAttachment,
+  isUploading,
+}) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef();
 
@@ -347,55 +404,74 @@ function ArticleDropzone({ existingAttachments = [], pendingFiles = [], onUpload
 
   return (
     <div className="rc-article-dropzone-box">
-      <div
-        className={`rc-dropzone rc-dropzone--article${dragging ? ' dragover' : ''}${isUploading ? ' is-uploading' : ''}`}
-        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
-        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(false); }}
-        onDrop={handleDrop}
-        onClick={() => !isUploading && inputRef.current?.click()}
-      >
-        <span className="rc-dropzone__icon">
-          <AppIcon name="paperclip" size={17} />
-        </span>
-        <span className="rc-dropzone__text">
-          {isUploading ? (
-            'Caricamento allegati in corso...'
-          ) : (
-            <>
-              <strong>Trascina i file qui</strong> oppure <span className="rc-dropzone__link">clicca per selezionare allegati</span>
-            </>
-          )}
-        </span>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          style={{ display: 'none' }}
-          onChange={(e) => {
-            const files = Array.from(e.target.files);
-            if (files.length > 0 && onUpload) onUpload(files);
-            e.target.value = '';
-          }}
-        />
-      </div>
+      {onUpload && (
+        <div
+          className={`rc-dropzone rc-dropzone--article${dragging ? ' dragover' : ''}${isUploading ? ' is-uploading' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+          onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(false); }}
+          onDrop={handleDrop}
+          onClick={() => !isUploading && inputRef.current?.click()}
+        >
+          <span className="rc-dropzone__icon">
+            <AppIcon name="paperclip" size={17} />
+          </span>
+          <span className="rc-dropzone__text">
+            {isUploading ? (
+              'Caricamento allegati in corso...'
+            ) : (
+              <>
+                <strong>Trascina i file qui</strong> oppure <span className="rc-dropzone__link">clicca per selezionare allegati</span>
+              </>
+            )}
+          </span>
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const files = Array.from(e.target.files);
+              if (files.length > 0 && onUpload) onUpload(files);
+              e.target.value = '';
+            }}
+          />
+        </div>
+      )}
 
       {/* Allegati esistenti sul server */}
       {existingAttachments?.length > 0 && (
-        <div className="rc-attachments-list" style={{ marginTop: 8 }}>
+        <div className="rc-attachments-list" style={{ marginTop: onUpload ? 8 : 0 }}>
           {existingAttachments.map((att, i) => {
             const info = getAttachmentInfo(att);
+            const canDel = canDeleteAttachment ? canDeleteAttachment(att) : false;
+            const isDeleting = isDeletingUrl === info.rawUrl;
             return (
-              <div key={i} className="rc-attachment-chip">
+              <div key={i} className={`rc-attachment-chip${isDeleting ? ' is-deleting' : ''}`}>
                 <AppIcon name="fileText" size={13} />
                 <a
                   href={info.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="rc-attachment-link"
-                  title={`Apri ${info.name} in una nuova scheda`}
+                  title={info.uploaded_by_name ? `Caricato da: ${info.uploaded_by_name}${info.uploaded_by_role ? ` (${info.uploaded_by_role})` : ''} • Apri ${info.name}` : `Apri ${info.name} in una nuova scheda`}
                 >
                   {info.name}
                 </a>
+                {canDel && onDeleteExisting && (
+                  <button
+                    type="button"
+                    className="rc-attachment-delete-btn"
+                    disabled={isDeleting}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onDeleteExisting(att, info);
+                    }}
+                    title="Elimina allegato"
+                  >
+                    <AppIcon name="close" size={12} />
+                  </button>
+                )}
               </div>
             );
           })}
@@ -406,23 +482,31 @@ function ArticleDropzone({ existingAttachments = [], pendingFiles = [], onUpload
       {pendingFiles?.length > 0 && (
         <div className="rc-attachments-list" style={{ marginTop: 8 }}>
           {pendingFiles.map((file, i) => (
-            <div key={`pending-${i}`} className="rc-attachment-chip rc-attachment-chip--pending">
+            <div key={`pending-${i}`} className="rc-attachment-chip">
               <AppIcon name="fileText" size={13} />
-              <span className="rc-attachment-name" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.name}>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  const blobUrl = URL.createObjectURL(file);
+                  window.open(blobUrl, '_blank');
+                }}
+                className="rc-attachment-link"
+                title={`Apri ${file.name} in anteprima`}
+              >
                 {file.name}
-              </span>
+              </a>
               {onRemovePending && (
                 <button
                   type="button"
-                  className="btn-icon btn-ghost"
+                  className="rc-attachment-delete-btn"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRemovePending(i);
                   }}
-                  style={{ padding: 2, marginLeft: 4 }}
                   title="Rimuovi file selezionato"
                 >
-                  <AppIcon name="close" size={11} />
+                  <AppIcon name="close" size={12} />
                 </button>
               )}
             </div>
@@ -521,12 +605,16 @@ function ConfirmActionModal({
 // ─── Modal Nuova Richiesta ────────────────────────────────────────────────────
 
 function NuovaRichiestaModal({ onClose, onCreated }) {
+  const { user } = useAuth();
   const [form, setForm] = useState({ title: '', descrizione: '', numero_offerta: '', cliente: '' });
   const [articoli, setArticoli] = useState([]);
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const { showToast } = useToast();
+
+  const currentUserName = user?.full_name || user?.username || 'Commerciale';
+  const creationDateStr = formatDate(new Date());
 
   const handleAddArticolo = () => {
     setArticoli(prev => [
@@ -539,9 +627,11 @@ function NuovaRichiestaModal({ onClose, onCreated }) {
         is_atex: false,
         is_alimentare: false,
         tipo_fornitura: null,
+        files: [],
       },
     ]);
   };
+
 
   const handleRemoveArticolo = (index) => {
     setArticoli(prev => prev.filter((_, i) => i !== index));
@@ -595,11 +685,20 @@ function NuovaRichiestaModal({ onClose, onCreated }) {
     try {
       const payload = {
         ...form,
-        articoli: articoli.map(({ id, ...rest }) => rest),
+        articoli: articoli.map(({ id, files: _artFiles, ...rest }) => rest),
       };
       const created = await createRichiesta(payload);
       if (files.length > 0 && created?.id) {
         await uploadAttachmentsRichiesta(created.id, files);
+      }
+      if (created?.id && created.articoli?.length > 0) {
+        for (let i = 0; i < articoli.length; i++) {
+          const artFiles = articoli[i]?.files;
+          const createdArt = created.articoli[i];
+          if (artFiles && artFiles.length > 0 && createdArt?.id) {
+            await uploadAttachmentsArticolo(created.id, createdArt.id, artFiles);
+          }
+        }
       }
       showToast('Richiesta creata con successo! L\'ufficio acquisti è stato notificato via email.', 'success');
       setShowConfirm(false);
@@ -673,6 +772,12 @@ function NuovaRichiestaModal({ onClose, onCreated }) {
                   rows={3}
                 />
               </div>
+              <div className="rc-form-group">
+                <label className="rc-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <AppIcon name="paperclip" size={14} /> Allegati Richiesta (generali)
+                </label>
+                <Dropzone files={files} onFilesChange={setFiles} placeholder="Trascina i file generali della richiesta qui o clicca per selezionare allegati" />
+              </div>
 
               {/* ── Articoli da Preventivare (opzionale per il commerciale) ── */}
               <div style={{ marginTop: 18, marginBottom: 18 }}>
@@ -719,108 +824,113 @@ function NuovaRichiestaModal({ onClose, onCreated }) {
                     {articoli.map((art, idx) => (
                       <div
                         key={art.id}
-                        style={{
-                          background: 'var(--bg-secondary)',
-                          border: '1px solid var(--border)',
-                          borderRadius: 8,
-                          padding: '12px 14px',
-                        }}
+                        className="rc-articolo-card rc-articolo-card--editable"
+                        data-theme={idx % 6}
                       >
                         {/* Header articolo */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-500)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'var(--accent-500)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem' }}>
-                              {idx + 1}
+                        <div className="rc-articolo-card__topbar">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                            <div className="rc-articolo-card__badge">
+                              <AppIcon name="fileText" size={13} />
+                              <span>ARTICOLO #{idx + 1}</span>
+                            </div>
+                            <span className="rc-articolo-card__meta">
+                              <AppIcon name="user" size={12} />
+                              <span>Inserito da <strong>{currentUserName}</strong></span>
+                              <span className="rc-dot-sep">•</span>
+                              <AppIcon name="clock" size={12} />
+                              <span>{creationDateStr}</span>
                             </span>
-                            Articolo #{idx + 1}
-                          </span>
-                          <button
-                            type="button"
-                            className="btn-icon btn-ghost text-danger"
-                            onClick={() => handleRemoveArticolo(idx)}
-                            style={{ padding: 3 }}
-                            title="Rimuovi questo articolo"
-                          >
-                            <AppIcon name="close" size={13} />
-                          </button>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm text-danger"
+                              onClick={() => handleRemoveArticolo(idx)}
+                              title={`Elimina articolo #${idx + 1}`}
+                            >
+                              <AppIcon name="trash" size={13} /> Elimina
+                            </button>
+                          </div>
                         </div>
 
                         {/* Titolo articolo */}
-                        <div className="rc-form-group" style={{ marginBottom: 8 }}>
-                          <label className="rc-label" style={{ fontSize: '0.8rem' }}>Titolo Articolo <span className="required">*</span></label>
+                        <div className="rc-form-group" style={{ marginBottom: 0 }}>
+                          <label className="rc-label">TITOLO ARTICOLO <span className="required">*</span></label>
                           <input
                             className="input"
+                            style={{ fontWeight: 600 }}
                             value={art.titolo}
                             onChange={(e) => handleUpdateArticoloField(idx, 'titolo', e.target.value)}
                             placeholder="Es. Motoriduttore, Pompa, Sensore..."
-                            style={{ fontSize: '0.85rem', padding: '5px 10px', height: 32 }}
                             required
                           />
                         </div>
 
                         {/* Descrizione articolo */}
-                        <div className="rc-form-group" style={{ marginBottom: 8 }}>
-                          <label className="rc-label" style={{ fontSize: '0.8rem' }}>Specifiche / Note per Acquisti</label>
+                        <div className="rc-form-group" style={{ marginTop: 8 }}>
+                          <label className="rc-label">DESCRIZIONE</label>
                           <textarea
                             className="input"
                             rows={2}
                             value={art.descrizione}
                             onChange={(e) => handleUpdateArticoloField(idx, 'descrizione', e.target.value)}
-                            placeholder="Codice fornitore, dimensioni o specifiche tecniche..."
-                            style={{ fontSize: '0.82rem', padding: '6px 10px' }}
+                            placeholder="Descrizione tecnica, specifiche o note per l'articolo..."
                           />
                         </div>
 
-                        {/* Tipologia Prodotto e Tipo Fornitura */}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
-                          <div>
-                            <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Tipologia Prodotto</span>
-                            <div className="rc-pill-group">
-                              <button
-                                type="button"
-                                className={`rc-pill-chip rc-pill-chip--standard ${art.is_standard ? 'is-active' : ''}`}
-                                onClick={() => handleToggleArticoloTipologia(idx, 'standard')}
-                                style={{ padding: '2px 8px', fontSize: '0.76rem' }}
-                              >
-                                <span className={`rc-pill-chip__indicator ${art.is_standard ? 'is-active' : ''}`}>
-                                  {art.is_standard && <AppIcon name="check" size={10} />}
-                                </span>
-                                <span>Standard</span>
-                              </button>
-                              <button
-                                type="button"
-                                className={`rc-pill-chip rc-pill-chip--atex ${art.is_atex ? 'is-active' : ''}`}
-                                onClick={() => handleToggleArticoloTipologia(idx, 'atex')}
-                                style={{ padding: '2px 8px', fontSize: '0.76rem' }}
-                              >
-                                <span className={`rc-pill-chip__indicator ${art.is_atex ? 'is-active' : ''}`}>
-                                  {art.is_atex && <AppIcon name="check" size={10} />}
-                                </span>
-                                <span>ATEX</span>
-                              </button>
-                              <button
-                                type="button"
-                                className={`rc-pill-chip rc-pill-chip--alimentare ${art.is_alimentare ? 'is-active' : ''}`}
-                                onClick={() => handleToggleArticoloTipologia(idx, 'alimentare')}
-                                style={{ padding: '2px 8px', fontSize: '0.76rem' }}
-                              >
-                                <span className={`rc-pill-chip__indicator ${art.is_alimentare ? 'is-active' : ''}`}>
-                                  {art.is_alimentare && <AppIcon name="check" size={10} />}
-                                </span>
-                                <span>Alimentare</span>
-                              </button>
-                            </div>
+                        {/* Tipologia Prodotto */}
+                        <div className="rc-form-group" style={{ marginTop: 8 }}>
+                          <label className="rc-label">TIPOLOGIA PRODOTTO</label>
+                          <div className="rc-pill-group" style={{ padding: '2px 0' }}>
+                            <button
+                              type="button"
+                              className={`rc-pill-chip rc-pill-chip--standard ${art.is_standard ? 'is-active' : ''}`}
+                              onClick={() => handleToggleArticoloTipologia(idx, 'standard')}
+                            >
+                              <span className={`rc-pill-chip__indicator ${art.is_standard ? 'is-active' : ''}`}>
+                                {art.is_standard && <AppIcon name="check" size={11} />}
+                              </span>
+                              <span>Standard</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={`rc-pill-chip rc-pill-chip--atex ${art.is_atex ? 'is-active' : ''}`}
+                              onClick={() => handleToggleArticoloTipologia(idx, 'atex')}
+                            >
+                              <span className={`rc-pill-chip__indicator ${art.is_atex ? 'is-active' : ''}`}>
+                                {art.is_atex && <AppIcon name="check" size={11} />}
+                              </span>
+                              <span>ATEX</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={`rc-pill-chip rc-pill-chip--alimentare ${art.is_alimentare ? 'is-active' : ''}`}
+                              onClick={() => handleToggleArticoloTipologia(idx, 'alimentare')}
+                            >
+                              <span className={`rc-pill-chip__indicator ${art.is_alimentare ? 'is-active' : ''}`}>
+                                {art.is_alimentare && <AppIcon name="check" size={11} />}
+                              </span>
+                              <span>Alimentare</span>
+                            </button>
                           </div>
+                        </div>
+
+
+
+                        {/* Allegati Articolo */}
+                        <div className="rc-form-group" style={{ marginTop: 10, marginBottom: 0 }}>
+                          <label className="rc-label">ALLEGATI ARTICOLO</label>
+                          <Dropzone
+                            compact
+                            files={art.files || []}
+                            onFilesChange={(newFiles) => handleUpdateArticoloField(idx, 'files', newFiles)}
+                          />
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-
-              <div className="rc-form-group" style={{ marginBottom: 0 }}>
-                <label className="rc-label">Allegati</label>
-                <Dropzone files={files} onFilesChange={setFiles} />
               </div>
             </div>
             <div className="rc-modal__footer">
@@ -850,7 +960,7 @@ function NuovaRichiestaModal({ onClose, onCreated }) {
 
 // ─── Form Articolo (acquisti) ─────────────────────────────────────────────────
 
-function ArticoloForm({ richiestaId, articolo, userRole, status, index = 0, onSaved, onCancel }) {
+const ArticoloForm = forwardRef(function ArticoloForm({ richiestaId, richiesta, articolo, userRole, status, index = 0, onSaved, onCancel }, ref) {
   const [form, setForm] = useState(articolo ? {
     titolo: articolo.titolo || '',
     costo: (articolo.costo != null && articolo.costo > 0) ? articolo.costo : '',
@@ -869,6 +979,7 @@ function ArticoloForm({ richiestaId, articolo, userRole, status, index = 0, onSa
     note_admin: '',
   });
   const [files, setFiles] = useState([]);
+  const [existingAttachments, setExistingAttachments] = useState(articolo?.attachments || []);
   const [saving, setSaving] = useState(false);
   const { showToast } = useToast();
   const { user } = useAuth();
@@ -913,6 +1024,13 @@ function ArticoloForm({ richiestaId, articolo, userRole, status, index = 0, onSa
   const currAuthorName = user?.full_name || user?.username || 'Tu';
   const currDateStr = 'Adesso';
 
+  const formAuthorName = articolo
+    ? (articolo.author?.full_name || articolo.author?.username || origComm?.author_name || user?.full_name || user?.username || '—')
+    : (user?.full_name || user?.username || 'Tu');
+  const formDateStr = articolo
+    ? (articolo.created_at ? formatDate(articolo.created_at) : (origComm?.created_at ? formatDate(origComm.created_at) : ''))
+    : 'Adesso';
+
   const origNoteAuthor = originalSnap?.author_name || 'Ufficio Acquisti';
   const origNoteDate = originalSnap?.created_at ? formatDate(originalSnap.created_at) : '';
 
@@ -953,11 +1071,45 @@ function ArticoloForm({ richiestaId, articolo, userRole, status, index = 0, onSa
     }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const [deletingAttUrl, setDeletingAttUrl] = useState(null);
+
+  const handleDeleteExistingAttachment = async (att, info) => {
+    const rawUrl = info?.rawUrl || att?.url || (typeof att === 'string' ? att : '');
+    if (!rawUrl) return;
+
+    if (!articolo?.id) {
+      setExistingAttachments(prev => prev.filter(a => {
+        const u = typeof a === 'string' ? a : (a?.url || a?.path);
+        return u !== rawUrl;
+      }));
+      return;
+    }
+
+    if (!window.confirm(`Sei sicuro di voler eliminare l'allegato "${info?.name || 'selezionato'}"?`)) return;
+
+    setDeletingAttUrl(rawUrl);
+    try {
+      const res = await deleteAttachmentArticolo(richiestaId, articolo.id, rawUrl);
+      showToast('Allegato rimosso con successo', 'success');
+      if (res?.attachments) {
+        setExistingAttachments(res.attachments);
+      } else {
+        setExistingAttachments(prev => prev.filter(a => {
+          const u = typeof a === 'string' ? a : (a?.url || a?.path);
+          return u !== rawUrl;
+        }));
+      }
+    } catch (err) {
+      showToast(getErrorMessage(err, "Errore nell'eliminazione dell'allegato"), 'error');
+    } finally {
+      setDeletingAttUrl(null);
+    }
+  };
+
+  const submitInternal = async () => {
     if (!form.titolo.trim() || form.costo === '' || form.costo === null) {
       showToast('Titolo e Costo sono obbligatori', 'error');
-      return;
+      throw new Error('Titolo e Costo sono obbligatori');
     }
     setSaving(true);
     try {
@@ -979,21 +1131,47 @@ function ArticoloForm({ richiestaId, articolo, userRole, status, index = 0, onSa
         if (withAttachments) saved = withAttachments;
       }
       showToast(articolo ? 'Articolo modificato con successo' : 'Articolo aggiunto con successo', 'success');
-      onSaved(saved);
+      if (onSaved) await onSaved(saved);
+      return saved;
     } catch (err) {
       showToast(getErrorMessage(err, 'Errore nel salvataggio dell\'articolo'), 'error');
+      throw err;
     } finally {
       setSaving(false);
     }
+  };
+
+  useImperativeHandle(ref, () => ({
+    submit: () => submitInternal(),
+    getFormData: () => ({ form, files }),
+    hasContent: () => Boolean(form.titolo?.trim() || (form.costo !== '' && form.costo !== null) || form.descrizione?.trim() || files.length > 0),
+  }), [form, files, richiestaId, articolo, onSaved]);
+
+  const handleSubmit = (e) => {
+    if (e) e.preventDefault();
+    submitInternal().catch(() => {});
   };
 
   return (
     <form onSubmit={handleSubmit} className="rc-articolo-card rc-articolo-card--editable" data-theme={index % 6}>
       {/* Barra superiore con Badge numerato e Azioni */}
       <div className="rc-articolo-card__topbar">
-        <div className="rc-articolo-card__badge">
-          <AppIcon name="package" size={13} />
-          <span>Articolo #{index + 1}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div className="rc-articolo-card__badge">
+            <AppIcon name="package" size={13} />
+            <span>Articolo #{index + 1}</span>
+          </div>
+          <span className="rc-articolo-card__meta">
+            <AppIcon name="user" size={12} />
+            <span>Inserito da <strong>{formAuthorName}</strong></span>
+            {formDateStr && (
+              <>
+                <span className="rc-dot-sep">•</span>
+                <AppIcon name="clock" size={12} />
+                <span>{formDateStr}</span>
+              </>
+            )}
+          </span>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button
@@ -1048,13 +1226,17 @@ function ArticoloForm({ richiestaId, articolo, userRole, status, index = 0, onSa
       <div className="rc-form-row">
         <div className="rc-form-group" style={{ minWidth: 170 }}>
           <label className="rc-label">Costo Acquisti (€) <span className="required">*</span></label>
-          <FieldDiffBadge
-            mod={articolo?.modifiche?.costo}
-            origFallback={articolo?.costo != null ? `${articolo.costo} €` : ''}
-            currentVal={form.costo ? `${form.costo} €` : ''}
-            isDirty={form.costo !== '' && String(form.costo) !== String(articolo?.costo || '')}
-            dirtyAuthor={currAuthorName}
-          />
+          {userRole === 'admin' && (
+            <FieldDiffBadge
+              mod={articolo?.modifiche?.costo}
+              origFallback={(articolo?.costo != null && Number(articolo.costo) > 0) ? `${articolo.costo} €` : ''}
+              origAuthor={articolo?.updated_by?.full_name || articolo?.updated_by?.username || (richiesta?.articoli_inserted_by?.full_name || richiesta?.articoli_inserted_by?.username) || 'Ufficio Acquisti'}
+              currentVal={form.costo ? `${form.costo} €` : ''}
+              isDirty={form.costo !== '' && String(form.costo) !== (articolo?.costo != null && Number(articolo.costo) > 0 ? String(articolo.costo) : '')}
+              dirtyAuthor={currAuthorName}
+              isCosto
+            />
+          )}
           <input
             className="input"
             type="number"
@@ -1153,48 +1335,66 @@ function ArticoloForm({ richiestaId, articolo, userRole, status, index = 0, onSa
       )}
 
       {/* Tipo Fornitura (Acquisti / Admin) */}
-      <div className="rc-form-group">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <label className="rc-label" style={{ marginBottom: 0 }}>Tipo Fornitura</label>
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)' }}>
-            (opzionale: clicca per selezionare o deselezionare)
-          </span>
+      {userRole !== 'commerciale' && (
+        <div className="rc-form-group">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <label className="rc-label" style={{ marginBottom: 0 }}>Tipo Fornitura</label>
+            <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)' }}>
+              (opzionale: clicca per selezionare o deselezionare)
+            </span>
+          </div>
+          <FieldDiffBadge
+            mod={articolo?.modifiche?.tipo_fornitura}
+            origFallback={TIPO_FORNITURA_LABELS[articolo?.tipo_fornitura] || ''}
+            currentVal={TIPO_FORNITURA_LABELS[form.tipo_fornitura] || ''}
+            isDirty={form.tipo_fornitura !== (articolo?.tipo_fornitura || null)}
+            dirtyAuthor={currAuthorName}
+          />
+          <div className="rc-pill-group" style={{ padding: '2px 0' }}>
+            {Object.entries(TIPO_FORNITURA_LABELS).map(([val, lab]) => {
+              const isSelected = form.tipo_fornitura === val;
+              return (
+                <button
+                  key={val}
+                  type="button"
+                  className={`rc-pill-chip rc-pill-chip--fornitura ${isSelected ? 'is-active' : ''}`}
+                  onClick={() => handleToggleTipoFornitura(val)}
+                >
+                  <span className={`rc-pill-chip__indicator rc-pill-chip__indicator--radio ${isSelected ? 'is-active' : ''}`}>
+                    {isSelected && <span className="rc-pill-chip__dot" />}
+                  </span>
+                  <span>{lab}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <FieldDiffBadge
-          mod={articolo?.modifiche?.tipo_fornitura}
-          origFallback={TIPO_FORNITURA_LABELS[articolo?.tipo_fornitura] || ''}
-          currentVal={TIPO_FORNITURA_LABELS[form.tipo_fornitura] || ''}
-          isDirty={form.tipo_fornitura !== (articolo?.tipo_fornitura || null)}
-          dirtyAuthor={currAuthorName}
-        />
-        <div className="rc-pill-group" style={{ padding: '2px 0' }}>
-          {Object.entries(TIPO_FORNITURA_LABELS).map(([val, lab]) => {
-            const isSelected = form.tipo_fornitura === val;
-            return (
-              <button
-                key={val}
-                type="button"
-                className={`rc-pill-chip rc-pill-chip--fornitura ${isSelected ? 'is-active' : ''}`}
-                onClick={() => handleToggleTipoFornitura(val)}
-              >
-                <span className={`rc-pill-chip__indicator rc-pill-chip__indicator--radio ${isSelected ? 'is-active' : ''}`}>
-                  {isSelected && <span className="rc-pill-chip__dot" />}
-                </span>
-                <span>{lab}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      )}
 
       {/* Allegati dell'articolo con Drag and Drop */}
       <div className="rc-form-group" style={{ marginTop: 6, marginBottom: 0 }}>
         <label className="rc-label" style={{ marginBottom: 6 }}>Allegati Articolo</label>
         <ArticleDropzone
-          existingAttachments={articolo?.attachments || []}
+          existingAttachments={existingAttachments}
           pendingFiles={files}
           onUpload={(newFiles) => setFiles(prev => [...prev, ...newFiles])}
           onRemovePending={(fileIdx) => setFiles(prev => prev.filter((_, i) => i !== fileIdx))}
+          onDeleteExisting={handleDeleteExistingAttachment}
+          isDeletingUrl={deletingAttUrl}
+          canDeleteAttachment={(att) => {
+            if (userRole === 'admin' || user?.role === 'admin') return true;
+            if (userRole === 'commerciale') return false;
+            if (userRole === 'acquisti') {
+              if (status !== 'in_lavorazione') return false;
+              const info = getAttachmentInfo(att);
+              const uploaderId = info.uploaded_by_id || att?.uploaded_by_id;
+              const uploaderRole = info.uploaded_by_role || att?.uploaded_by_role;
+              if (uploaderId && user?.id && String(uploaderId) === String(user.id)) return true;
+              if (uploaderRole && uploaderRole.toLowerCase() === 'acquisti') return true;
+              return false;
+            }
+            return false;
+          }}
         />
       </div>
 
@@ -1208,7 +1408,7 @@ function ArticoloForm({ richiestaId, articolo, userRole, status, index = 0, onSa
       </div>
     </form>
   );
-}
+});
 
 // ─── Modal Dettaglio / Gestione ───────────────────────────────────────────────
 
@@ -1217,6 +1417,8 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
   const [loading, setLoading] = useState(true);
   const [showArticoloForm, setShowArticoloForm] = useState(false);
   const [editingArticolo, setEditingArticolo] = useState(null);
+  const newArticoloFormRef = useRef(null);
+  const editArticoloFormRef = useRef(null);
   const [prezziListino, setPrezziListino] = useState({});
   const [noteAdmin, setNoteAdmin] = useState({});
   const [titoliAdmin, setTitoliAdmin] = useState({});
@@ -1239,6 +1441,7 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
     description: '',
   });
   const [savingRichiesta, setSavingRichiesta] = useState(false);
+  const [deletingAttUrl, setDeletingAttUrl] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
   const { showToast } = useToast();
   const { user } = useAuth();
@@ -1267,16 +1470,44 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
         };
         tfInit[a.id] = a.tipo_fornitura || null;
       });
-      setPrezziListino(pInit);
-      setNoteAdmin(nInit);
-      setTitoliAdmin(tInit);
-      setDescrizioniAdmin(dInit);
+      setPrezziListino(prev => {
+        const next = { ...pInit };
+        Object.keys(prev || {}).forEach(k => { if (prev[k] !== undefined && prev[k] !== '') next[k] = prev[k]; });
+        return next;
+      });
+      setNoteAdmin(prev => {
+        const next = { ...nInit };
+        Object.keys(prev || {}).forEach(k => { if (prev[k] !== undefined && prev[k] !== '') next[k] = prev[k]; });
+        return next;
+      });
+      setTitoliAdmin(prev => {
+        const next = { ...tInit };
+        Object.keys(prev || {}).forEach(k => { if (prev[k] !== undefined && prev[k] !== '') next[k] = prev[k]; });
+        return next;
+      });
+      setDescrizioniAdmin(prev => {
+        const next = { ...dInit };
+        Object.keys(prev || {}).forEach(k => { if (prev[k] !== undefined && prev[k] !== '') next[k] = prev[k]; });
+        return next;
+      });
 
-      setCostiAcquisti(cInit);
-      setTitoliAcquisti(tAcqInit);
-      setDescrizioniAcquisti(dAcqInit);
-      setTipologiaAcquisti(tipInit);
-      setTipoFornituraAcquisti(tfInit);
+      setCostiAcquisti(prev => {
+        const next = { ...cInit };
+        Object.keys(prev || {}).forEach(k => { if (prev[k] !== undefined && prev[k] !== '') next[k] = prev[k]; });
+        return next;
+      });
+      setTitoliAcquisti(prev => {
+        const next = { ...tAcqInit };
+        Object.keys(prev || {}).forEach(k => { if (prev[k] !== undefined && prev[k] !== '') next[k] = prev[k]; });
+        return next;
+      });
+      setDescrizioniAcquisti(prev => {
+        const next = { ...dAcqInit };
+        Object.keys(prev || {}).forEach(k => { if (prev[k] !== undefined && prev[k] !== '') next[k] = prev[k]; });
+        return next;
+      });
+      setTipologiaAcquisti(prev => ({ ...tipInit, ...(prev || {}) }));
+      setTipoFornituraAcquisti(prev => ({ ...tfInit, ...(prev || {}) }));
       return data;
     } catch (err) {
       showToast(getErrorMessage(err, 'Errore nel caricamento del dettaglio'), 'error');
@@ -1326,6 +1557,10 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
 
   const handleStatusChange = async (newStatus) => {
     if (newStatus === richiesta.status) return;
+    if (newStatus === 'completata') {
+      handleCompletaClick();
+      return;
+    }
     setChangingStatus(true);
     try {
       const updated = await updateRichiesta(richiestaId, { status: newStatus });
@@ -1411,13 +1646,104 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
     if (!fileList || fileList.length === 0) return;
     setUploadingAttArtId(artId);
     try {
-      await uploadAttachmentsArticolo(richiestaId, artId, Array.from(fileList));
+      const res = await uploadAttachmentsArticolo(richiestaId, artId, Array.from(fileList));
       showToast('Allegati caricati con successo', 'success');
-      await load();
+      if (res?.attachments) {
+        setRichiesta(prev => {
+          if (!prev) return prev;
+          const updatedRichiesta = {
+            ...prev,
+            articoli: (prev.articoli || []).map(a =>
+              a.id === artId ? { ...a, attachments: res.attachments } : a
+            ),
+          };
+          if (onUpdated) onUpdated(updatedRichiesta);
+          return updatedRichiesta;
+        });
+      }
     } catch (err) {
       showToast(getErrorMessage(err, 'Errore nel caricamento allegati articolo'), 'error');
     } finally {
       setUploadingAttArtId(null);
+    }
+  };
+
+  const canDeleteAttachment = useCallback((att, fallbackAuthorId = null) => {
+    if (userRole === 'admin' || user?.role === 'admin') return true;
+
+    // Commerciale: una volta inviata la richiesta, gli allegati NON sono più rimovibili
+    if (userRole === 'commerciale') return false;
+
+    // Ufficio Acquisti: gli allegati possono essere rimossi SOLO durante la fase di lavorazione (in_lavorazione).
+    // Una volta inviato all'admin per il listino (manca_listino o completata), non sono più rimovibili.
+    if (userRole === 'acquisti') {
+      if (richiesta?.status !== 'in_lavorazione') return false;
+      const info = getAttachmentInfo(att);
+      const uploaderId = info.uploaded_by_id || att?.uploaded_by_id;
+      const uploaderRole = info.uploaded_by_role || att?.uploaded_by_role;
+
+      // Acquisti può eliminare solo i propri allegati / allegati caricati da ufficio acquisti
+      if (uploaderId && user?.id && String(uploaderId) === String(user.id)) return true;
+      if (uploaderRole && uploaderRole.toLowerCase() === 'acquisti') return true;
+      return false;
+    }
+
+    return false;
+  }, [userRole, user, richiesta?.status]);
+
+  const handleDeleteArticoloAttachment = async (artId, att, info) => {
+    const rawUrl = info?.rawUrl || att?.url || (typeof att === 'string' ? att : '');
+    if (!rawUrl) return;
+    if (!window.confirm(`Sei sicuro di voler eliminare l'allegato "${info?.name || 'selezionato'}"?`)) return;
+
+    setDeletingAttUrl(rawUrl);
+    try {
+      const res = await deleteAttachmentArticolo(richiestaId, artId, rawUrl);
+      showToast('Allegato rimosso con successo', 'success');
+      if (res?.attachments) {
+        setRichiesta(prev => {
+          if (!prev) return prev;
+          const updatedRichiesta = {
+            ...prev,
+            articoli: (prev.articoli || []).map(a =>
+              a.id === artId ? { ...a, attachments: res.attachments } : a
+            ),
+          };
+          if (onUpdated) onUpdated(updatedRichiesta);
+          return updatedRichiesta;
+        });
+      }
+    } catch (err) {
+      showToast(getErrorMessage(err, 'Errore nell\'eliminazione dell\'allegato'), 'error');
+    } finally {
+      setDeletingAttUrl(null);
+    }
+  };
+
+  const handleDeleteRichiestaAttachment = async (att, info) => {
+    const rawUrl = info?.rawUrl || att?.url || (typeof att === 'string' ? att : '');
+    if (!rawUrl) return;
+    if (!window.confirm(`Sei sicuro di voler eliminare l'allegato "${info?.name || 'selezionato'}"?`)) return;
+
+    setDeletingAttUrl(rawUrl);
+    try {
+      const res = await deleteAttachmentRichiesta(richiestaId, rawUrl);
+      showToast('Allegato richiesta rimosso con successo', 'success');
+      if (res?.attachments) {
+        setRichiesta(prev => {
+          if (!prev) return prev;
+          const updatedRichiesta = {
+            ...prev,
+            attachments: res.attachments,
+          };
+          if (onUpdated) onUpdated(updatedRichiesta);
+          return updatedRichiesta;
+        });
+      }
+    } catch (err) {
+      showToast(getErrorMessage(err, 'Errore nell\'eliminazione dell\'allegato'), 'error');
+    } finally {
+      setDeletingAttUrl(null);
     }
   };
 
@@ -1444,14 +1770,36 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
   };
 
   const handleSaveAllArticoli = async () => {
-    if (!richiesta?.articoli?.length) return;
-    const isMancaListinoAdmin = userRole === 'admin' && richiesta.status === 'manca_listino';
+    if (showArticoloForm && newArticoloFormRef.current) {
+      const hasContent = newArticoloFormRef.current.hasContent?.();
+      if (hasContent) {
+        try {
+          await newArticoloFormRef.current.submit();
+        } catch {
+          return;
+        }
+      } else {
+        setShowArticoloForm(false);
+      }
+    }
+    if (editingArticolo && editArticoloFormRef.current) {
+      try {
+        await editArticoloFormRef.current.submit();
+      } catch {
+        return;
+      }
+    }
+
+    const fresh = await load();
+    const currRichiesta = fresh || richiesta;
+    if (!currRichiesta?.articoli?.length) return;
+    const isMancaListinoAdmin = userRole === 'admin' && currRichiesta.status === 'manca_listino';
     const payloadArticoli = isMancaListinoAdmin
-      ? (richiesta.articoli || []).map(a => ({
+      ? (currRichiesta.articoli || []).map(a => ({
           id: a.id,
           titolo: (titoliAdmin[a.id] !== undefined ? titoliAdmin[a.id] : a.titolo)?.trim(),
           descrizione: (descrizioniAdmin[a.id] !== undefined ? descrizioniAdmin[a.id] : (a.descrizione || '')).trim(),
-          costo: a.costo,
+          costo: (costiAcquisti[a.id] !== undefined && costiAcquisti[a.id] !== '' && !isNaN(parseFloat(costiAcquisti[a.id]))) ? parseFloat(costiAcquisti[a.id]) : a.costo,
           prezzo_listino: prezziListino[a.id] !== '' && prezziListino[a.id] != null ? parseFloat(prezziListino[a.id]) : null,
           note_admin: (noteAdmin[a.id] !== undefined ? noteAdmin[a.id] : (a.note_admin || '')).trim() || null,
         }))
@@ -1471,13 +1819,66 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
     }
   };
 
-  const handleInviaAdAdminClick = () => {
-    if (!richiesta?.articoli?.length) {
-      showToast('Aggiungi almeno un articolo prima di inviare', 'error');
+  const handleInviaAdAdminClick = async () => {
+    // 1. Se c'è un form aperto per un nuovo articolo, salvalo automaticamente
+    if (showArticoloForm && newArticoloFormRef.current) {
+      const formInfo = newArticoloFormRef.current.getFormData?.();
+      const hasContent = newArticoloFormRef.current.hasContent?.();
+      if (hasContent || formInfo?.form?.titolo?.trim()) {
+        if (!formInfo?.form?.titolo?.trim()) {
+          showToast('Inserisci il titolo dell\'articolo prima di inviare a listino', 'error');
+          return;
+        }
+        if (formInfo.form.costo === '' || formInfo.form.costo === null || isNaN(parseFloat(formInfo.form.costo)) || parseFloat(formInfo.form.costo) <= 0) {
+          showToast(`Inserisci un costo valido (> 0) per l'articolo "${formInfo.form.titolo.trim()}" prima di inviare`, 'error');
+          return;
+        }
+        try {
+          await newArticoloFormRef.current.submit();
+        } catch {
+          return;
+        }
+      } else {
+        setShowArticoloForm(false);
+      }
+    }
+
+    // 2. Se c'è un form aperto per la modifica di un articolo
+    if (editingArticolo && editArticoloFormRef.current) {
+      try {
+        await editArticoloFormRef.current.submit();
+      } catch {
+        return;
+      }
+    }
+
+    const fresh = await load();
+    const currRichiesta = fresh || richiesta;
+
+    if (!currRichiesta?.articoli?.length) {
+      showToast('Aggiungi almeno un articolo prima di inviare a listino', 'error');
       return;
     }
 
-    const payloadArticoli = buildAcquistiArticoliPayload();
+    const payloadArticoli = (currRichiesta.articoli || []).map(a => {
+      const tip = tipologiaAcquisti[a.id] || {
+        is_standard: Boolean(a.is_standard),
+        is_atex: Boolean(a.is_atex),
+        is_alimentare: Boolean(a.is_alimentare),
+      };
+      const rawCosto = costiAcquisti[a.id];
+      const parsedCosto = rawCosto !== undefined && rawCosto !== '' ? parseFloat(rawCosto) : (a.costo || 0);
+      return {
+        id: a.id,
+        titolo: (titoliAcquisti[a.id] !== undefined ? titoliAcquisti[a.id] : a.titolo)?.trim(),
+        costo: isNaN(parsedCosto) ? 0 : parsedCosto,
+        descrizione: (descrizioniAcquisti[a.id] !== undefined ? descrizioniAcquisti[a.id] : (a.descrizione || '')).trim(),
+        is_standard: Boolean(tip.is_standard),
+        is_atex: Boolean(tip.is_atex),
+        is_alimentare: Boolean(tip.is_alimentare),
+        tipo_fornitura: tipoFornituraAcquisti[a.id] !== undefined ? tipoFornituraAcquisti[a.id] : (a.tipo_fornitura || null),
+      };
+    });
 
     const missingTitle = payloadArticoli.find(a => !a.titolo);
     if (missingTitle) {
@@ -1491,20 +1892,17 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
       return;
     }
 
-    const isAcquisti = userRole === 'acquisti';
     setConfirmModal({
-      title: isAcquisti ? 'Conferma Consegna Preventivo' : 'Conferma Invio a Listino',
-      message: isAcquisti
-        ? 'Tutte le modifiche agli articoli verranno salvate automaticamente. La richiesta passerà allo stato "Manca Listino" e verrà notificato l\'amministratore.'
-        : 'Tutte le modifiche agli articoli verranno salvate automaticamente e la richiesta passerà alla fase "Manca Listino".',
-      confirmLabel: isAcquisti ? 'Consegna' : 'Invia a Listino',
+      title: 'Conferma Invio a Listino',
+      message: 'Tutti gli articoli inseriti e le modifiche apportate verranno salvati automaticamente. La richiesta passerà alla fase "Manca Listino" e verrà notificato l\'amministratore per inserire i prezzi.',
+      confirmLabel: 'Invia a Listino',
       confirmIcon: 'send',
       confirmVariant: 'primary',
       action: async () => {
         setSending(true);
         try {
           const updated = await inviaAdAdmin(richiestaId, { articoli: payloadArticoli });
-          showToast('Preventivo consegnato con successo! Articoli salvati e inviati all\'amministrazione.', 'success');
+          showToast('Articoli salvati e inviati all\'amministrazione per il listino!', 'success');
           if (updated) setRichiesta(updated);
           await load();
           if (onUpdated) await onUpdated(updated);
@@ -1518,21 +1916,73 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
     });
   };
 
-  const handleCompletaClick = () => {
-    const articoliPayload = richiesta.articoli.map(a => ({
+  const handleCompletaClick = async () => {
+    // 1. Se c'è un form aperto per un nuovo articolo, salvalo automaticamente
+    if (showArticoloForm && newArticoloFormRef.current) {
+      const formInfo = newArticoloFormRef.current.getFormData?.();
+      const hasContent = newArticoloFormRef.current.hasContent?.();
+      if (hasContent || formInfo?.form?.titolo?.trim()) {
+        if (!formInfo?.form?.titolo?.trim()) {
+          showToast('Inserisci il titolo dell\'articolo prima di completare la richiesta', 'error');
+          return;
+        }
+        if (formInfo.form.costo === '' || formInfo.form.costo === null || isNaN(parseFloat(formInfo.form.costo)) || parseFloat(formInfo.form.costo) <= 0) {
+          showToast(`Inserisci un costo valido (> 0) per l'articolo "${formInfo.form.titolo.trim()}" prima di completare`, 'error');
+          return;
+        }
+        try {
+          await newArticoloFormRef.current.submit();
+        } catch {
+          return;
+        }
+      } else {
+        setShowArticoloForm(false);
+      }
+    }
+
+    // 2. Se c'è un form aperto per la modifica di un articolo
+    if (editingArticolo && editArticoloFormRef.current) {
+      try {
+        await editArticoloFormRef.current.submit();
+      } catch {
+        return;
+      }
+    }
+
+    // 3. Ricarica i dati freschi
+    const fresh = await load();
+    const currRichiesta = fresh || richiesta;
+
+    if (!currRichiesta?.articoli?.length) {
+      showToast('Aggiungi almeno un articolo prima di completare la richiesta', 'error');
+      return;
+    }
+
+    // 4. Salva in automatico tutte le modifiche pendenti agli articoli (testi, costi, prezzi listino, note)
+    const articoliPayload = (currRichiesta.articoli || []).map(a => ({
       id: a.id,
+      costo: (costiAcquisti[a.id] !== undefined && costiAcquisti[a.id] !== '' && !isNaN(parseFloat(costiAcquisti[a.id]))) ? parseFloat(costiAcquisti[a.id]) : a.costo,
       prezzo_listino: parseFloat(prezziListino[a.id]) || 0,
       titolo: (titoliAdmin[a.id] !== undefined ? titoliAdmin[a.id] : a.titolo)?.trim(),
       descrizione: (descrizioniAdmin[a.id] !== undefined ? descrizioniAdmin[a.id] : (a.descrizione || '')).trim(),
-      note_admin: (noteAdmin[a.id] !== undefined ? noteAdmin[a.id] : (a.note_admin || '')).trim(),
+      note_admin: (noteAdmin[a.id] !== undefined ? noteAdmin[a.id] : (a.note_admin || '')).trim() || null,
     }));
-    if (articoliPayload.some(a => !a.prezzo_listino)) {
-      showToast('Inserisci il prezzo di listino per tutti gli articoli', 'error');
+
+    const missingPl = articoliPayload.find(a => !a.prezzo_listino || a.prezzo_listino <= 0);
+    if (missingPl) {
+      showToast(`Inserisci il prezzo di listino per tutti gli articoli prima di completare (manca su "${missingPl.titolo || 'Articolo'}")`, 'error');
       return;
     }
+
+    const missingTitle = articoliPayload.find(a => !a.titolo);
+    if (missingTitle) {
+      showToast('Tutti gli articoli devono avere un titolo', 'error');
+      return;
+    }
+
     setConfirmModal({
       title: 'Conferma Completamento con Listino',
-      message: 'Confermi il completamento della richiesta con i prezzi di listino inseriti? La richiesta passerà a "Completata" e il commerciale riceverà notifica via email.',
+      message: 'Tutti gli articoli inseriti e le modifiche apportate verranno salvati automaticamente. La richiesta passerà allo stato "Completata" e il commerciale riceverà notifica via email.',
       confirmLabel: 'Completa con Listino',
       confirmIcon: 'check',
       confirmVariant: 'success',
@@ -1540,7 +1990,7 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
         setSending(true);
         try {
           const updated = await completaRichiesta(richiestaId, articoliPayload, descrizioneRichiestaAdmin);
-          showToast('Richiesta completata! Il commerciale è stato notificato via email.', 'success');
+          showToast('Richiesta completata con successo! Tutti gli articoli sono stati salvati.', 'success');
           if (updated) setRichiesta(updated);
           await load();
           if (onUpdated) await onUpdated(updated);
@@ -1792,23 +2242,7 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                   </div>
                 </div>
 
-                {/* Blocco 3: Lavorazione Ufficio Acquisti */}
-                {(['manca_listino', 'completata'].includes(richiesta.status) || richiesta.articoli_inserted_by || (richiesta.articoli?.length > 0 && richiesta.status !== 'aperta')) && (
-                  <div className="rc-info-block">
-                    <div className="rc-info-item">
-                      <span className="rc-info-item__label"><AppIcon name="user" size={13} /> Articoli inseriti da</span>
-                      <span className="rc-info-item__value">
-                        {richiesta.articoli_inserted_by?.full_name || richiesta.articoli_inserted_by?.username || richiesta.articoli?.[0]?.author?.full_name || richiesta.articoli?.[0]?.author?.username || 'Ufficio Acquisti'}
-                      </span>
-                    </div>
-                    <div className="rc-info-item">
-                      <span className="rc-info-item__label"><AppIcon name="clock" size={13} /> Data inserimento articoli</span>
-                      <span className="rc-info-item__value rc-info-item__value--date">
-                        {formatDate(richiesta.articoli_inserted_at || richiesta.articoli?.[0]?.created_at || richiesta.updated_at)}
-                      </span>
-                    </div>
-                  </div>
-                )}
+
 
                 {/* Blocco 4: Inserimento Listino Prezzi (Amministrazione) */}
                 {(richiesta.status === 'completata' || richiesta.listino_inserted_by) && (
@@ -1871,18 +2305,35 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
               <div className="rc-attachments-list">
                 {richiesta.attachments.map((att, i) => {
                   const info = getAttachmentInfo(att);
+                  const canDel = canDeleteAttachment(att, richiesta.author_id || richiesta.author?.id);
+                  const isDeleting = deletingAttUrl === info.rawUrl;
                   return (
-                    <div key={i} className="rc-attachment-chip">
+                    <div key={i} className={`rc-attachment-chip${isDeleting ? ' is-deleting' : ''}`}>
                       <AppIcon name="fileText" size={14} />
                       <a
                         href={info.url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="rc-attachment-link"
-                        title={`Apri ${info.name} in una nuova scheda`}
+                        title={info.uploaded_by_name ? `Caricato da: ${info.uploaded_by_name}${info.uploaded_by_role ? ` (${info.uploaded_by_role})` : ''} • Apri ${info.name}` : `Apri ${info.name} in una nuova scheda`}
                       >
                         {info.name}
                       </a>
+                      {canDel && (
+                        <button
+                          type="button"
+                          className="rc-attachment-delete-btn"
+                          disabled={isDeleting}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDeleteRichiestaAttachment(att, info);
+                          }}
+                          title="Elimina allegato"
+                        >
+                          <AppIcon name="close" size={12} />
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -1908,7 +2359,9 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
             {/* Form nuovo articolo */}
             {showArticoloForm && (
               <ArticoloForm
+                ref={newArticoloFormRef}
                 richiestaId={richiestaId}
+                richiesta={richiesta}
                 userRole={userRole}
                 status={richiesta.status}
                 index={richiesta.articoli?.length || 0}
@@ -1934,8 +2387,10 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
               if (isEditing) {
                 return (
                   <ArticoloForm
+                    ref={editArticoloFormRef}
                     key={articolo.id}
                     richiestaId={richiestaId}
+                    richiesta={richiesta}
                     articolo={editingArticolo}
                     userRole={userRole}
                     status={richiesta.status}
@@ -1973,14 +2428,29 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                 const titoloIsDirty = titoliAdmin[articolo.id] !== undefined && titoliAdmin[articolo.id] !== (originalSnap?.titolo || articolo.titolo || '');
                 const descIsDirty = descrizioniAdmin[articolo.id] !== undefined && descrizioniAdmin[articolo.id] !== (originalSnap?.descrizione !== undefined ? originalSnap.descrizione : (articolo.descrizione || ''));
                 const noteIsDirty = noteAdmin[articolo.id] !== undefined && noteAdmin[articolo.id] !== (originalSnap?.note_admin !== undefined ? originalSnap.note_admin : (articolo.note_admin || ''));
+                const artAuthorName = articolo.author?.full_name || articolo.author?.username || origComm?.author_name || (richiesta.articoli_inserted_by?.full_name || richiesta.articoli_inserted_by?.username) || '—';
+                const artDateStr = formatDate(articolo.created_at || origComm?.created_at || richiesta.articoli_inserted_at || richiesta.created_at);
 
                 return (
                   <div key={articolo.id} className="rc-articolo-card rc-articolo-card--editable" data-theme={index % 6}>
                     {/* Barra superiore con Badge numerato e Azioni */}
                     <div className="rc-articolo-card__topbar">
-                      <div className="rc-articolo-card__badge">
-                        <AppIcon name="package" size={13} />
-                        <span>Articolo #{index + 1}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <div className="rc-articolo-card__badge">
+                          <AppIcon name="package" size={13} />
+                          <span>Articolo #{index + 1}</span>
+                        </div>
+                        <span className="rc-articolo-card__meta">
+                          <AppIcon name="user" size={12} />
+                          <span>Inserito da <strong>{artAuthorName}</strong></span>
+                          {artDateStr && (
+                            <>
+                              <span className="rc-dot-sep">•</span>
+                              <AppIcon name="clock" size={12} />
+                              <span>{artDateStr}</span>
+                            </>
+                          )}
+                        </span>
                       </div>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <button
@@ -2037,14 +2507,25 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
 
                     <div className="rc-form-row">
                       <div className="rc-form-group">
-                        <label className="rc-label">Costo Acquisti</label>
+                        <label className="rc-label">Costo Acquisti (€) <span className="required">*</span></label>
                         <FieldDiffBadge
                           mod={articolo.modifiche?.costo}
-                          currentVal={formatCurrency(articolo.costo)}
+                          origFallback={(originalSnap?.costo != null && Number(originalSnap.costo) > 0) ? `${originalSnap.costo} €` : ((articolo.costo != null && Number(articolo.costo) > 0) ? `${articolo.costo} €` : '')}
+                          origAuthor={origAuthorName}
+                          currentVal={costiAcquisti[articolo.id] !== undefined && costiAcquisti[articolo.id] !== '' ? `${costiAcquisti[articolo.id]} €` : ''}
+                          isDirty={costiAcquisti[articolo.id] !== undefined && String(costiAcquisti[articolo.id]) !== (articolo.costo != null ? String(articolo.costo) : '')}
+                          dirtyAuthor={currentUserName}
+                          isCosto
                         />
-                        <div className="input" style={{ background: 'var(--bg-tertiary)', cursor: 'default', color: 'var(--success)', fontWeight: 700 }}>
-                          {formatCurrency(articolo.costo)}
-                        </div>
+                        <input
+                          className="input"
+                          type="number"
+                          step="0.01"
+                          value={costiAcquisti[articolo.id] !== undefined ? costiAcquisti[articolo.id] : (articolo.costo > 0 ? articolo.costo : '')}
+                          onChange={(e) => setCostiAcquisti({ ...costiAcquisti, [articolo.id]: e.target.value })}
+                          placeholder="0.00 *"
+                          style={{ borderColor: 'var(--primary-500)', fontWeight: 700 }}
+                        />
                       </div>
                       <div className="rc-form-group">
                         <label className="rc-label">Prezzo Listino (€) <span className="required">*</span></label>
@@ -2099,7 +2580,7 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                       {articolo.is_atex && <span className="badge badge-atex">ATEX</span>}
                       {articolo.is_alimentare && <span className="badge badge-alimentare">Alimentare</span>}
                       {articolo.tipo_fornitura && (
-                        <span className="badge badge-low">{TIPO_FORNITURA_LABELS[articolo.tipo_fornitura] || articolo.tipo_fornitura}</span>
+                        <span className="badge badge-fornitura">{TIPO_FORNITURA_LABELS[articolo.tipo_fornitura] || articolo.tipo_fornitura}</span>
                       )}
                       {articolo.created_at && (
                         <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -2117,6 +2598,9 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                       <ArticleDropzone
                         existingAttachments={articolo.attachments || []}
                         onUpload={(files) => handleUploadArticoloAttachments(articolo.id, files)}
+                        onDeleteExisting={(att, info) => handleDeleteArticoloAttachment(articolo.id, att, info)}
+                        isDeletingUrl={deletingAttUrl}
+                        canDeleteAttachment={(att) => canDeleteAttachment(att, articolo.author_id || articolo.author?.id)}
                         isUploading={uploadingAttArtId === articolo.id}
                       />
                     </div>
@@ -2165,13 +2649,29 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                 const descDirty = descrizioniAcquisti[articolo.id] !== undefined && descrizioniAcquisti[articolo.id] !== origCommDesc;
                 const tipDirty = origCommTipLabel !== currTipLabel;
 
+                const artAuthorName = articolo.author?.full_name || articolo.author?.username || origComm?.author_name || commAuthorName;
+                const artDateStr = formatDate(articolo.created_at || origComm?.created_at || richiesta.created_at);
+
                 return (
                   <div key={articolo.id} className="rc-articolo-card rc-articolo-card--editable" data-theme={index % 6}>
                     {/* Barra superiore con Badge numerato e Azioni */}
                     <div className="rc-articolo-card__topbar">
-                      <div className="rc-articolo-card__badge">
-                        <AppIcon name="package" size={13} />
-                        <span>Articolo #{index + 1}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <div className="rc-articolo-card__badge">
+                          <AppIcon name="package" size={13} />
+                          <span>Articolo #{index + 1}</span>
+                        </div>
+                        <span className="rc-articolo-card__meta">
+                          <AppIcon name="user" size={12} />
+                          <span>Inserito da <strong>{artAuthorName}</strong></span>
+                          {artDateStr && (
+                            <>
+                              <span className="rc-dot-sep">•</span>
+                              <AppIcon name="clock" size={12} />
+                              <span>{artDateStr}</span>
+                            </>
+                          )}
+                        </span>
                       </div>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <button
@@ -2224,13 +2724,17 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                     <div className="rc-form-row">
                       <div className="rc-form-group" style={{ minWidth: 170 }}>
                         <label className="rc-label">Costo Acquisti (€) <span className="required">*</span></label>
-                        <FieldDiffBadge
-                          mod={articolo.modifiche?.costo}
-                          origFallback={articolo.costo != null ? `${articolo.costo} €` : ''}
-                          currentVal={costiAcquisti[articolo.id] !== undefined ? `${costiAcquisti[articolo.id]} €` : ''}
-                          isDirty={costiAcquisti[articolo.id] !== undefined && String(costiAcquisti[articolo.id]) !== (articolo.costo != null ? String(articolo.costo) : '')}
-                          dirtyAuthor={currentUserName}
-                        />
+                        {userRole === 'admin' && (
+                          <FieldDiffBadge
+                            mod={articolo.modifiche?.costo}
+                            origFallback={(articolo.costo != null && Number(articolo.costo) > 0) ? `${articolo.costo} €` : ''}
+                            origAuthor={articolo.updated_by?.full_name || articolo.updated_by?.username || (richiesta?.articoli_inserted_by?.full_name || richiesta?.articoli_inserted_by?.username) || 'Ufficio Acquisti'}
+                            currentVal={costiAcquisti[articolo.id] !== undefined && costiAcquisti[articolo.id] !== '' ? `${costiAcquisti[articolo.id]} €` : ''}
+                            isDirty={costiAcquisti[articolo.id] !== undefined && String(costiAcquisti[articolo.id]) !== (articolo.costo != null && Number(articolo.costo) > 0 ? String(articolo.costo) : '')}
+                            dirtyAuthor={currentUserName}
+                            isCosto
+                          />
+                        )}
                         <input
                           className="input"
                           type="number"
@@ -2329,30 +2833,40 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                       <ArticleDropzone
                         existingAttachments={articolo.attachments || []}
                         onUpload={(files) => handleUploadArticoloAttachments(articolo.id, files)}
+                        onDeleteExisting={(att, info) => handleDeleteArticoloAttachment(articolo.id, att, info)}
+                        isDeletingUrl={deletingAttUrl}
+                        canDeleteAttachment={(att) => canDeleteAttachment(att, articolo.author_id || articolo.author?.id)}
                         isUploading={uploadingAttArtId === articolo.id}
                       />
                     </div>
-
-                    {articolo.created_at && (
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <AppIcon name="clock" size={12} /> {formatDate(articolo.created_at)}
-                        {(articolo.author?.full_name || articolo.author?.username) && (
-                          <span>({articolo.author.full_name || articolo.author.username})</span>
-                        )}
-                      </div>
-                    )}
                   </div>
                 );
               }
 
-              // Vista Commerciale (solo completate)
+              // Vista Commerciale: vede solo i campi di sua competenza (titolo, descrizione, tipologia, listino, note admin, allegati)
               if (userRole === 'commerciale') {
+                const artAuthorName = articolo.author?.full_name || articolo.author?.username || (richiesta.author?.full_name || richiesta.author?.username) || '—';
+                const artDateStr = formatDate(articolo.created_at || richiesta.created_at);
+
                 return (
-                  <div key={articolo.id} className="rc-articolo-card rc-articolo-card--editable" data-theme={index % 6}>
+                  <div key={articolo.id} className="rc-articolo-card" data-theme={index % 6}>
                     <div className="rc-articolo-card__topbar">
-                      <div className="rc-articolo-card__badge">
-                        <AppIcon name="package" size={13} />
-                        <span>Articolo #{index + 1}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <div className="rc-articolo-card__badge">
+                          <AppIcon name="package" size={13} />
+                          <span>Articolo #{index + 1}</span>
+                        </div>
+                        <span className="rc-articolo-card__meta">
+                          <AppIcon name="user" size={12} />
+                          <span>Inserito da <strong>{artAuthorName}</strong></span>
+                          {artDateStr && (
+                            <>
+                              <span className="rc-dot-sep">•</span>
+                              <AppIcon name="clock" size={12} />
+                              <span>{artDateStr}</span>
+                            </>
+                          )}
+                        </span>
                       </div>
                       {articolo.prezzo_listino != null && (
                         <span className="badge badge-active" style={{ fontSize: '0.85rem' }}>
@@ -2373,29 +2887,20 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                       {articolo.is_standard && <span className="badge badge-standard">Standard</span>}
                       {articolo.is_atex && <span className="badge badge-atex">ATEX</span>}
                       {articolo.is_alimentare && <span className="badge badge-alimentare">Alimentare</span>}
-                      {articolo.tipo_fornitura && (
-                        <span className="badge badge-low">{TIPO_FORNITURA_LABELS[articolo.tipo_fornitura] || articolo.tipo_fornitura}</span>
-                      )}
                     </div>
+                    {/* Allegati articolo con Drag and Drop per Commerciale */}
+                    {/* Allegati articolo per Commerciale: sola visualizzazione una volta inviata la richiesta */}
                     {articolo.attachments?.length > 0 && (
-                      <div className="rc-attachments-list" style={{ marginTop: 10 }}>
-                        {articolo.attachments.map((att, i) => {
-                          const info = getAttachmentInfo(att);
-                          return (
-                            <div key={i} className="rc-attachment-chip">
-                              <AppIcon name="fileText" size={14} />
-                              <a
-                                href={info.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="rc-attachment-link"
-                                title={`Apri ${info.name} in una nuova scheda`}
-                              >
-                                {info.name}
-                              </a>
-                            </div>
-                          );
-                        })}
+                      <div className="rc-form-group" style={{ marginTop: 6, marginBottom: 0 }}>
+                        <label className="rc-label" style={{ marginBottom: 6 }}>Allegati Articolo</label>
+                        <ArticleDropzone
+                          existingAttachments={articolo.attachments || []}
+                          onUpload={null}
+                          onDeleteExisting={null}
+                          isDeletingUrl={deletingAttUrl}
+                          canDeleteAttachment={() => false}
+                          isUploading={false}
+                        />
                       </div>
                     )}
                   </div>
@@ -2434,27 +2939,44 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
               const currAuthorName = articolo.updated_by?.full_name || articolo.updated_by?.name || (userRole === 'admin' ? 'Admin' : 'Ufficio Acquisti');
               const currDateStr = formatDate(articolo.updated_at || articolo.created_at);
 
+              const artAuthorName = articolo.author?.full_name || articolo.author?.username || origComm?.author_name || (richiesta.articoli_inserted_by?.full_name || richiesta.articoli_inserted_by?.username) || '—';
+              const artDateStr = formatDate(articolo.created_at || origComm?.created_at || richiesta.articoli_inserted_at || richiesta.created_at);
+
               return (
                 <div key={articolo.id} className="rc-articolo-card">
                   <div className="rc-articolo-card__topbar">
-                    <div className="rc-articolo-card__badge">
-                      <AppIcon name="package" size={13} />
-                      <span>Articolo #{index + 1}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <div className="rc-articolo-card__badge">
+                        <AppIcon name="package" size={13} />
+                        <span>Articolo #{index + 1}</span>
+                      </div>
+                      <span className="rc-articolo-card__meta">
+                        <AppIcon name="user" size={12} />
+                        <span>Inserito da <strong>{artAuthorName}</strong></span>
+                        {artDateStr && (
+                          <>
+                            <span className="rc-dot-sep">•</span>
+                            <AppIcon name="clock" size={12} />
+                            <span>{artDateStr}</span>
+                          </>
+                        )}
+                      </span>
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       {userRole === 'admin' && (
                         <div>
-                          <FieldDiffBadge mod={articolo.modifiche?.costo} currentVal={formatCurrency(articolo.costo)} />
+                          <FieldDiffBadge mod={articolo.modifiche?.costo} currentVal={formatCurrency(articolo.costo)} isCosto />
                           <span className="rc-price-tag">Costo: {formatCurrency(articolo.costo)}</span>
                         </div>
                       )}
-                      {articolo.costo != null && articolo.costo > 0 && userRole !== 'admin' ? (
-                        <div>
-                          <FieldDiffBadge mod={articolo.modifiche?.costo} currentVal={formatCurrency(articolo.costo)} />
-                          <span className="rc-price-tag">Costo: {formatCurrency(articolo.costo)}</span>
-                        </div>
-                      ) : (
-                        userRole !== 'admin' && <span className="badge badge-pending" style={{ fontSize: '0.8rem' }}>Costo da definire</span>
+                      {userRole === 'acquisti' && (
+                        articolo.costo != null && articolo.costo > 0 ? (
+                          <div>
+                            <span className="rc-price-tag">Costo: {formatCurrency(articolo.costo)}</span>
+                          </div>
+                        ) : (
+                          <span className="badge badge-pending" style={{ fontSize: '0.8rem' }}>Costo da definire</span>
+                        )
                       )}
                       {articolo.prezzo_listino != null && (
                         <div>
@@ -2499,7 +3021,7 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                     {articolo.is_atex && <span className="badge badge-atex">ATEX</span>}
                     {articolo.is_alimentare && <span className="badge badge-alimentare">Alimentare</span>}
                     {articolo.tipo_fornitura && (
-                      <span className="badge badge-low">{TIPO_FORNITURA_LABELS[articolo.tipo_fornitura] || articolo.tipo_fornitura}</span>
+                      <span className="badge badge-fornitura">{TIPO_FORNITURA_LABELS[articolo.tipo_fornitura] || articolo.tipo_fornitura}</span>
                     )}
                     {articolo.created_at && (
                       <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -2514,18 +3036,35 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                     <div className="rc-attachments-list" style={{ marginTop: 10 }}>
                       {articolo.attachments.map((att, i) => {
                         const info = getAttachmentInfo(att);
+                        const canDel = canDeleteAttachment(att, articolo.author_id || articolo.author?.id);
+                        const isDeleting = deletingAttUrl === info.rawUrl;
                         return (
-                          <div key={i} className="rc-attachment-chip">
+                          <div key={i} className={`rc-attachment-chip${isDeleting ? ' is-deleting' : ''}`}>
                             <AppIcon name="fileText" size={14} />
                             <a
                               href={info.url}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="rc-attachment-link"
-                              title={`Apri ${info.name} in una nuova scheda`}
+                              title={info.uploaded_by_name ? `Caricato da: ${info.uploaded_by_name}${info.uploaded_by_role ? ` (${info.uploaded_by_role})` : ''} • Apri ${info.name}` : `Apri ${info.name} in una nuova scheda`}
                             >
                               {info.name}
                             </a>
+                            {canDel && (
+                              <button
+                                type="button"
+                                className="rc-attachment-delete-btn"
+                                disabled={isDeleting}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDeleteArticoloAttachment(articolo.id, att, info);
+                                }}
+                                title="Elimina allegato"
+                              >
+                                <AppIcon name="close" size={12} />
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -2555,7 +3094,7 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
           <button className="btn btn-secondary" onClick={onClose}>Chiudi</button>
 
           {/* Acquisti / Admin in_lavorazione: Salva Modifiche (senza inviare) */}
-          {(userRole === 'acquisti' || userRole === 'admin') && richiesta.status === 'in_lavorazione' && richiesta.articoli?.length > 0 && (
+          {(userRole === 'acquisti' || userRole === 'admin') && richiesta.status === 'in_lavorazione' && ((richiesta.articoli?.length || 0) > 0 || showArticoloForm) && (
             <button
               type="button"
               className="btn btn-secondary"
@@ -2567,10 +3106,10 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
             </button>
           )}
 
-          {/* Acquisti: invia ad admin (Consegna) */}
+          {/* Acquisti: invia ad admin (Invia a Listino) */}
           {userRole === 'acquisti' && richiesta.status === 'in_lavorazione' && (
             <button className="btn btn-primary" onClick={handleInviaAdAdminClick} disabled={sending || savingArticoli}>
-              <AppIcon name="send" size={16} /> Consegna
+              <AppIcon name="send" size={16} /> Invia a Listino
             </button>
           )}
 

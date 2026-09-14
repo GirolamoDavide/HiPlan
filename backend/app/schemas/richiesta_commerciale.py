@@ -179,7 +179,7 @@ class RichiestaOutAcquisti(BaseModel):
 # ─── Invio ad Admin (Acquisti) ──────────────────────────────────────────────
 
 class InviaAdAdminArticoloIn(BaseModel):
-    id: str
+    id: Optional[str] = None
     costo: Optional[float] = None
     titolo: Optional[str] = None
     descrizione: Optional[str] = None
@@ -199,8 +199,9 @@ class InviaAdAdminIn(BaseModel):
 # ─── Completamento Admin ─────────────────────────────────────────────────────
 
 class CompletaArticoloIn(BaseModel):
-    id: str
+    id: Optional[str] = None
     prezzo_listino: float
+    costo: Optional[float] = None
     titolo: Optional[str] = None
     descrizione: Optional[str] = None
     note_admin: Optional[str] = None
