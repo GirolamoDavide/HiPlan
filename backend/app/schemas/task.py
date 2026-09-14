@@ -30,6 +30,7 @@ class TaskCreate(BaseModel):
     completed: int = 0
     has_vacation_conflict: int = 0
     excluded_dates: List[str] = []
+    custom_dates: Optional[List[dict]] = []
 
 
 class TaskUpdate(BaseModel):
@@ -54,6 +55,7 @@ class TaskUpdate(BaseModel):
     completed: Optional[int] = None
     has_vacation_conflict: Optional[int] = None
     excluded_dates: Optional[List[str]] = None
+    custom_dates: Optional[List[dict]] = None
 
 
 class TaskOut(BaseModel):
@@ -80,6 +82,7 @@ class TaskOut(BaseModel):
     completed: int = 0
     has_vacation_conflict: int = 0
     excluded_dates: List[str] = []
+    custom_dates: Optional[List[dict]] = []
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,0 +1,409 @@
+.cdp-container {
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg, 12px);
+  margin-top: 12px;
+  margin-bottom: 16px;
+}
+
+.cdp-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .cdp-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Lato Calendario --- */
+.cdp-calendar-pane {
+  display: flex;
+  flex-direction: column;
+}
+
+.cdp-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.cdp-calendar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cdp-calendar-title strong {
+  font-size: 1.15rem;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.cdp-calendar-title span {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+
+.cdp-nav-btn {
+  padding: 6px 10px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cdp-quick-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.cdp-quick-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.cdp-quick-btn:hover:not(:disabled) {
+  background: var(--bg-primary);
+  color: var(--accent-500);
+  border-color: var(--accent-500);
+}
+
+.cdp-quick-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cdp-quick-btn--danger:hover {
+  color: var(--danger, #ef4444) !important;
+  border-color: var(--danger, #ef4444) !important;
+}
+
+.cdp-grid-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.cdp-grid-header .weekend {
+  color: var(--danger, #ef4444);
+  opacity: 0.8;
+}
+
+.cdp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.cdp-day {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary);
+  padding: 2px;
+}
+
+.cdp-day.empty {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+.cdp-day:not(.empty):hover {
+  border-color: var(--accent-500);
+  transform: translateY(-1px);
+}
+
+.cdp-day.is-weekend {
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  opacity: 0.65;
+}
+
+.cdp-day.is-holiday {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+
+.cdp-day.is-selected {
+  background: linear-gradient(135deg, var(--accent-500, #3b82f6), #2563eb);
+  color: #ffffff !important;
+  border-color: #1d4ed8;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.35);
+  font-weight: 700;
+}
+
+.cdp-day-number {
+  line-height: 1;
+}
+
+.cdp-day-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-top: 2px;
+  line-height: 1;
+}
+
+.cdp-vacation-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 1px var(--bg-primary);
+}
+
+.cdp-day.has-vacation:not(.is-selected) {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.cdp-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-default);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.cdp-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cdp-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.cdp-legend-swatch--selected {
+  background: var(--accent-500, #3b82f6);
+}
+
+.cdp-legend-swatch--vacation {
+  background: #f59e0b;
+}
+
+.cdp-legend-swatch--weekend {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+}
+
+/* --- Lato Riepilogo e Modifica Ore --- */
+.cdp-summary-pane {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-default);
+  padding-left: 20px;
+}
+
+@media (max-width: 768px) {
+  .cdp-summary-pane {
+    border-left: none;
+    border-top: 1px solid var(--border-default);
+    padding-left: 0;
+    padding-top: 16px;
+  }
+}
+
+.cdp-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.cdp-summary-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.cdp-total-badge {
+  background: var(--accent-500, #3b82f6);
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.8rem;
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.25);
+}
+
+.cdp-total-badge strong {
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.cdp-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 36px 16px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.cdp-empty-state p {
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+.cdp-empty-state span {
+  font-size: 0.8rem;
+  max-width: 260px;
+  line-height: 1.4;
+}
+
+.cdp-days-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: 280px;
+  padding-right: 4px;
+}
+
+.cdp-day-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-sm, 6px);
+  transition: border-color 0.15s ease;
+}
+
+.cdp-day-row:hover {
+  border-color: var(--border-default);
+}
+
+.cdp-day-row.has-vacation-conflict {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.04);
+}
+
+.cdp-day-row__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cdp-day-row__date {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+}
+
+.cdp-day-row__vacation-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #d97706;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cdp-day-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cdp-hours-input-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.cdp-hours-input {
+  width: 70px;
+  height: 30px;
+  padding: 4px 22px 4px 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-500, #3b82f6);
+  text-align: right;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.cdp-hours-unit {
+  position: absolute;
+  right: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.cdp-remove-day-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.cdp-remove-day-btn:hover {
+  background: var(--danger-bg, rgba(239, 68, 68, 0.1));
+  color: var(--danger, #ef4444);
+}

@@ -31,6 +31,7 @@ const BUDGET_MODE_SHORT_LABELS = {
   end_hours: 'Data Fine / Ore',
   start_days_hours: 'Inizio / Giorni / Ore',
   end_days_hours: 'Fine / Giorni / Ore',
+  custom_dates: 'Date da Calendario',
 };
 
 export default function AdminPage() {
@@ -1481,6 +1482,7 @@ export default function AdminPage() {
                     <option value="end_hours">Data Fine / Ore (calcola data inizio a ritroso escludendo sab/dom e festivi)</option>
                     <option value="start_days_hours">Data Inizio / Giorni / Ore (es. 24h spalmate su 10 gg escludendo sab/dom e festivi)</option>
                     <option value="end_days_hours">Data Fine / Giorni / Ore (es. 24h spalmate a ritroso su 10 gg escludendo sab/dom e festivi)</option>
+                    <option value="custom_dates">Selezione Date da Calendario (giorni singoli o contigui con ore personalizzate/8h)</option>
                   </select>
                 </div>
 

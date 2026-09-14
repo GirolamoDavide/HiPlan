@@ -9,30 +9,70 @@ from app.models.link import Link
 from app.models.vacation import Vacation
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
-from datetime import timedelta, date
+from datetime import timedelta, date, datetime
 from app.schemas.task import TaskCreate, TaskUpdate, TaskOut, LinkCreate, LinkOut, GanttData
 # pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
 from app.core.websocket_manager import manager
 
 
-def find_vacation_conflicts(task_start, task_end, vacations, excluded_dates=None):
-    if not vacations:
+def find_vacation_conflicts(task_start, task_end, vacations, excluded_dates=None, custom_dates=None):
+    if not vacations or not task_start:
         return []
     excluded_dates = excluded_dates or []
+    custom_date_set = None
+    if custom_dates:
+        custom_date_set = set()
+        for d in custom_dates:
+            if isinstance(d, str):
+                custom_date_set.add(d)
+            elif isinstance(d, dict) and d.get("date"):
+                custom_date_set.add(str(d["date"]))
+
+    def _to_date(val):
+        if not val:
+            return None
+        if isinstance(val, date):
+            return val
+        if isinstance(val, datetime):
+            return val.date()
+        try:
+            return datetime.strptime(str(val).split("T")[0].split(" ")[0], "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    s_date = _to_date(task_start)
+    e_date = _to_date(task_end) or s_date
+    if not s_date or not e_date:
+        return []
+
     conflict_days = 0
-    current = task_start
-    while current <= task_end:
-        if current.weekday() < 5 and current.strftime("%Y-%m-%d") not in excluded_dates:
+    conflict_dates = []
+    current = s_date
+    while current <= e_date:
+        cur_str = current.strftime("%Y-%m-%d")
+        if custom_date_set is not None:
+            is_workday = cur_str in custom_date_set
+        else:
+            is_workday = current.weekday() < 5 and cur_str not in excluded_dates
+        if is_workday:
             for vacation in vacations:
-                if vacation.get("start_date") and vacation.get("end_date"):
-                    start = vacation["start_date"]
-                    end = vacation["end_date"]
-                    if start <= current <= end:
+                v_start = None
+                v_end = None
+                if isinstance(vacation, dict):
+                    v_start = _to_date(vacation.get("start_date"))
+                    v_end = _to_date(vacation.get("end_date"))
+                elif hasattr(vacation, "start_date") and hasattr(vacation, "end_date"):
+                    v_start = _to_date(vacation.start_date)
+                    v_end = _to_date(vacation.end_date)
+                if v_start and v_end:
+                    if v_start <= current <= v_end:
                         conflict_days += 1
+                        conflict_dates.append(cur_str)
                         break
         current = current + timedelta(days=1)
-    return [{"date": task_start, "workdays": conflict_days}] if conflict_days else []
+    return [{"date": str(task_start), "workdays": conflict_days, "conflict_dates": conflict_dates}] if conflict_days else []
+
 
 
 def _parse_json(val, default):
@@ -102,6 +142,7 @@ def _task_to_out(task: Task) -> TaskOut:
         completed=is_comp,
         has_vacation_conflict=task.has_vacation_conflict or 0,
         excluded_dates=_parse_json(task.excluded_dates, []),
+        custom_dates=_parse_json(task.custom_dates, []),
     )
 
 
@@ -236,6 +277,7 @@ async def create_task(db: AsyncSession, project_id: str, data: TaskCreate, user=
         department=data.department,
         budget_mode=data.budget_mode,
         completed=data.completed,
+        custom_dates=json.dumps(data.custom_dates) if getattr(data, 'custom_dates', None) else "[]",
     )
     _compute_task_progress_and_completed(task, data.model_dump())
 
@@ -246,6 +288,7 @@ async def create_task(db: AsyncSession, project_id: str, data: TaskCreate, user=
         workers_list = []
 
     total_shift_days = 0
+    active_custom_dates = data.custom_dates if data.budget_mode == "custom_dates" else None
     for worker_name in workers_list:
         u_res = await db.execute(select(User).where(User.username == worker_name))
         worker_user = u_res.scalar_one_or_none()
@@ -254,7 +297,7 @@ async def create_task(db: AsyncSession, project_id: str, data: TaskCreate, user=
         vac_res = await db.execute(select(Vacation).where(Vacation.user_id == worker_user.id))
         vacs = vac_res.scalars().all()
         vacation_payloads = [{"start_date": v.start_date, "end_date": v.end_date} for v in vacs]
-        conflicts = find_vacation_conflicts(task.start_date, task.end_date or task.start_date, vacation_payloads, data.excluded_dates)
+        conflicts = find_vacation_conflicts(task.start_date, task.end_date or task.start_date, vacation_payloads, data.excluded_dates, active_custom_dates)
         total_shift_days = max(total_shift_days, conflicts[0]["workdays"] if conflicts else 0)
 
     if total_shift_days > 0:
@@ -356,7 +399,7 @@ async def update_task(db: AsyncSession, task_id: str, data: TaskUpdate, user=Non
     for key, value in update_data.items():
         if key == "parent_id" and value == "0":
             value = None
-        if key in ("workers", "worker_hours", "actual_hours", "excluded_dates"):
+        if key in ("workers", "worker_hours", "actual_hours", "excluded_dates", "custom_dates"):
             value = json.dumps(value) if value is not None else "[]"
         setattr(task, key, value)
     _compute_task_progress_and_completed(task, update_data)
@@ -367,6 +410,12 @@ async def update_task(db: AsyncSession, task_id: str, data: TaskUpdate, user=Non
         workers_list = []
 
     total_shift_days = 0
+    active_custom_dates = None
+    if task.budget_mode == "custom_dates":
+        try:
+            active_custom_dates = json.loads(task.custom_dates) if getattr(task, 'custom_dates', None) else []
+        except Exception:
+            active_custom_dates = []
     for worker_name in workers_list:
         u_res = await db.execute(select(User).where(User.username == worker_name))
         worker_user = u_res.scalar_one_or_none()
@@ -379,7 +428,7 @@ async def update_task(db: AsyncSession, task_id: str, data: TaskUpdate, user=Non
             excluded_dates_list = json.loads(task.excluded_dates) if getattr(task, 'excluded_dates', None) else []
         except Exception:
             excluded_dates_list = []
-        conflicts = find_vacation_conflicts(task.start_date, task.end_date or task.start_date, vacation_payloads, excluded_dates_list)
+        conflicts = find_vacation_conflicts(task.start_date, task.end_date or task.start_date, vacation_payloads, excluded_dates_list, active_custom_dates)
         total_shift_days = max(total_shift_days, conflicts[0]["workdays"] if conflicts else 0)
 
     # Salta il controllo ferie se si stanno solo aggiornando ore consuntivate o stato completamento

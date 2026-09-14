@@ -45,6 +45,7 @@ class Task(Base, TimestampMixin):
     completed = Column(Integer, default=0, nullable=False)  # 1=completato (spunta verde), 0=in corso/non completato
     has_vacation_conflict = Column(Integer, default=0, nullable=False)  # Flag se la fase ha conflitti con ferie (0=no, 1=si)
     excluded_dates = Column(Text, nullable=True, default="[]")  # JSON list of dates excluded from vacation checks
+    custom_dates = Column(Text, nullable=True, default="[]")  # JSON list of {date: string, hours: number} for custom_dates budget mode
 
 
     project = relationship("Project", back_populates="tasks")

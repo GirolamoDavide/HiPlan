@@ -22,6 +22,82 @@ const parseDateSafe = (d) => {
   return isNaN(dt) ? null : dt;
 };
 
+const getCustomDatesList = (task) => {
+  if (!task || !task.custom_dates) return [];
+  let list = task.custom_dates;
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list);
+    } catch (e) {
+      return [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map(item => {
+      if (typeof item === 'string') return { date: item, hours: 8 };
+      if (item && item.date) return { date: item.date, hours: Number(item.hours) || 8 };
+      return null;
+    })
+    .filter(Boolean);
+};
+
+const clusterCustomDates = (customDatesList) => {
+  if (!customDatesList || customDatesList.length === 0) return [];
+
+  const sorted = [...customDatesList]
+    .map(item => {
+      const d = typeof item === 'string' ? item : item.date;
+      const h = typeof item === 'object' && item.hours ? Number(item.hours) : 8;
+      return { date: d, hours: h };
+    })
+    .filter(x => Boolean(x.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const clusters = [];
+  let curCluster = null;
+
+  for (const item of sorted) {
+    const itemDate = new Date(item.date + 'T00:00:00');
+    if (isNaN(itemDate)) continue;
+
+    if (!curCluster) {
+      curCluster = {
+        startDate: itemDate,
+        endDate: itemDate,
+        lastDateStr: item.date,
+        hours: item.hours,
+        dates: [item.date]
+      };
+    } else {
+      const prevDate = new Date(curCluster.lastDateStr + 'T00:00:00');
+      const diffMs = itemDate.getTime() - prevDate.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 1) {
+        curCluster.endDate = itemDate;
+        curCluster.lastDateStr = item.date;
+        curCluster.hours += item.hours;
+        curCluster.dates.push(item.date);
+      } else {
+        clusters.push(curCluster);
+        curCluster = {
+          startDate: itemDate,
+          endDate: itemDate,
+          lastDateStr: item.date,
+          hours: item.hours,
+          dates: [item.date]
+        };
+      }
+    }
+  }
+  if (curCluster) {
+    clusters.push(curCluster);
+  }
+
+  return clusters;
+};
+
 export { isWeekendOrHoliday };
 
 export default function GanttChart({ projectId, sortResetKey, tasks, links, onTaskUpdate, onTaskCreate, onTaskDelete, onLinkCreate, onLinkDelete, onEditTask, onNewTask, visibleColumns = ['workers'], readOnly, projectStartDate, projectEndDate }) {
@@ -282,6 +358,12 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
       const d = task.orig_duration || task.duration || 1;
       let durationText = `<b>${d} giorni</b>`;
       durationText += ` (${task.planned_hours || (d * 8)} ore previste)`;
+      if (task.budget_mode === 'custom_dates') {
+        const cDates = getCustomDatesList(task);
+        if (cDates.length > 0) {
+          durationText = `<b>${cDates.length} giorni su calendario</b> (${task.planned_hours || (cDates.length * 8)} ore)`;
+        }
+      }
       return `<b>${task.text}</b><br/>
         Inizio: ${gantt.templates.tooltip_date_format(start)}<br/>
         Fine: ${gantt.templates.tooltip_date_format(new Date(end.getTime() - 86400000))}<br/>
@@ -301,6 +383,9 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
         classes.push('gantt-task-completed');
       } else if (isOverrun) {
         classes.push('gantt-task-overrun');
+      }
+      if (task.budget_mode === 'custom_dates' && getCustomDatesList(task).length > 0) {
+        classes.push('gantt-task-split-parent');
       }
 
       return classes.join(' ');
@@ -392,10 +477,11 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
       return "";
     };
 
-    // Layer per mostrare ore consuntivate extra (fuori dal periodo previsto)
+    // Inizializzazione gantt
     gantt.init(containerRef.current);
 
     gantt.attachEvent("onGanttRender", () => {
+
       if (drawCustomMarkersRef.current) drawCustomMarkersRef.current();
     });
     gantt.attachEvent("onGanttScroll", () => {
@@ -693,11 +779,245 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
       const existingExtra = gantt.$task_data.querySelectorAll('.custom-extra-hours-marker');
       existingExtra.forEach(el => el.remove());
 
+      const existingCustomBars = gantt.$task_data.querySelectorAll('.custom-date-cluster-bar');
+      existingCustomBars.forEach(el => el.remove());
+
       if (Array.isArray(tasksRef.current)) {
         tasksRef.current.forEach(task => {
+          if (!task) return;
+
+          // Se la fase ha modalità date da calendario (custom_dates), disegna le barre multiple su stessa riga
+          if (task.budget_mode === 'custom_dates') {
+            const customDates = getCustomDatesList(task);
+            if (customDates.length > 0) {
+              try {
+                if (gantt.isTaskExists(task.id)) {
+                  const clusters = clusterCustomDates(customDates);
+                  const isCompleted = isTaskCompleted(task);
+                  const taskColor = getTaskColor(task) || '#3b82f6';
+
+                  // Centratura verticale nella riga
+                  const rawTop = gantt.getTaskTop(task.id);
+                  const rowHeight = gantt.config.row_height || 44;
+                  const barHeight = gantt.config.bar_height || 26;
+                  let centeredTop = rawTop + Math.floor((rowHeight - barHeight) / 2);
+                  const taskNode = gantt.getTaskNode(task.id);
+                  if (taskNode && typeof taskNode.offsetTop === 'number' && taskNode.offsetTop > 0) {
+                    centeredTop = taskNode.offsetTop;
+                  }
+
+                  const ganttState = gantt.getState();
+
+                  // Calcolo avanzamento/progresso per ciascun blocco
+                  const totalPlannedH = Number(task.planned_hours) || (clusters.reduce((s, c) => s + c.hours, 0) || 8);
+                  const taskProgress = isCompleted ? 1 : Math.min(1, Math.max(0, Number(task.progress) || 0));
+                  let remainingDoneH = taskProgress * totalPlannedH;
+
+                  let hasDateActuals = false;
+                  clusters.forEach(c => {
+                    c.workedHours = 0;
+                    if (task.actual_hours && typeof task.actual_hours === 'object') {
+                      Object.values(task.actual_hours).forEach(dayMap => {
+                        if (dayMap && typeof dayMap === 'object') {
+                          c.dates.forEach(dStr => {
+                            if (dayMap[dStr]) {
+                              c.workedHours += Number(dayMap[dStr]) || 0;
+                              hasDateActuals = true;
+                            }
+                          });
+                        }
+                      });
+                    }
+                  });
+
+                  clusters.forEach(cluster => {
+                    let clusterProgress = 0;
+                    if (isCompleted) {
+                      clusterProgress = 1;
+                    } else if (hasDateActuals) {
+                      clusterProgress = Math.min(1, cluster.hours > 0 ? cluster.workedHours / cluster.hours : 0);
+                    } else {
+                      if (remainingDoneH > 0 && cluster.hours > 0) {
+                        const allocated = Math.min(remainingDoneH, cluster.hours);
+                        clusterProgress = allocated / cluster.hours;
+                        remainingDoneH -= allocated;
+                      } else {
+                        clusterProgress = 0;
+                      }
+                    }
+                    cluster.progress = Math.min(1, Math.max(0, clusterProgress));
+                  });
+
+                  clusters.forEach(cluster => {
+                    const fromDate = new Date(cluster.startDate.getFullYear(), cluster.startDate.getMonth(), cluster.startDate.getDate(), 0, 0, 0);
+                    const toDate = new Date(cluster.endDate.getFullYear(), cluster.endDate.getMonth(), cluster.endDate.getDate() + 1, 0, 0, 0);
+
+                    if (ganttState.min_date && ganttState.max_date) {
+                      if (toDate < ganttState.min_date || fromDate > ganttState.max_date) return;
+                    }
+
+                    const left = gantt.posFromDate(fromDate);
+                    const right = gantt.posFromDate(toDate);
+                    if (typeof left !== 'number' || isNaN(left) || typeof right !== 'number' || isNaN(right)) return;
+
+                    const width = Math.max(14, right - left);
+
+                    const seg = document.createElement('div');
+                    seg.className = 'gantt-custom-date-bar custom-date-cluster-bar' + (isCompleted ? ' completed' : '');
+                    seg.style.position = 'absolute';
+                    seg.style.left = `${left}px`;
+                    seg.style.top = `${centeredTop}px`;
+                    seg.style.width = `${width}px`;
+                    seg.style.height = `${barHeight}px`;
+                    seg.style.lineHeight = `${barHeight}px`;
+                    seg.style.backgroundColor = isCompleted ? 'var(--success, #10b981)' : taskColor;
+                    seg.style.zIndex = '6';
+                    seg.style.pointerEvents = 'auto';
+                    seg.setAttribute('task_id', String(task.id));
+                    seg.setAttribute('data-task-id', String(task.id));
+
+                    const dFormat = (d) => {
+                      if (!d) return '';
+                      const dt = d instanceof Date ? d : new Date(d);
+                      if (isNaN(dt)) return String(d);
+                      return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`;
+                    };
+
+                    const dateRangeStr = cluster.dates.length === 1
+                      ? `${String(cluster.startDate.getDate()).padStart(2, '0')}/${String(cluster.startDate.getMonth() + 1).padStart(2, '0')}`
+                      : `${String(cluster.startDate.getDate()).padStart(2, '0')}/${String(cluster.startDate.getMonth() + 1).padStart(2, '0')} - ${String(cluster.endDate.getDate()).padStart(2, '0')}/${String(cluster.endDate.getMonth() + 1).padStart(2, '0')}`;
+
+                    const pct = Math.round(cluster.progress * 100);
+
+                    // 1. Barra di avanzamento / progresso interna al blocco
+                    const progressDiv = document.createElement('div');
+                    progressDiv.className = 'gantt-custom-date-progress';
+                    progressDiv.style.width = `${pct}%`;
+                    if (pct <= 0) {
+                      progressDiv.style.display = 'none';
+                    }
+                    seg.appendChild(progressDiv);
+
+                    // 2. Testo dell'etichetta del blocco (visibile sopra la barra di progresso)
+                    const textSpan = document.createElement('span');
+                    textSpan.className = 'gantt-custom-date-text';
+                    if (width >= 70 && pct > 0 && pct < 100) {
+                      textSpan.textContent = `${cluster.hours}h (${pct}%)`;
+                    } else if (width >= 36) {
+                      textSpan.textContent = `${cluster.hours}h`;
+                    } else if (width >= 24) {
+                      textSpan.textContent = `${cluster.hours}h`;
+                      textSpan.style.fontSize = '9.5px';
+                    }
+                    seg.appendChild(textSpan);
+
+                    // 3. Tooltip nativo (fallback)
+                    seg.title = `${task.text || 'Fase'}: ${dateRangeStr} (${cluster.hours}h) - Progresso: ${pct}%`;
+
+                    // 4. Hover con mouse per le informazioni avanzate (DHTMLX Tooltip)
+                    const buildTooltipHtml = () => {
+                      const startStr = dFormat(cluster.startDate);
+                      const endStr = dFormat(cluster.endDate);
+                      const dateRangeLabel = cluster.dates.length === 1 ? startStr : `${startStr} - ${endStr}`;
+                      const totalPhaseStart = dFormat(task.start_date);
+                      const totalPhaseEnd = dFormat(task.end_date);
+                      const progPercent = isCompleted ? 100 : Math.round((task.progress || 0) * 100);
+                      const workersStr = Array.isArray(task.workers) && task.workers.length > 0 ? task.workers.join(', ') : 'Nessuno';
+                      const totalBudgetH = task.planned_hours || (task.duration * 8);
+
+                      return `
+                        <div style="font-family: inherit; font-size: 12px; line-height: 1.5; min-width: 230px; max-width: 320px;">
+                          <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px; border-bottom: 1px solid var(--border-default, #e2e8f0); padding-bottom: 5px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${isCompleted ? '✓ ' : ''}${task.text || 'Fase'}</span>
+                            <span style="flex-shrink: 0; font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: ${isCompleted ? '#10b98122' : '#3b82f622'}; color: ${isCompleted ? '#10b981' : '#3b82f6'}; font-weight: 650;">
+                              ${isCompleted ? 'Completata' : 'In Corso'}
+                            </span>
+                          </div>
+                          <div style="margin-bottom: 3px;">
+                            <span style="color: var(--text-muted, #64748b);">📅 Questo segmento:</span> <b>${dateRangeLabel}</b>
+                          </div>
+                          <div style="margin-bottom: 3px;">
+                            <span style="color: var(--text-muted, #64748b);">⏱️ Ore segmento:</span> <b>${cluster.hours}h</b> (${cluster.dates.length} ${cluster.dates.length === 1 ? 'giorno' : 'giorni'})
+                            ${pct > 0 ? `<span style="color: #10b981; font-weight: 650; margin-left: 4px;">(${pct}% completato)</span>` : ''}
+                          </div>
+                          <div style="margin-bottom: 3px;">
+                            <span style="color: var(--text-muted, #64748b);">🗓️ Intervallo totale fase:</span> ${totalPhaseStart} - ${totalPhaseEnd}
+                          </div>
+                          <div style="margin-bottom: 3px;">
+                            <span style="color: var(--text-muted, #64748b);">📊 Budget totale:</span> <b>${totalBudgetH} ore</b> (${task.duration || cluster.dates.length} gg)
+                          </div>
+                          <div style="margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+                            <span style="color: var(--text-muted, #64748b);">Progresso totale:</span>
+                            <b>${progPercent}%</b>
+                            <div style="flex: 1; height: 6px; background: var(--bg-tertiary, #e2e8f0); border-radius: 3px; overflow: hidden;">
+                              <div style="width: ${progPercent}%; height: 100%; background: ${isCompleted ? '#10b981' : '#3b82f6'}; border-radius: 3px;"></div>
+                            </div>
+                          </div>
+                          <div>
+                            <span style="color: var(--text-muted, #64748b);">👤 Addetti:</span> <b>${workersStr}</b>
+                          </div>
+                        </div>
+                      `;
+                    };
+
+                    seg.onmouseenter = (e) => {
+                      if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip) {
+                        gantt.ext.tooltips.tooltip.show(buildTooltipHtml(), { x: e.clientX + 14, y: e.clientY + 14 });
+                      }
+                    };
+
+                    seg.onmousemove = (e) => {
+                      if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip) {
+                        const tooltipNode = typeof gantt.ext.tooltips.tooltip.getNode === 'function'
+                          ? gantt.ext.tooltips.tooltip.getNode()
+                          : document.querySelector('.gantt_tooltip');
+                        if (tooltipNode) {
+                          tooltipNode.style.left = (e.clientX + 14) + 'px';
+                          tooltipNode.style.top = (e.clientY + 14) + 'px';
+                        }
+                      }
+                    };
+
+                    seg.onmouseleave = () => {
+                      if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip) {
+                        gantt.ext.tooltips.tooltip.hide();
+                      }
+                    };
+
+                    seg.onclick = (e) => {
+                      e.stopPropagation();
+                      if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip) {
+                        gantt.ext.tooltips.tooltip.hide();
+                      }
+                      if (onEditTaskRef.current) {
+                        onEditTaskRef.current(task);
+                      }
+                    };
+
+                    seg.ondblclick = (e) => {
+                      e.stopPropagation();
+                      if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip) {
+                        gantt.ext.tooltips.tooltip.hide();
+                      }
+                      if (onEditTaskRef.current) {
+                        onEditTaskRef.current(task);
+                      }
+                    };
+
+                    gantt.$task_data.appendChild(seg);
+                  });
+                }
+              } catch (e) {
+                console.warn("Errore rendering barre custom_dates per task", task.id, e);
+              }
+            }
+          }
+
+
           if (task.type === 'milestone') return;
           if (!task.actual_hours || typeof task.actual_hours !== 'object') return;
           if (!task.start_date || !task.end_date) return;
+
           
           try {
             if (!gantt.isTaskExists(task.id)) return;

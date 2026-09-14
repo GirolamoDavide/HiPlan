@@ -9,12 +9,13 @@ import './ProjectDetailPage.css';
 import { STATUS_LABELS_IT, STATUS_OPTIONS } from '../utils/statusLabels';
 import { PREDEFINED_PHASES, PHASE_DEFAULT_COLORS, getTaskColor } from '../utils/phaseColors';
 import { calculateTaskEffHours, isTaskCompleted } from '../utils/taskCompletion';
-import { addWorkingDays, subtractWorkingDays, countWorkingDays, isWeekendOrHoliday } from '../utils/workingDays';
+import { addWorkingDays, subtractWorkingDays, countWorkingDays, isWeekendOrHoliday, isWorkingDay } from '../utils/workingDays';
 import TaskComments from '../components/tasks/TaskComments';
 import TaskChecklist from '../components/tasks/TaskChecklist';
 import ActivityLogPanel from '../components/projects/ActivityLogModal';
 import AppIcon from '../components/ui/AppIcon';
 import MultiDatePicker from '../components/ui/MultiDatePicker';
+import CustomDatesCalendarPicker from '../components/ui/CustomDatesCalendarPicker';
 import SmartReplanningSection from '../components/projects/SmartReplanningSection';
 import SearchableCombobox from '../components/ui/SearchableCombobox';
 import ReactMarkdown from 'react-markdown';
@@ -326,6 +327,7 @@ export default function ProjectDetailPage() {
   const [actualHoursMap, setActualHoursMap] = useState({});
   const [modalExtraDates, setModalExtraDates] = useState([]);
   const [specificExtraDate, setSpecificExtraDate] = useState('');
+  const lastAddedDateRef = useRef({ date: '', time: 0 });
   const [allVacations, setAllVacations] = useState([]);
   const [openTicketsCount, setOpenTicketsCount] = useState(0);
   const [isAlertsExpanded, setIsAlertsExpanded] = useState(false);
@@ -739,6 +741,58 @@ export default function ProjectDetailPage() {
     return dates;
   }
 
+  // Helper giorni effettivi in cui la fase è stata assegnata (vale per qualsiasi modalità budget e pianificazione)
+  function getAssignedDatesForTask(task) {
+    if (!task) return [];
+
+    // Se la modalità è custom_dates, consideriamo solo le date esplicitamente configurate
+    if (task.budget_mode === 'custom_dates') {
+      let list = task.custom_dates;
+      if (typeof list === 'string') {
+        try { list = JSON.parse(list); } catch (e) { list = []; }
+      }
+      if (Array.isArray(list)) {
+        const dates = list.map(item => {
+          if (typeof item === 'string') return item;
+          if (item && item.date) return item.date;
+          return null;
+        }).filter(Boolean);
+        return Array.from(new Set(dates)).sort();
+      }
+      return [];
+    }
+
+    // Per tutte le altre modalità (start_days, start_end, start_hours, end_days, end_hours, start_days_hours, end_days_hours):
+    // Considera tutti i giorni lavorativi compresi tra start_date ed end_date (esclusi sab, dom, festività nazionali e date escluse)
+    const startStr = formatDateOnly(task.start_date);
+    const endStr = formatDateOnly(task.end_date || task.start_date);
+    if (!startStr) return [];
+
+    let excludedDays = [];
+    if (Array.isArray(task.excluded_dates)) {
+      excludedDays = task.excluded_dates;
+    } else if (typeof task.excluded_dates === 'string') {
+      try { excludedDays = JSON.parse(task.excluded_dates || '[]'); } catch (e) { excludedDays = []; }
+    }
+
+    const dates = [];
+    const start = new Date(startStr + 'T00:00:00');
+    const end = endStr ? new Date(endStr + 'T00:00:00') : new Date(startStr + 'T00:00:00');
+    if (isNaN(start) || isNaN(end)) return [];
+
+    let cur = new Date(start);
+    while (cur <= end) {
+      if (isWorkingDay(cur, excludedDays)) {
+        const y = cur.getFullYear();
+        const m = String(cur.getMonth() + 1).padStart(2, '0');
+        const d = String(cur.getDate()).padStart(2, '0');
+        dates.push(`${y}-${m}-${d}`);
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+    return dates;
+  }
+
   // Calcolo totali di commessa e allerte
   const { totalPrev, totalEff, delaysList } = useMemo(() => {
     let prev = 0;
@@ -930,6 +984,7 @@ export default function ProjectDetailPage() {
       duration_days: 1,
       planned_hours: 8.0,
       budgetMode: 'start_days',
+      custom_dates: [],
       workers: [],
       worker_hours: {},
       customWorker: '',
@@ -981,6 +1036,19 @@ export default function ProjectDetailPage() {
     const mode = realTask.budget_mode || realTask.budgetMode || (Math.abs(taskPlan - taskDur * 8.0) > 0.1 ? 'start_days_hours' : 'start_days');
     setBudgetMode(mode);
 
+    let parsedCustomDates = [];
+    if (realTask.custom_dates) {
+      if (Array.isArray(realTask.custom_dates)) {
+        parsedCustomDates = realTask.custom_dates;
+      } else if (typeof realTask.custom_dates === 'string') {
+        try {
+          parsedCustomDates = JSON.parse(realTask.custom_dates);
+        } catch (err) {
+          parsedCustomDates = [];
+        }
+      }
+    }
+
     const isComp = Number(realTask.completed) === 1 || Number(task.completed) === 1 || isTaskCompleted(realTask) || isTaskCompleted(task);
     const compVal = isComp ? 1 : (Number(realTask.completed) === -1 || Number(task.completed) === -1 ? -1 : 0);
 
@@ -994,6 +1062,7 @@ export default function ProjectDetailPage() {
       duration_days: taskDur,
       planned_hours: taskPlan,
       budgetMode: mode,
+      custom_dates: parsedCustomDates,
       workers: Array.isArray(realTask.workers) ? realTask.workers : [],
       worker_hours: typeof realTask.worker_hours === 'object' ? realTask.worker_hours : {},
       excluded_dates: Array.isArray(realTask.excluded_dates) ? realTask.excluded_dates : [],
@@ -1041,10 +1110,46 @@ export default function ProjectDetailPage() {
         const days = Math.max(1, Number(prev.duration_days) || 1);
         updates.duration_days = days;
         updates.start_date = subtractWorkingDays(prev.end_date || new Date(), days, prev.excluded_dates);
+      } else if (newMode === 'custom_dates') {
+        const cDates = prev.custom_dates && prev.custom_dates.length > 0
+          ? prev.custom_dates
+          : [{ date: prev.start_date || new Date().toISOString().split('T')[0], hours: 8 }];
+        const sorted = [...cDates].sort((a, b) => a.date.localeCompare(b.date));
+        updates.custom_dates = sorted;
+        updates.start_date = sorted[0].date;
+        updates.end_date = sorted[sorted.length - 1].date;
+        updates.duration_days = sorted.length;
+        updates.planned_hours = sorted.reduce((sum, item) => sum + (Number(item.hours) || 8), 0);
       }
       return { ...prev, ...updates };
     });
   }
+
+  function handleCustomDatesChange(newDates) {
+    setTaskForm(prev => {
+      const sorted = [...newDates].sort((a, b) => a.date.localeCompare(b.date));
+      let s = prev.start_date;
+      let e = prev.end_date;
+      let dur = prev.duration_days;
+      let hrs = prev.planned_hours;
+
+      if (sorted.length > 0) {
+        s = sorted[0].date;
+        e = sorted[sorted.length - 1].date;
+        dur = sorted.length;
+        hrs = sorted.reduce((sum, item) => sum + (Number(item.hours) || 8), 0);
+      }
+      return {
+        ...prev,
+        custom_dates: sorted,
+        start_date: s,
+        end_date: e,
+        duration_days: dur,
+        planned_hours: hrs,
+      };
+    });
+  }
+
 
   function handleStartDateChange(newStart) {
     setTaskForm(prev => {
@@ -1175,6 +1280,9 @@ export default function ProjectDetailPage() {
       finalWorkerHours = { [taskForm.workers[0]]: plannedHours };
     }
 
+    const isCustomDates = (taskForm.budgetMode || budgetMode) === 'custom_dates';
+    const customDatesPayload = isCustomDates ? (taskForm.custom_dates || []) : [];
+
     const payload = {
       text: taskName.trim(),
       start_date: taskForm.start_date,
@@ -1187,6 +1295,7 @@ export default function ProjectDetailPage() {
       color: taskForm.color || (isMilestone ? '#f59e0b' : null),
       department: taskForm.department || null,
       budget_mode: taskForm.budgetMode || budgetMode || 'start_days',
+      custom_dates: customDatesPayload,
       completed: isMilestone ? 0 : (taskForm.completed !== undefined && taskForm.completed !== null ? Number(taskForm.completed) : 0),
       excluded_dates: taskForm.excluded_dates || [],
     };
@@ -1305,10 +1414,7 @@ export default function ProjectDetailPage() {
     }
     setActualHoursMap(initialMap);
 
-    const plannedDates = getWorkDatesBetween(
-      task.start_date ? task.start_date.split(' ')[0] : '',
-      task.end_date ? task.end_date.split(' ')[0] : ''
-    );
+    const plannedDates = getAssignedDatesForTask(task);
     const plannedSet = new Set(plannedDates);
     const existingExtraDates = [];
 
@@ -1331,22 +1437,30 @@ export default function ProjectDetailPage() {
 
   function handleSpecificDateChange(dateStr) {
     if (!dateStr || !selectedTaskForHours) return;
+
+    // Evita doppi eventi generati in rapida successione dal datepicker del browser
+    if (lastAddedDateRef.current.date === dateStr && (Date.now() - lastAddedDateRef.current.time < 1500)) {
+      setSpecificExtraDate('');
+      return;
+    }
+
     if (project && project.end_date && dateStr > project.end_date) {
       toast.error(`Non è possibile aggiungere giorni oltre la fine della commessa (${formatDateItalian(project.end_date)}).`);
       setSpecificExtraDate('');
       return;
     }
-    const plannedDates = getWorkDatesBetween(
-      selectedTaskForHours.start_date ? selectedTaskForHours.start_date.split(' ')[0] : '',
-      selectedTaskForHours.end_date ? selectedTaskForHours.end_date.split(' ')[0] : ''
-    );
+    const plannedDates = getAssignedDatesForTask(selectedTaskForHours);
     const allCurrentDates = Array.from(new Set([...plannedDates, ...modalExtraDates]));
     if (allCurrentDates.includes(dateStr)) {
       toast.error('La data selezionata è già presente nella tabella.');
       setSpecificExtraDate('');
       return;
     }
-    setModalExtraDates(prev => [...prev, dateStr].sort());
+    lastAddedDateRef.current = { date: dateStr, time: Date.now() };
+    setModalExtraDates(prev => {
+      if (prev.includes(dateStr)) return prev;
+      return [...prev, dateStr].sort();
+    });
     toast.success(`Aggiunta colonna: ${dateStr.split('-').reverse().join('/')}`);
     setSpecificExtraDate('');
   }
@@ -1354,10 +1468,7 @@ export default function ProjectDetailPage() {
   function handleAddExtraDayToModal() {
     if (!selectedTaskForHours) return;
     // Aggiunge sempre il prossimo giorno lavorativo dopo l'ultimo presente
-    const plannedDates = getWorkDatesBetween(
-      selectedTaskForHours.start_date ? selectedTaskForHours.start_date.split(' ')[0] : '',
-      selectedTaskForHours.end_date ? selectedTaskForHours.end_date.split(' ')[0] : ''
-    );
+    const plannedDates = getAssignedDatesForTask(selectedTaskForHours);
     const allCurrentDates = Array.from(new Set([...plannedDates, ...modalExtraDates])).sort();
     let baseDateStr = allCurrentDates.length > 0
       ? allCurrentDates[allCurrentDates.length - 1]
@@ -3281,74 +3392,143 @@ export default function ProjectDetailPage() {
                             <option value="end_days">Data Fine / Giorni (calcola data inizio a ritroso escludendo sab/dom e festivi)</option>
                             <option value="start_days_hours">Data Inizio / Giorni / Ore (es. 24h spalmate su 10 gg escludendo sab/dom e festivi)</option>
                             <option value="end_days_hours">Data Fine / Giorni / Ore (es. 24h spalmate a ritroso su 10 gg escludendo sab/dom e festivi)</option>
+                            <option value="custom_dates">📅 Selezione Date da Calendario (giorni singoli o contigui con ore personalizzate/8h)</option>
                           </select>
                         </div>
 
-                        <div style={{ display: 'flex', gap: 12 }}>
-                          <div className="input-group" style={{ flex: 1 }}>
-                            <label>Data Avvio Lavorazione</label>
-                            <input
-                              type="date"
-                              className="input"
-                              value={taskForm.start_date}
-                              onChange={(e) => handleStartDateChange(e.target.value)}
-                              disabled={budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours'}
-                              style={{ opacity: (budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours') ? 0.6 : 1 }}
-                              title={(budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours') ? "Data inizio calcolata automaticamente a ritroso" : ""}
+                        {budgetMode === 'custom_dates' ? (
+                          <div style={{ marginTop: 12 }}>
+                            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                              <div className="input-group" style={{ flex: 1 }}>
+                                <label>Data Inizio (prima data)</label>
+                                <input
+                                  type="date"
+                                  className="input"
+                                  value={taskForm.start_date}
+                                  readOnly
+                                  style={{ background: 'var(--bg-tertiary)', opacity: 0.85, cursor: 'not-allowed' }}
+                                  title="Calcolata automaticamente dalla prima data selezionata"
+                                />
+                              </div>
+                              <div className="input-group" style={{ flex: 1 }}>
+                                <label>Data Fine (ultima data)</label>
+                                <input
+                                  type="date"
+                                  className="input"
+                                  value={taskForm.end_date}
+                                  readOnly
+                                  style={{ background: 'var(--bg-tertiary)', opacity: 0.85, cursor: 'not-allowed' }}
+                                  title="Calcolata automaticamente dall'ultima data selezionata"
+                                />
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                              <div className="input-group" style={{ flex: 1 }}>
+                                <label>Giorni Lavorativi Selezionati</label>
+                                <div style={{ position: 'relative' }}>
+                                  <input
+                                    type="number"
+                                    className="input"
+                                    readOnly
+                                    value={taskForm.duration_days || (taskForm.custom_dates?.length || 0)}
+                                    style={{ fontWeight: 600, color: 'var(--accent-500)', paddingRight: '70px', background: 'var(--bg-tertiary)', cursor: 'not-allowed' }}
+                                  />
+                                  <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>giorni</span>
+                                </div>
+                              </div>
+                              <div className="input-group" style={{ flex: 1 }}>
+                                <label>Totale Ore Previste (Budget)</label>
+                                <div style={{ position: 'relative' }}>
+                                  <input
+                                    type="number"
+                                    className="input"
+                                    readOnly
+                                    value={taskForm.planned_hours}
+                                    style={{ fontWeight: 600, color: 'var(--success)', paddingRight: '60px', background: 'var(--bg-tertiary)', cursor: 'not-allowed' }}
+                                  />
+                                  <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>ore</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Calendario interattivo per la selezione delle date e ore */}
+                            <CustomDatesCalendarPicker
+                              customDates={taskForm.custom_dates || []}
+                              onChange={handleCustomDatesChange}
+                              workers={taskForm.workers || []}
+                              allVacations={allVacations}
+                              initialDate={taskForm.start_date}
                             />
                           </div>
-                          <div className="input-group" style={{ flex: 1 }}>
-                            <label>Data Fine Lavorazione</label>
-                            <input
-                              type="date"
-                              className="input"
-                              value={taskForm.end_date}
-                              onChange={(e) => handleEndDateChange(e.target.value)}
-                              disabled={budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours'}
-                              style={{ opacity: (budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours') ? 0.6 : 1 }}
-                              title={(budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours') ? "Data fine calcolata automaticamente escludendo sab e dom" : ""}
-                            />
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-                          <div className="input-group" style={{ flex: 1 }}>
-                            <label>Durata in Giorni (Lavorativi: Lun-Ven)</label>
-                            <div style={{ position: 'relative' }}>
-                              <input
-                                type="number"
-                                min="1"
-                                step="1"
-                                className="input"
-                                style={{ fontWeight: 600, color: 'var(--accent-500)', paddingRight: '70px', opacity: (budgetMode === 'start_end' || budgetMode === 'start_hours' || budgetMode === 'end_hours') ? 0.6 : 1 }}
-                                value={taskForm.duration_days}
-                                onChange={(e) => handleDurationDaysChange(e.target.value)}
-                                disabled={budgetMode === 'start_end' || budgetMode === 'start_hours' || budgetMode === 'end_hours'}
-                              />
-                              <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>giorni</span>
+                        ) : (
+                          <>
+                            <div style={{ display: 'flex', gap: 12 }}>
+                              <div className="input-group" style={{ flex: 1 }}>
+                                <label>Data Avvio Lavorazione</label>
+                                <input
+                                  type="date"
+                                  className="input"
+                                  value={taskForm.start_date}
+                                  onChange={(e) => handleStartDateChange(e.target.value)}
+                                  disabled={budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours'}
+                                  style={{ opacity: (budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours') ? 0.6 : 1 }}
+                                  title={(budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours') ? "Data inizio calcolata automaticamente a ritroso" : ""}
+                                />
+                              </div>
+                              <div className="input-group" style={{ flex: 1 }}>
+                                <label>Data Fine Lavorazione</label>
+                                <input
+                                  type="date"
+                                  className="input"
+                                  value={taskForm.end_date}
+                                  onChange={(e) => handleEndDateChange(e.target.value)}
+                                  disabled={budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours'}
+                                  style={{ opacity: (budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours') ? 0.6 : 1 }}
+                                  title={(budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours') ? "Data fine calcolata automaticamente escludendo sab e dom" : ""}
+                                />
+                              </div>
                             </div>
-                          </div>
-                          <div className="input-group" style={{ flex: 1 }}>
-                            <label>Durata in Ore (Budget Lavoro)</label>
-                            <div style={{ position: 'relative' }}>
-                              <input
-                                type="number"
-                                min="0.5"
-                                step="0.5"
-                                className="input"
-                                style={{ fontWeight: 600, color: 'var(--success)', paddingRight: '60px', opacity: (budgetMode === 'start_days' || budgetMode === 'end_days') ? 0.6 : 1 }}
-                                value={taskForm.planned_hours}
-                                onChange={(e) => handlePlannedHoursChange(e.target.value)}
-                                disabled={budgetMode === 'start_days' || budgetMode === 'end_days'}
-                              />
-                              <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>ore</span>
-                            </div>
-                          </div>
-                        </div>
 
+                            <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                              <div className="input-group" style={{ flex: 1 }}>
+                                <label>Durata in Giorni (Lavorativi: Lun-Ven)</label>
+                                <div style={{ position: 'relative' }}>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    className="input"
+                                    style={{ fontWeight: 600, color: 'var(--accent-500)', paddingRight: '70px', opacity: (budgetMode === 'start_end' || budgetMode === 'start_hours' || budgetMode === 'end_hours') ? 0.6 : 1 }}
+                                    value={taskForm.duration_days}
+                                    onChange={(e) => handleDurationDaysChange(e.target.value)}
+                                    disabled={budgetMode === 'start_end' || budgetMode === 'start_hours' || budgetMode === 'end_hours'}
+                                  />
+                                  <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>giorni</span>
+                                </div>
+                              </div>
+                              <div className="input-group" style={{ flex: 1 }}>
+                                <label>Durata in Ore (Budget Lavoro)</label>
+                                <div style={{ position: 'relative' }}>
+                                  <input
+                                    type="number"
+                                    min="0.5"
+                                    step="0.5"
+                                    className="input"
+                                    style={{ fontWeight: 600, color: 'var(--success)', paddingRight: '60px', opacity: (budgetMode === 'start_days' || budgetMode === 'end_days') ? 0.6 : 1 }}
+                                    value={taskForm.planned_hours}
+                                    onChange={(e) => handlePlannedHoursChange(e.target.value)}
+                                    disabled={budgetMode === 'start_days' || budgetMode === 'end_days'}
+                                  />
+                                  <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>ore</span>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </>
                   )}
+
 
                   {/* Reparto */}
                   <div className="input-group" style={{ marginTop: 16 }}>
@@ -3468,7 +3648,7 @@ export default function ProjectDetailPage() {
                           </div>
                         </div>
 
-                        {taskForm.workers && taskForm.workers.length > 0 && taskForm.start_date && (
+                        {budgetMode !== 'custom_dates' && taskForm.workers && taskForm.workers.length > 0 && taskForm.start_date && (
                           <div style={{ marginTop: 16 }}>
                             <h4 style={{ marginBottom: 8, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Calendario Ferie</h4>
                             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8, marginBottom: 8 }}>
@@ -3608,7 +3788,18 @@ export default function ProjectDetailPage() {
       {/* MODALE CONSUNTIVO ORE EFFETTIVE (ORE MODAL) */}
       {showOreModal && selectedTaskForHours && (
         <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 1200, width: '95vw' }} onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal"
+            style={{
+              maxWidth: 'min(1560px, 97vw)',
+              width: '97vw',
+              maxHeight: '94vh',
+              padding: '24px 28px',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header" style={{ flexWrap: 'wrap', gap: 12 }}>
               <div style={{ flex: 1, minWidth: 240 }}>
                 <h2 className="inline-heading"><AppIcon name="clock" size={18} />Giornale ore consuntivate</h2>
@@ -3642,7 +3833,11 @@ export default function ProjectDetailPage() {
                   <input
                     type="date"
                     value={specificExtraDate}
-                    onChange={e => handleSpecificDateChange(e.target.value)}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (!val) return;
+                      handleSpecificDateChange(val);
+                    }}
                     style={{ border: 'none', background: 'transparent', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer', width: specificExtraDate ? 'auto' : 100 }}
                     title="Scegli una data specifica da aggiungere — si inserisce subito"
                   />
@@ -3675,11 +3870,17 @@ export default function ProjectDetailPage() {
             </div>
 
             {(() => {
-              const plannedDates = getWorkDatesBetween(
-                selectedTaskForHours.start_date ? selectedTaskForHours.start_date.split(' ')[0] : '',
-                selectedTaskForHours.end_date ? selectedTaskForHours.end_date.split(' ')[0] : ''
-              );
+              const plannedDates = getAssignedDatesForTask(selectedTaskForHours);
               const datesSet = new Set([...plannedDates, ...modalExtraDates]);
+              Object.values(actualHoursMap).forEach(workerMap => {
+                if (workerMap && typeof workerMap === 'object') {
+                  Object.keys(workerMap).forEach(dKey => {
+                    if (dKey !== '__extra__' && /^\d{4}-\d{2}-\d{2}$/.test(dKey) && workerMap[dKey] !== '' && workerMap[dKey] !== undefined && workerMap[dKey] !== null) {
+                      datesSet.add(dKey);
+                    }
+                  });
+                }
+              });
               const dates = Array.from(datesSet).sort();
               const plannedSet = new Set(plannedDates);
 
@@ -3692,6 +3893,18 @@ export default function ProjectDetailPage() {
               });
               const workers = Array.from(allWorkersSet);
 
+              const isCustomDates = selectedTaskForHours.budget_mode === 'custom_dates';
+              let customDatesList = [];
+              if (isCustomDates) {
+                let cList = selectedTaskForHours.custom_dates;
+                if (typeof cList === 'string') {
+                  try { cList = JSON.parse(cList); } catch (e) { cList = []; }
+                }
+                if (Array.isArray(cList)) {
+                  customDatesList = cList.map(item => typeof item === 'string' ? { date: item, hours: 8 } : { date: item.date, hours: Number(item.hours) || 8 });
+                }
+              }
+
               const oreGgTotale = plannedDates.length > 0 ? workers.reduce((acc, w) => {
                 const wAssigned = (selectedTaskForHours.worker_hours && selectedTaskForHours.worker_hours[w] !== undefined && selectedTaskForHours.worker_hours[w] !== '')
                   ? Number(selectedTaskForHours.worker_hours[w])
@@ -3700,12 +3913,12 @@ export default function ProjectDetailPage() {
               }, 0) : (Number(selectedTaskForHours.planned_hours || 8));
 
               return (
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ overflowX: 'auto', maxHeight: 520 }}>
+                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                  <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(94vh - 240px)', minHeight: 280, border: '1px solid var(--border-default)', borderRadius: 8 }}>
                     <table className="ore-grid-table">
                       <thead>
                         <tr>
-                          <th style={{ minWidth: 130, textAlign: 'left' }}>Addetto / Giorno</th>
+                          <th style={{ minWidth: 140, textAlign: 'left' }}>Addetto / Giorno</th>
                           {dates.map(d => {
                             const dateObj = new Date(d + 'T00:00:00');
                             const isFestivo = isWeekendOrHoliday(dateObj);
@@ -3713,7 +3926,7 @@ export default function ProjectDetailPage() {
                             const dayName = shortDay.charAt(0).toUpperCase() + shortDay.slice(1);
 
                             return (
-                              <th key={d} style={{ minWidth: 85, background: !plannedSet.has(d) ? 'rgba(239, 68, 68, 0.08)' : (isFestivo ? '#fef08a' : undefined) }}>
+                              <th key={d} style={{ minWidth: 88, background: !plannedSet.has(d) ? 'rgba(239, 68, 68, 0.08)' : (isFestivo ? '#fef08a' : undefined) }}>
                                 <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: isFestivo ? '#b45309' : 'var(--text-primary)', marginBottom: '2px' }}>
                                   {dayName}
                                 </span>
@@ -3726,7 +3939,7 @@ export default function ProjectDetailPage() {
                               </th>
                             );
                           })}
-                          <th style={{ minWidth: 135 }}>Totale Addetto</th>
+                          <th style={{ minWidth: 140 }}>Totale Addetto</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3737,17 +3950,13 @@ export default function ProjectDetailPage() {
                             : null;
                           const targetH = assignedH !== null ? assignedH : (assignedWorkers.includes(w) ? Number((Number(selectedTaskForHours.planned_hours || 8) / assignedWorkers.length).toFixed(1)) : 0);
 
-                          const excludedDays = Array.isArray(selectedTaskForHours.excluded_dates) ? selectedTaskForHours.excluded_dates :
-                            (typeof selectedTaskForHours.excluded_dates === 'string' ? JSON.parse(selectedTaskForHours.excluded_dates || '[]') : []);
-
                           const activeDates = dates.filter(d => {
                             if (!plannedSet.has(d)) return false;
-                            if (excludedDays.includes(d)) return false;
                             if (allVacations.some(v => v.username === w && d >= v.start_date && d <= v.end_date)) return false;
                             return true;
                           });
 
-                          const workerDailyTarget = activeDates.length > 0 ? (targetH / activeDates.length) : 0;
+                          const defaultWorkerDailyTarget = activeDates.length > 0 ? (targetH / activeDates.length) : 0;
 
                           const isCurrentUser = (w === user?.username || w === (user?.full_name || user?.username));
                           return (
@@ -3759,10 +3968,27 @@ export default function ProjectDetailPage() {
                                 const val = (actualHoursMap[w] && actualHoursMap[w][d]) || '';
                                 totW += Number(val) || 0;
                                 const isHoliday = allVacations.some(v => v.username === w && d >= v.start_date && d <= v.end_date);
-                                const isExcluded = excludedDays.includes(d);
                                 const isExtra = !plannedSet.has(d);
-                                const isActiveDay = !isExtra && !isExcluded && !isHoliday;
-                                const dayPrevHours = isActiveDay ? workerDailyTarget : 0;
+                                const isActiveDay = !isExtra && !isHoliday;
+
+                                let dayPrevHours = 0;
+                                if (isActiveDay) {
+                                  if (isCustomDates) {
+                                    const cItem = customDatesList.find(c => c.date === d);
+                                    if (cItem && cItem.hours !== undefined) {
+                                      const totalCustomTaskH = customDatesList.reduce((acc, it) => acc + (Number(it.hours) || 8), 0);
+                                      if (totalCustomTaskH > 0 && targetH > 0) {
+                                        dayPrevHours = (cItem.hours * targetH) / totalCustomTaskH;
+                                      } else {
+                                        dayPrevHours = assignedWorkers.length > 0 ? (cItem.hours / assignedWorkers.length) : cItem.hours;
+                                      }
+                                    } else {
+                                      dayPrevHours = defaultWorkerDailyTarget;
+                                    }
+                                  } else {
+                                    dayPrevHours = defaultWorkerDailyTarget;
+                                  }
+                                }
 
                                 return (
                                   <td key={d}>
@@ -3773,7 +3999,7 @@ export default function ProjectDetailPage() {
                                         min="0"
                                         max="24"
                                         className="ore-input"
-                                        style={isHoliday || isExcluded ? { backgroundColor: '#fef08a' } : {}}
+                                        style={isHoliday ? { backgroundColor: '#fef08a' } : {}}
                                         disabled={user?.role !== 'admin' && w !== user?.username && w !== (user?.full_name || user?.username)}
                                         value={val}
                                         placeholder={`${dayPrevHours.toFixed(1)}h`}
@@ -3787,8 +4013,7 @@ export default function ProjectDetailPage() {
                                         }}
                                       />
                                       {isHoliday && <span style={{ fontSize: '0.65rem', color: '#b45309', fontWeight: 'bold' }}>Ferie</span>}
-                                      {isExcluded && !isHoliday && <span style={{ fontSize: '0.65rem', color: '#b45309', fontWeight: 'bold' }}>Saltato</span>}
-                                      {!isHoliday && !isExcluded && (
+                                      {!isHoliday && (
                                         <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)' }}>
                                           ({dayPrevHours.toFixed(1)}h prev)
                                         </span>
