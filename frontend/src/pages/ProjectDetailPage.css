@@ -417,19 +417,182 @@
   gap: 4px;
 }
 
-.task-editor-modal {
+.modal.task-editor-modal {
   padding: 0 !important;
+  max-width: min(1560px, 96vw) !important;
+  width: 96vw !important;
+  height: 92vh !important;
+  max-height: 94vh !important;
   display: flex !important;
   flex-direction: column !important;
+  border-radius: var(--radius-xl) !important;
   overflow: hidden !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45) !important;
 }
 
-.task-editor-modal > .modal-header {
-  padding: 24px 24px 20px 24px !important;
-  margin-bottom: 0 !important;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
+.modal.task-editor-modal > .modal-header {
+  padding: 14px 28px !important;
+  margin: 0 !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  background: var(--bg-secondary) !important;
+  flex-shrink: 0 !important;
 }
+
+.task-form-layout {
+  display: grid;
+  grid-template-columns: minmax(380px, 1fr) minmax(500px, 1.25fr);
+  gap: 22px;
+  padding: 22px 28px;
+  overflow-y: auto;
+  flex: 1;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .task-form-layout {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 16px 20px;
+  }
+}
+
+.task-card-section {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.task-card-section-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+/* Tab switcher a pill nel modal header */
+.task-tab-switcher {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 3px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.task-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  line-height: 1.2;
+}
+
+.task-tab-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.task-tab-btn.active {
+  background: var(--bg-primary);
+  color: var(--accent-600);
+  border-color: var(--border-subtle);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  font-weight: 700;
+}
+
+.worker-selector-chip:hover,
+.dept-selector-pill:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+/* Selettore tipo di voce (Fase / Milestone) */
+.task-type-selector {
+  background: var(--bg-primary) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 12px !important;
+  padding: 14px 16px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.task-type-selector > label:first-child {
+  display: block;
+  font-size: 0.75rem !important;
+  font-weight: 800 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary) !important;
+  margin-bottom: 10px !important;
+}
+
+.task-type-selector > div {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 12px !important;
+}
+
+.task-type-option {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 12px 14px !important;
+  border: 1.5px solid var(--border-default) !important;
+  border-radius: 10px !important;
+  background: var(--bg-secondary) !important;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  margin: 0 !important;
+}
+
+.task-type-option:hover {
+  border-color: var(--accent-500) !important;
+  background: var(--bg-hover) !important;
+}
+
+.task-type-option.selected {
+  border-color: var(--accent-500) !important;
+  background: var(--accent-soft) !important;
+  box-shadow: 0 0 0 1px var(--accent-500);
+}
+
+.task-type-option input[type="radio"] {
+  width: 18px !important;
+  height: 18px !important;
+  margin: 0 !important;
+  accent-color: var(--accent-500);
+  cursor: pointer;
+}
+
+.task-type-option .option-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+
 
 
 

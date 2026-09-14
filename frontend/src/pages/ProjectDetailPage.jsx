@@ -3132,652 +3132,683 @@ export default function ProjectDetailPage() {
       {/* MODALE NUOVA / MODIFICA FASE (TASK MODAL) */}
       {showTaskModal && (
         <div className="modal-overlay">
-          <div className="modal task-editor-modal" style={{ maxWidth: 1100, minHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>{editingTask ? 'Dettagli Fase Lavorazione' : 'Nuova Fase Lavorazione'}</h2>
-              <button className="btn-ghost btn-icon" onClick={() => setShowTaskModal(false)} aria-label="Chiudi" style={{ marginRight: '-45px' }}>
+          <div
+            className="modal task-editor-modal"
+            style={{
+              maxWidth: 'min(1560px, 96vw)',
+              width: '96vw',
+              height: '92vh',
+              maxHeight: '94vh',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+                <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>
+                  {editingTask ? 'Dettagli Fase Lavorazione' : 'Nuova Fase Lavorazione'}
+                </h2>
+                {editingTask && (
+                  <div className="task-tab-switcher">
+                    {canManageProject && (
+                      <button
+                        type="button"
+                        className={`task-tab-btn ${taskModalTab === 'generale' ? 'active' : ''}`}
+                        onClick={() => setTaskModalTab('generale')}
+                      >
+                        <AppIcon name="edit" size={15} />
+                        <span>Generale</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={`task-tab-btn ${taskModalTab === 'checklist' ? 'active' : ''}`}
+                      onClick={() => setTaskModalTab('checklist')}
+                    >
+                      <AppIcon name="checkSquare" size={15} />
+                      <span>Checklist</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`task-tab-btn ${taskModalTab === 'commenti' ? 'active' : ''}`}
+                      onClick={() => setTaskModalTab('commenti')}
+                    >
+                      <AppIcon name="messageSquare" size={15} />
+                      <span>Commenti</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button className="btn-ghost btn-icon" onClick={() => setShowTaskModal(false)} aria-label="Chiudi">
                 <AppIcon name="close" />
               </button>
             </div>
 
-            {editingTask && (
-              <div className="ut-tabs" style={{ marginBottom: 16, paddingBottom: 5 }}>
-                {canManageProject && (
-                  <button className={`ut-tab-btn ${taskModalTab === 'generale' ? 'active' : ''}`} onClick={() => setTaskModalTab('generale')}>
-                    Generale
-                  </button>
-                )}
-                <button className={`ut-tab-btn ${taskModalTab === 'checklist' ? 'active' : ''}`} onClick={() => setTaskModalTab('checklist')}>
-                  Checklist
-                </button>
-                <button className={`ut-tab-btn ${taskModalTab === 'commenti' ? 'active' : ''}`} onClick={() => setTaskModalTab('commenti')}>
-                  Commenti
-                </button>
-              </div>
-            )}
+            {taskModalTab === 'generale' && (() => {
+              const isMilestone = taskForm.taskType === 'milestone';
+              const currentAssignedTotal = taskForm.workers.reduce((sum, w) => sum + (Number(taskForm.worker_hours?.[w]) || 0), 0);
+              const sDateForBudget = taskForm.start_date;
+              const eDateForBudget = taskForm.end_date;
+              const diffDaysForBudget = sDateForBudget && eDateForBudget ? countWorkingDays(sDateForBudget, eDateForBudget, taskForm.excluded_dates) : 1;
+              const finalDaysForBudget = Math.max(1, Number(taskForm.duration_days) || diffDaysForBudget);
+              const currentBudgetTotal = isMilestone ? 0 : (Number(taskForm.planned_hours) || (finalDaysForBudget * 8.0));
 
-            {taskModalTab === 'generale' && (
-              <form onSubmit={handleSaveTaskForm} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-                <div style={{ flex: 1, overflowY: 'auto', padding: '10px 4px', marginRight: -8, paddingRight: 12 }}>
-                  {/* Scelta Tipo Fase: Normale o Milestone (Linea Verticale / Evento) */}
-                  <div className="task-type-selector">
-                    <label>Tipo di Voce:</label>
-                    <div>
-                      <label className={`task-type-option ${taskForm.taskType !== 'milestone' ? 'selected' : ''}`}>
-                        <input
-                          type="radio"
-                          name="taskType"
-                          value="task"
-                          checked={taskForm.taskType !== 'milestone'}
-                          onChange={() => setTaskForm({ ...taskForm, taskType: 'task' })}
-                        />
-                        <div className="option-content">
-                          <div className="option-title">
-                            <AppIcon name="list" size={18} />
-                            Fase di lavorazione
-                          </div>
-                        </div>
-                      </label>
-                      <label className={`task-type-option ${taskForm.taskType === 'milestone' ? 'selected' : ''}`}>
-                        <input
-                          type="radio"
-                          name="taskType"
-                          value="milestone"
-                          checked={taskForm.taskType === 'milestone'}
-                          onChange={() => setTaskForm({ ...taskForm, taskType: 'milestone', color: taskForm.color === PHASE_DEFAULT_COLORS[PREDEFINED_PHASES[0]] ? '#f59e0b' : taskForm.color })}
-                        />
-                        <div className="option-content">
-                          <div className="option-title">
-                            <AppIcon name="calendar" size={18} />
-                            Milestone
-                          </div>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
+              const roundedAssigned = Math.round(currentAssignedTotal * 10) / 10;
+              const roundedBudget = Math.round(currentBudgetTotal * 10) / 10;
+              const isOverBudget = !isMilestone && roundedAssigned > roundedBudget;
 
-                  <div className="input-group" style={{ position: 'relative' }}>
-                    <label>{taskForm.taskType === 'milestone' ? 'Nome Evento / Scadenza *' : 'Fase di Lavorazione *'}</label>
-                    <SearchableCombobox
-                      options={getAvailableTemplates().map(tpl => ({
-                        value: tpl.name,
-                        label: tpl.name,
-                        department: (tpl.department && tpl.department !== 'tutti') ? tpl.department : 'condivisa',
-                        ...tpl
-                      }))}
-                      value={taskForm.faseSel === '__custom__' ? taskForm.customText : taskForm.faseSel}
-                      onChange={(val, opt) => {
-                        if (opt) {
-                          if (opt.default_budget_mode) {
-                            setBudgetMode(opt.default_budget_mode);
-                          }
-                          const newDays = opt.default_days != null ? opt.default_days : taskForm.duration_days;
-                          const newHours = opt.default_hours != null ? opt.default_hours : taskForm.planned_hours;
-                          const sDate = taskForm.start_date || new Date().toISOString().split('T')[0];
-                          const newEnd = addWorkingDays(sDate, newDays, taskForm.excluded_dates);
-                          setTaskForm({
-                            ...taskForm,
-                            faseSel: opt.name,
-                            customText: '',
-                            color: opt.default_color || PHASE_DEFAULT_COLORS[opt.name] || taskForm.color,
-                            duration_days: newDays,
-                            planned_hours: newHours,
-                            end_date: newEnd,
-                            department: opt.department && opt.department !== 'tutti' ? opt.department : 'condivisa'
-                          });
-                        } else {
-                          setTaskForm({
-                            ...taskForm,
-                            faseSel: '__custom__',
-                            customText: val
-                          });
-                        }
-                      }}
-                      placeholder="Seleziona o digita una nuova fase..."
-                      allowCustom={true}
-                      groupBy={user?.role === 'admin' ? 'department' : undefined}
-                      groupLabels={deptNameMap}
-                      renderOption={(opt, searchStr) => (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <span style={{ width: 12, height: 12, borderRadius: '50%', background: opt.default_color || PHASE_DEFAULT_COLORS[opt.name] || '#3b82f6', border: '1px solid var(--border-default)', flexShrink: 0 }} />
-                            <span style={{ fontWeight: (taskForm.faseSel === opt.name || taskForm.customText === opt.name) ? 600 : 400, color: 'var(--text-primary)' }}>{opt.name}</span>
-                          </div>
-                          <button
-                            type="button"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleDeleteTemplateFromDropdown(opt);
-                            }}
-                            className="btn-ghost btn-icon"
-                            style={{ padding: '2px 6px', color: 'var(--danger)', fontSize: '0.9rem' }}
-                            title="Elimina dall'elenco a tendina"
-                          >
-                            <AppIcon name="trash" size={14} />
-                          </button>
-                        </div>
-                      )}
-                    />
-                    {taskForm.faseSel === '__custom__' && taskForm.customText && (
-                      <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 6, border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <AppIcon name="alert" size={14} style={{ color: 'var(--accent-500)' }} /> Questa nuova fase verrà automaticamente aggiunta all'elenco suggerito per il reparto selezionato:
-                        </span>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-                          {DEPT_OPTIONS.map(d => {
-                            const currentVal = taskForm.department || user?.department || 'ufficio_tecnico';
-                            const isSelected = currentVal === d.value;
-                            return (
-                              <div
-                                key={d.value}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  setTaskForm({
-                                    ...taskForm,
-                                    department: d.value,
-                                    color: d.color === '#6b7280' ? taskForm.color : d.color
-                                  });
-                                }}
-                                style={{
-                                  padding: '4px 12px', borderRadius: 20, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
-                                  background: isSelected ? (d.color + '22') : 'var(--bg-primary)',
-                                  color: isSelected ? d.color : 'var(--text-secondary)',
-                                  border: `1px solid ${isSelected ? (d.color + '44') : 'var(--border-default)'}`,
-                                  transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: 6
-                                }}
-                              >
-                                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: d.color, opacity: isSelected ? 1 : 0.4 }} />
-                                {d.label}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+              let totalColor = 'var(--text-secondary)';
+              if (!isMilestone) {
+                if (roundedAssigned < roundedBudget) totalColor = '#f59e0b';
+                else if (roundedAssigned === roundedBudget) totalColor = '#10b981';
+                else totalColor = '#ef4444';
+              }
 
-                  {/* Colore personalizzato della fase */}
-                  <div className="input-group" style={{ marginTop: 14 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span>Colore Fase (Gantt & Timeline)</span>
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>Personalizzabile</span>
-                    </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
-                      <input
-                        type="color"
-                        value={taskForm.color || '#3b82f6'}
-                        onChange={(e) => setTaskForm({ ...taskForm, color: e.target.value })}
-                        style={{ width: 44, height: 38, padding: 2, border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-tertiary)' }}
-                      />
-                      <input
-                        type="text"
-                        className="input"
-                        value={(taskForm.color || '#3b82f6').toUpperCase()}
-                        onChange={(e) => setTaskForm({ ...taskForm, color: e.target.value })}
-                        style={{ width: 100, fontFamily: 'monospace' }}
-                        maxLength={7}
-                      />
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {Object.values(PHASE_DEFAULT_COLORS).slice(0, 8).map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            onClick={() => setTaskForm({ ...taskForm, color: c })}
-                            style={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: '50%',
-                              backgroundColor: c,
-                              border: taskForm.color === c ? '2px solid #fff' : '1px solid var(--border-subtle)',
-                              boxShadow: taskForm.color === c ? '0 0 0 2px var(--accent-500)' : 'none',
-                              cursor: 'pointer',
-                              padding: 0
-                            }}
-                            title={`Colore preset: ${c}`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-
-                  {/* Data di Fine Commessa visibile sopra la pianificazione */}
-                  <div style={{ marginTop: '10px', padding: '10px 14px', background: 'var(--bg-tertiary)', borderRadius: '6px', borderLeft: '3px solid var(--accent-500)', display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.9rem' }}>
-                    <AppIcon name="calendar" size={16} style={{ color: 'var(--accent-500)' }} />
-                    <strong>Fine Commessa:</strong>
-                    <span style={{ color: 'var(--text-primary)' }}>{project?.end_date ? formatDateItalian(project.end_date) : 'Non impostata'}</span>
-                  </div>
-
-                  {/* Sezione Pianificazione Temporale e Durate / Data Evento */}
-                  {taskForm.taskType === 'milestone' ? (
-                    <div className="task-form-section milestone-section">
-                      <div className="task-form-section-title">
-                        <AppIcon name="calendar" />
-                        Data evento o milestone
-                      </div>
-                      <div className="input-group" style={{ maxWidth: 260 }}>
-                        <label>Data Evento</label>
-                        <input
-                          type="date"
-                          className="input"
-                          value={taskForm.start_date}
-                          onChange={(e) => setTaskForm({ ...taskForm, start_date: e.target.value, end_date: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="task-form-section">
-                        <div className="task-form-section-title">
-                          <AppIcon name="calendar" />
-                          Pianificazione e durata
-                        </div>
-
-                        {/* Scelta Modalità Budget e Pianificazione Date */}
-                        <div style={{ marginTop: 8, marginBottom: 16, padding: '12px', background: 'var(--bg-tertiary)', borderRadius: '8px', border: '1px solid var(--border-default)' }}>
-                          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-                            Modalità calcolo budget e pianificazione date:
-                          </label>
-                          <select
-                            className="input"
-                            style={{ width: '100%', fontWeight: 600, background: 'var(--bg-primary)', borderColor: 'var(--accent-500)', color: 'var(--text-primary)' }}
-                            value={budgetMode}
-                            onChange={(e) => handleBudgetModeChange(e.target.value)}
-                          >
-                            <option value="start_end">Data Inizio / Data Fine (calcola giorni lavorativi ed ore escludendo sab/dom e festivi)</option>
-                            <option value="start_hours">Data Inizio / Ore (calcola data fine escludendo sab/dom e festivi, giorni = ore/8)</option>
-                            <option value="end_hours">Data Fine / Ore (calcola data inizio a ritroso escludendo sab/dom e festivi)</option>
-                            <option value="start_days">Data Inizio / Giorni (calcola data fine escludendo sab/dom e festivi, ore = giorni×8)</option>
-                            <option value="end_days">Data Fine / Giorni (calcola data inizio a ritroso escludendo sab/dom e festivi)</option>
-                            <option value="start_days_hours">Data Inizio / Giorni / Ore (es. 24h spalmate su 10 gg escludendo sab/dom e festivi)</option>
-                            <option value="end_days_hours">Data Fine / Giorni / Ore (es. 24h spalmate a ritroso su 10 gg escludendo sab/dom e festivi)</option>
-                            <option value="custom_dates">📅 Selezione Date da Calendario (giorni singoli o contigui con ore personalizzate/8h)</option>
-                          </select>
-                        </div>
-
-                        {budgetMode === 'custom_dates' ? (
-                          <div style={{ marginTop: 12 }}>
-                            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                              <div className="input-group" style={{ flex: 1 }}>
-                                <label>Data Inizio (prima data)</label>
-                                <input
-                                  type="date"
-                                  className="input"
-                                  value={taskForm.start_date}
-                                  readOnly
-                                  style={{ background: 'var(--bg-tertiary)', opacity: 0.85, cursor: 'not-allowed' }}
-                                  title="Calcolata automaticamente dalla prima data selezionata"
-                                />
-                              </div>
-                              <div className="input-group" style={{ flex: 1 }}>
-                                <label>Data Fine (ultima data)</label>
-                                <input
-                                  type="date"
-                                  className="input"
-                                  value={taskForm.end_date}
-                                  readOnly
-                                  style={{ background: 'var(--bg-tertiary)', opacity: 0.85, cursor: 'not-allowed' }}
-                                  title="Calcolata automaticamente dall'ultima data selezionata"
-                                />
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                              <div className="input-group" style={{ flex: 1 }}>
-                                <label>Giorni Lavorativi Selezionati</label>
-                                <div style={{ position: 'relative' }}>
-                                  <input
-                                    type="number"
-                                    className="input"
-                                    readOnly
-                                    value={taskForm.duration_days || (taskForm.custom_dates?.length || 0)}
-                                    style={{ fontWeight: 600, color: 'var(--accent-500)', paddingRight: '70px', background: 'var(--bg-tertiary)', cursor: 'not-allowed' }}
-                                  />
-                                  <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>giorni</span>
-                                </div>
-                              </div>
-                              <div className="input-group" style={{ flex: 1 }}>
-                                <label>Totale Ore Previste (Budget)</label>
-                                <div style={{ position: 'relative' }}>
-                                  <input
-                                    type="number"
-                                    className="input"
-                                    readOnly
-                                    value={taskForm.planned_hours}
-                                    style={{ fontWeight: 600, color: 'var(--success)', paddingRight: '60px', background: 'var(--bg-tertiary)', cursor: 'not-allowed' }}
-                                  />
-                                  <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>ore</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Calendario interattivo per la selezione delle date e ore */}
-                            <CustomDatesCalendarPicker
-                              customDates={taskForm.custom_dates || []}
-                              onChange={handleCustomDatesChange}
-                              workers={taskForm.workers || []}
-                              allVacations={allVacations}
-                              initialDate={taskForm.start_date}
+              return (
+                <form onSubmit={handleSaveTaskForm} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+                  <div className="task-form-layout">
+                    {/* COLONNA SINISTRA: Informazioni Fase, Tipologia, Colore, Reparto, Addetti */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      {/* Scelta Tipo Fase: Normale o Milestone */}
+                      <div className="task-type-selector" style={{ margin: 0 }}>
+                        <label>Tipo di Voce:</label>
+                        <div>
+                          <label className={`task-type-option ${taskForm.taskType !== 'milestone' ? 'selected' : ''}`}>
+                            <input
+                              type="radio"
+                              name="taskType"
+                              value="task"
+                              checked={taskForm.taskType !== 'milestone'}
+                              onChange={() => setTaskForm({ ...taskForm, taskType: 'task' })}
                             />
-                          </div>
-                        ) : (
-                          <>
-                            <div style={{ display: 'flex', gap: 12 }}>
-                              <div className="input-group" style={{ flex: 1 }}>
-                                <label>Data Avvio Lavorazione</label>
-                                <input
-                                  type="date"
-                                  className="input"
-                                  value={taskForm.start_date}
-                                  onChange={(e) => handleStartDateChange(e.target.value)}
-                                  disabled={budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours'}
-                                  style={{ opacity: (budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours') ? 0.6 : 1 }}
-                                  title={(budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours') ? "Data inizio calcolata automaticamente a ritroso" : ""}
-                                />
-                              </div>
-                              <div className="input-group" style={{ flex: 1 }}>
-                                <label>Data Fine Lavorazione</label>
-                                <input
-                                  type="date"
-                                  className="input"
-                                  value={taskForm.end_date}
-                                  onChange={(e) => handleEndDateChange(e.target.value)}
-                                  disabled={budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours'}
-                                  style={{ opacity: (budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours') ? 0.6 : 1 }}
-                                  title={(budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours') ? "Data fine calcolata automaticamente escludendo sab e dom" : ""}
-                                />
+                            <div className="option-content">
+                              <div className="option-title">
+                                <AppIcon name="list" size={18} />
+                                Fase di lavorazione
                               </div>
                             </div>
+                          </label>
+                          <label className={`task-type-option ${taskForm.taskType === 'milestone' ? 'selected' : ''}`}>
+                            <input
+                              type="radio"
+                              name="taskType"
+                              value="milestone"
+                              checked={taskForm.taskType === 'milestone'}
+                              onChange={() => setTaskForm({ ...taskForm, taskType: 'milestone', color: taskForm.color === PHASE_DEFAULT_COLORS[PREDEFINED_PHASES[0]] ? '#f59e0b' : taskForm.color })}
+                            />
+                            <div className="option-content">
+                              <div className="option-title">
+                                <AppIcon name="calendar" size={18} />
+                                Milestone
+                              </div>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
 
-                            <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-                              <div className="input-group" style={{ flex: 1 }}>
-                                <label>Durata in Giorni (Lavorativi: Lun-Ven)</label>
-                                <div style={{ position: 'relative' }}>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    step="1"
-                                    className="input"
-                                    style={{ fontWeight: 600, color: 'var(--accent-500)', paddingRight: '70px', opacity: (budgetMode === 'start_end' || budgetMode === 'start_hours' || budgetMode === 'end_hours') ? 0.6 : 1 }}
-                                    value={taskForm.duration_days}
-                                    onChange={(e) => handleDurationDaysChange(e.target.value)}
-                                    disabled={budgetMode === 'start_end' || budgetMode === 'start_hours' || budgetMode === 'end_hours'}
-                                  />
-                                  <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>giorni</span>
+                      {/* Card Dati Principali */}
+                      <div className="task-card-section">
+                        <div className="task-card-section-title">
+                          <AppIcon name="fileText" size={14} />
+                          Informazioni Base
+                        </div>
+
+                        <div className="input-group" style={{ position: 'relative' }}>
+                          <label>{taskForm.taskType === 'milestone' ? 'Nome Evento / Scadenza *' : 'Fase di Lavorazione *'}</label>
+                          <SearchableCombobox
+                            options={getAvailableTemplates().map(tpl => ({
+                              value: tpl.name,
+                              label: tpl.name,
+                              department: (tpl.department && tpl.department !== 'tutti') ? tpl.department : 'condivisa',
+                              ...tpl
+                            }))}
+                            value={taskForm.faseSel === '__custom__' ? taskForm.customText : taskForm.faseSel}
+                            onChange={(val, opt) => {
+                              if (opt) {
+                                if (opt.default_budget_mode) {
+                                  setBudgetMode(opt.default_budget_mode);
+                                }
+                                const newDays = opt.default_days != null ? opt.default_days : taskForm.duration_days;
+                                const newHours = opt.default_hours != null ? opt.default_hours : taskForm.planned_hours;
+                                const sDate = taskForm.start_date || new Date().toISOString().split('T')[0];
+                                const newEnd = addWorkingDays(sDate, newDays, taskForm.excluded_dates);
+                                setTaskForm({
+                                  ...taskForm,
+                                  faseSel: opt.name,
+                                  customText: '',
+                                  color: opt.default_color || PHASE_DEFAULT_COLORS[opt.name] || taskForm.color,
+                                  duration_days: newDays,
+                                  planned_hours: newHours,
+                                  end_date: newEnd,
+                                  department: opt.department && opt.department !== 'tutti' ? opt.department : 'condivisa'
+                                });
+                              } else {
+                                setTaskForm({
+                                  ...taskForm,
+                                  faseSel: '__custom__',
+                                  customText: val
+                                });
+                              }
+                            }}
+                            placeholder="Seleziona o digita una nuova fase..."
+                            allowCustom={true}
+                            groupBy={user?.role === 'admin' ? 'department' : undefined}
+                            groupLabels={deptNameMap}
+                            renderOption={(opt, searchStr) => (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <span style={{ width: 12, height: 12, borderRadius: '50%', background: opt.default_color || PHASE_DEFAULT_COLORS[opt.name] || '#3b82f6', border: '1px solid var(--border-default)', flexShrink: 0 }} />
+                                  <span style={{ fontWeight: (taskForm.faseSel === opt.name || taskForm.customText === opt.name) ? 600 : 400, color: 'var(--text-primary)' }}>{opt.name}</span>
                                 </div>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleDeleteTemplateFromDropdown(opt);
+                                  }}
+                                  className="btn-ghost btn-icon"
+                                  style={{ padding: '2px 6px', color: 'var(--danger)', fontSize: '0.9rem' }}
+                                  title="Elimina dall'elenco a tendina"
+                                >
+                                  <AppIcon name="trash" size={14} />
+                                </button>
                               </div>
-                              <div className="input-group" style={{ flex: 1 }}>
-                                <label>Durata in Ore (Budget Lavoro)</label>
-                                <div style={{ position: 'relative' }}>
-                                  <input
-                                    type="number"
-                                    min="0.5"
-                                    step="0.5"
-                                    className="input"
-                                    style={{ fontWeight: 600, color: 'var(--success)', paddingRight: '60px', opacity: (budgetMode === 'start_days' || budgetMode === 'end_days') ? 0.6 : 1 }}
-                                    value={taskForm.planned_hours}
-                                    onChange={(e) => handlePlannedHoursChange(e.target.value)}
-                                    disabled={budgetMode === 'start_days' || budgetMode === 'end_days'}
-                                  />
-                                  <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>ore</span>
-                                </div>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-
-                  {/* Reparto */}
-                  <div className="input-group" style={{ marginTop: 16 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <AppIcon name="building" size={15} />
-                      Reparto
-                      {user?.role !== 'admin' && taskForm.faseSel !== '__custom__' && (
-                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>(assegnato automaticamente)</span>
-                      )}
-                    </label>
-                    {user?.role === 'admin' || taskForm.faseSel === '__custom__' ? (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {DEPT_OPTIONS.map(d => {
-                          const isSelected = taskForm.department === d.value;
-                          return (
-                            <div
-                              key={d.value}
-                              onClick={() => setTaskForm(prev => ({
-                                ...prev,
-                                department: d.value,
-                                color: d.color || prev.color || '#3b82f6'
-                              }))}
-                              style={{
-                                padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                                background: isSelected ? (d.color + '22') : 'var(--bg-primary)',
-                                color: isSelected ? d.color : 'var(--text-secondary)',
-                                border: `1px solid ${isSelected ? (d.color + '44') : 'var(--border-default)'}`,
-                                display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s'
-                              }}
-                            >
-                              <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: d.color, opacity: isSelected ? 1 : 0.4 }} />
-                              {d.label}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div style={{
-                        padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                        background: taskForm.department ? (DEPT_OPTIONS.find(d => d.value === taskForm.department)?.color || '#6b7280') + '18' : 'var(--bg-secondary)',
-                        color: taskForm.department ? (DEPT_OPTIONS.find(d => d.value === taskForm.department)?.color || '#6b7280') : 'var(--text-muted)',
-                        border: `1px solid ${taskForm.department ? (DEPT_OPTIONS.find(d => d.value === taskForm.department)?.color || '#6b7280') + '44' : 'var(--border-subtle)'}`,
-                        display: 'flex', alignItems: 'center', gap: 8
-                      }}>
-                        {taskForm.department ? DEPT_OPTIONS.find(d => d.value === taskForm.department)?.label || taskForm.department : '— Nessun reparto —'}
-                      </div>
-                    )}
-                  </div>
-
-                  {(() => {
-                    const isMilestone = taskForm.taskType === 'milestone';
-                    const currentAssignedTotal = taskForm.workers.reduce((sum, w) => sum + (Number(taskForm.worker_hours?.[w]) || 0), 0);
-                    const sDateForBudget = taskForm.start_date;
-                    const eDateForBudget = taskForm.end_date;
-                    const diffDaysForBudget = sDateForBudget && eDateForBudget ? countWorkingDays(sDateForBudget, eDateForBudget, taskForm.excluded_dates) : 1;
-                    const finalDaysForBudget = Math.max(1, Number(taskForm.duration_days) || diffDaysForBudget);
-                    const currentBudgetTotal = isMilestone ? 0 : (Number(taskForm.planned_hours) || (finalDaysForBudget * 8.0));
-
-                    const roundedAssigned = Math.round(currentAssignedTotal * 10) / 10;
-                    const roundedBudget = Math.round(currentBudgetTotal * 10) / 10;
-                    const isOverBudget = !isMilestone && roundedAssigned > roundedBudget;
-
-                    let totalColor = 'var(--text-secondary)';
-                    if (!isMilestone) {
-                      if (roundedAssigned < roundedBudget) totalColor = '#f59e0b';
-                      else if (roundedAssigned === roundedBudget) totalColor = '#10b981';
-                      else totalColor = '#ef4444';
-                    }
-
-                    return (
-                      <>
-                        <div className="input-group" style={{ marginTop: 16 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <label style={{ margin: 0 }}>Addetto Assegnato (Singolo)</label>
-                            {!isMilestone && (
-                              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: totalColor }}>
-                                Totale assegnato: {roundedAssigned}h / {roundedBudget}h
-                              </span>
                             )}
-                          </div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                            {[...predefinedWorkers]
-                              .filter(w => {
-                                if (taskForm.workers.includes(w)) return true;
-                                if (!taskForm.department || taskForm.department === 'condivisa') return true;
-                                const wUser = usersList.find(u => u.username === w);
-                                return wUser && wUser.department === taskForm.department;
-                              })
-                              .sort((a, b) => a === user?.username ? -1 : b === user?.username ? 1 : a.localeCompare(b))
-                              .map(w => {
-                                const sel = taskForm.workers.includes(w);
-                                const wUser = usersList.find(u => u.username === w);
-                                const wDept = wUser ? wUser.department : null;
-                                const deptColor = wDept ? (DEPT_OPTIONS.find(d => d.value === wDept)?.color || 'var(--accent-600)') : 'var(--accent-600)';
+                          />
+                          {taskForm.faseSel === '__custom__' && taskForm.customText && (
+                            <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--bg-tertiary)', borderRadius: 6, border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <AppIcon name="alert" size={14} style={{ color: 'var(--accent-500)' }} /> Questa nuova fase verrà automaticamente aggiunta all'elenco suggerito per il reparto selezionato:
+                              </span>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                                  {DEPT_OPTIONS.map(d => {
+                                    const currentVal = taskForm.department || user?.department || 'ufficio_tecnico';
+                                    const isSelected = currentVal === d.value;
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={d.value}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          setTaskForm({
+                                            ...taskForm,
+                                            department: d.value,
+                                            color: d.color === '#6b7280' ? taskForm.color : d.color
+                                          });
+                                        }}
+                                        style={{
+                                          padding: '5px 14px', borderRadius: 20, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
+                                          background: isSelected ? (d.color + '22') : 'var(--bg-primary)',
+                                          color: isSelected ? d.color : 'var(--text-secondary)',
+                                          border: `1.5px solid ${isSelected ? d.color : 'var(--border-default)'}`,
+                                          boxShadow: isSelected ? `0 0 0 2px ${d.color}33` : 'none',
+                                          transition: 'all 0.18s ease', display: 'inline-flex', alignItems: 'center', gap: 6
+                                        }}
+                                      >
+                                        <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: d.color, opacity: isSelected ? 1 : 0.4 }} />
+                                        <span>{d.label}</span>
+                                      </button>
+                                    );
+                                  })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
 
+                        {/* Colore personalizzato della fase */}
+                        <div className="input-group">
+                          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>Colore Fase (Gantt & Timeline)</span>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>Personalizzabile</span>
+                          </label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+                            <input
+                              type="color"
+                              value={taskForm.color || '#3b82f6'}
+                              onChange={(e) => setTaskForm({ ...taskForm, color: e.target.value })}
+                              style={{ width: 44, height: 38, padding: 2, border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: 'var(--bg-tertiary)' }}
+                            />
+                            <input
+                              type="text"
+                              className="input"
+                              value={(taskForm.color || '#3b82f6').toUpperCase()}
+                              onChange={(e) => setTaskForm({ ...taskForm, color: e.target.value })}
+                              style={{ width: 100, fontFamily: 'monospace' }}
+                              maxLength={7}
+                            />
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {Object.values(PHASE_DEFAULT_COLORS).slice(0, 8).map((c) => (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  onClick={() => setTaskForm({ ...taskForm, color: c })}
+                                  style={{
+                                    width: 24,
+                                    height: 24,
+                                    borderRadius: '50%',
+                                    backgroundColor: c,
+                                    border: taskForm.color === c ? '2px solid #fff' : '1px solid var(--border-subtle)',
+                                    boxShadow: taskForm.color === c ? '0 0 0 2px var(--accent-500)' : 'none',
+                                    cursor: 'pointer',
+                                    padding: 0
+                                  }}
+                                  title={`Colore preset: ${c}`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Reparto */}
+                        <div className="input-group">
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <AppIcon name="building" size={15} />
+                            Reparto Competente
+                            {user?.role !== 'admin' && taskForm.faseSel !== '__custom__' && (
+                              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>(assegnato automaticamente)</span>
+                            )}
+                          </label>
+                          {user?.role === 'admin' || taskForm.faseSel === '__custom__' ? (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                              {DEPT_OPTIONS.map(d => {
+                                const isSelected = taskForm.department === d.value;
                                 return (
-                                  <div
-                                    key={w}
+                                  <button
+                                    type="button"
+                                    key={d.value}
+                                    onClick={() => setTaskForm(prev => ({
+                                      ...prev,
+                                      department: d.value,
+                                      color: d.color || prev.color || '#3b82f6'
+                                    }))}
                                     style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      background: sel ? deptColor : 'var(--bg-primary)',
-                                      color: sel ? '#fff' : 'var(--text-secondary)',
-                                      border: `1px solid ${sel ? deptColor : 'var(--border-default)'}`,
-                                      padding: '6px 12px',
-                                      borderRadius: '16px',
-                                      cursor: 'pointer',
-                                      fontSize: '0.85rem',
-                                      fontWeight: sel ? 600 : 400
+                                      padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                                      background: isSelected ? (d.color + '22') : 'var(--bg-primary)',
+                                      color: isSelected ? d.color : 'var(--text-secondary)',
+                                      border: `1.5px solid ${isSelected ? d.color : 'var(--border-default)'}`,
+                                      boxShadow: isSelected ? `0 0 0 2px ${d.color}33` : 'none',
+                                      display: 'inline-flex', alignItems: 'center', gap: 8, transition: 'all 0.18s ease'
                                     }}
-                                    onClick={() => toggleWorkerSelection(w)}
                                   >
-                                    <span>{sel ? '✓ ' : '+ '}{w}</span>
-                                  </div>
+                                    <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: d.color, opacity: isSelected ? 1 : 0.4 }} />
+                                    <span>{d.label}</span>
+                                  </button>
                                 );
                               })}
-                          </div>
+                            </div>
+                          ) : (
+                            <div style={{
+                              padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                              background: taskForm.department ? (DEPT_OPTIONS.find(d => d.value === taskForm.department)?.color || '#6b7280') + '18' : 'var(--bg-secondary)',
+                              color: taskForm.department ? (DEPT_OPTIONS.find(d => d.value === taskForm.department)?.color || '#6b7280') : 'var(--text-muted)',
+                              border: `1px solid ${taskForm.department ? (DEPT_OPTIONS.find(d => d.value === taskForm.department)?.color || '#6b7280') + '44' : 'var(--border-subtle)'}`,
+                              display: 'flex', alignItems: 'center', gap: 8
+                            }}>
+                              {taskForm.department ? DEPT_OPTIONS.find(d => d.value === taskForm.department)?.label || taskForm.department : '— Nessun reparto —'}
+                            </div>
+                          )}
                         </div>
-
-                        {budgetMode !== 'custom_dates' && taskForm.workers && taskForm.workers.length > 0 && taskForm.start_date && (
-                          <div style={{ marginTop: 16 }}>
-                            <h4 style={{ marginBottom: 8, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Calendario Ferie</h4>
-                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8, marginBottom: 8 }}>
-                              Seleziona i giorni da saltare (ferie o permessi). La durata della fase si estenderà automaticamente.
-                            </p>
-                            <MultiDatePicker
-                              startDate={taskForm.start_date}
-                              allVacations={allVacations}
-                              workers={taskForm.workers}
-                              excludedDates={taskForm.excluded_dates || []}
-                              onChange={(newExcluded) => {
-                                setTaskForm(prev => {
-                                  let updates = { excluded_dates: newExcluded };
-
-                                  if (budgetMode === 'start_end') {
-                                    const days = countWorkingDays(prev.start_date, prev.end_date, newExcluded);
-                                    updates.duration_days = days;
-                                    updates.planned_hours = days * 8.0;
-                                  } else {
-                                    const newDays = Math.max(1, Number(prev.duration_days) || 1);
-                                    if (budgetMode === 'end_days' || budgetMode === 'end_days_hours' || budgetMode === 'end_hours') {
-                                      updates.start_date = subtractWorkingDays(prev.end_date || new Date(), newDays, newExcluded);
-                                    } else {
-                                      updates.end_date = addWorkingDays(prev.start_date || new Date(), newDays, newExcluded);
-                                    }
-                                  }
-
-                                  return { ...prev, ...updates };
-                                });
-                              }}
-                            />
-                          </div>
-                        )}
-
-                        {/* Sezione addetti rimossa e unificata nel blocco superiore */}
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {(() => {
-                  const isMilestone = taskForm.taskType === 'milestone';
-                  const currentAssignedTotal = taskForm.workers.reduce((sum, w) => sum + (Number(taskForm.worker_hours?.[w]) || 0), 0);
-                  const sDateForBudget = taskForm.start_date;
-                  const eDateForBudget = taskForm.end_date;
-                  const diffDaysForBudget = sDateForBudget && eDateForBudget ? countWorkingDays(sDateForBudget, eDateForBudget, taskForm.excluded_dates) : 1;
-                  const finalDaysForBudget = Math.max(1, Number(taskForm.duration_days) || diffDaysForBudget);
-                  const currentBudgetTotal = isMilestone ? 0 : (Number(taskForm.planned_hours) || (finalDaysForBudget * 8.0));
-                  const roundedAssigned = Math.round(currentAssignedTotal * 10) / 10;
-                  const roundedBudget = Math.round(currentBudgetTotal * 10) / 10;
-                  const isOverBudget = !isMilestone && roundedAssigned > roundedBudget;
-
-                  return (
-                    <div className="modal-footer" style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '16px 24px',
-                      borderTop: '1px solid var(--border-default)',
-                      background: 'var(--bg-secondary)',
-                      margin: 0,
-                      flexShrink: 0
-                    }}>
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                        {editingTask && (user?.role === 'admin' || user?.role === 'editor') && (
-                          <>
-                            <button
-                              type="button"
-                              className="btn btn-danger"
-                              onClick={async () => {
-                                setShowTaskModal(false);
-                                await handleTaskDelete(editingTask.id);
-                              }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                              title={isMilestone ? "Elimina milestone" : "Elimina fase"}
-                            >
-                              <AppIcon name="trash" size={15} />
-                              <span>{isMilestone ? 'Elimina Milestone' : 'Elimina Fase'}</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              className="btn"
-                              onClick={async () => {
-                                const success = await handleToggleTaskCompleted(editingTask, isTaskCompleted(editingTask));
-                                if (success) {
-                                  setShowTaskModal(false);
-                                }
-                              }}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                background: isTaskCompleted(editingTask) ? 'var(--bg-tertiary)' : '#10b981',
-                                color: isTaskCompleted(editingTask) ? 'var(--text-primary)' : '#ffffff',
-                                border: isTaskCompleted(editingTask) ? '1px solid var(--border-default)' : '1px solid #059669',
-                                fontWeight: 600
-                              }}
-                              title={isTaskCompleted(editingTask) ? "Riapri fase (segna in corso)" : "Segna come completata"}
-                            >
-                              <AppIcon name={isTaskCompleted(editingTask) ? "undo" : "check"} size={15} />
-                              <span>{isTaskCompleted(editingTask) ? 'Riapri Fase' : (isMilestone ? 'Completa Milestone' : 'Completa Fase')}</span>
-                            </button>
-                          </>
-                        )}
                       </div>
 
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                        <button type="button" className="btn btn-secondary" onClick={() => setShowTaskModal(false)}>
-                          Annulla
-                        </button>
-                        <button type="submit" className="btn btn-primary" disabled={isOverBudget}>
-                          {editingTask ? 'Salva Modifiche' : 'Aggiungi Fase'}
-                        </button>
+                      {/* Card Addetti Assegnati */}
+                      <div className="task-card-section">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div className="task-card-section-title">
+                            <AppIcon name="user" size={14} />
+                            Addetto Assegnato (Singolo)
+                          </div>
+                          {!isMilestone && (
+                            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: totalColor }}>
+                              Totale assegnato: {roundedAssigned}h / {roundedBudget}h
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                          {[...predefinedWorkers]
+                            .filter(w => {
+                              if (taskForm.workers.includes(w)) return true;
+                              if (!taskForm.department || taskForm.department === 'condivisa') return true;
+                              const wUser = usersList.find(u => u.username === w);
+                              return wUser && wUser.department === taskForm.department;
+                            })
+                            .sort((a, b) => a === user?.username ? -1 : b === user?.username ? 1 : a.localeCompare(b))
+                            .map(w => {
+                              const sel = taskForm.workers.includes(w);
+                              const wUser = usersList.find(u => u.username === w);
+                              const wDept = wUser ? wUser.department : null;
+                              const deptColor = wDept ? (DEPT_OPTIONS.find(d => d.value === wDept)?.color || 'var(--accent-600)') : 'var(--accent-600)';
+
+                              return (
+                                <button
+                                  type="button"
+                                  key={w}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                    background: sel ? deptColor : 'var(--bg-primary)',
+                                    color: sel ? '#fff' : 'var(--text-secondary)',
+                                    border: `1.5px solid ${sel ? deptColor : 'var(--border-default)'}`,
+                                    boxShadow: sel ? `0 2px 6px ${deptColor}44` : 'none',
+                                    padding: '6px 14px',
+                                    borderRadius: '16px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.85rem',
+                                    fontWeight: sel ? 600 : 500,
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                  onClick={() => toggleWorkerSelection(w)}
+                                >
+                                  <AppIcon name={sel ? "check" : "plus"} size={13} />
+                                  <span>{w}</span>
+                                </button>
+                              );
+                            })}
+                        </div>
                       </div>
                     </div>
-                  );
-                })()}
-              </form>
-            )}
+
+                    {/* COLONNA DESTRA: Commessa info, Pianificazione, Durate, Calendario Date/Ferie */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      {/* Banner Fine Commessa */}
+                      <div style={{ padding: '12px 16px', background: 'var(--bg-primary)', borderRadius: '10px', border: '1px solid var(--border-subtle)', borderLeft: '4px solid var(--accent-500)', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.9rem' }}>
+                        <AppIcon name="calendar" size={18} style={{ color: 'var(--accent-500)' }} />
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', marginRight: 6 }}>Scadenza / Fine Commessa:</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>{project?.end_date ? formatDateItalian(project.end_date) : 'Non impostata'}</strong>
+                        </div>
+                      </div>
+
+                      {/* Sezione Pianificazione Temporale e Durate / Data Evento */}
+                      {taskForm.taskType === 'milestone' ? (
+                        <div className="task-card-section">
+                          <div className="task-card-section-title">
+                            <AppIcon name="calendar" size={14} />
+                            Data Evento o Milestone
+                          </div>
+                          <div className="input-group" style={{ maxWidth: 280 }}>
+                            <label>Data Evento</label>
+                            <input
+                              type="date"
+                              className="input"
+                              value={taskForm.start_date}
+                              onChange={(e) => setTaskForm({ ...taskForm, start_date: e.target.value, end_date: e.target.value })}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="task-card-section">
+                          <div className="task-card-section-title">
+                            <AppIcon name="calendar" size={14} />
+                            Pianificazione e Calcolo Durate
+                          </div>
+
+                          {/* Scelta Modalità Budget e Pianificazione Date */}
+                          <div style={{ padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-default)' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                              Modalità calcolo budget e pianificazione date:
+                            </label>
+                            <select
+                              className="input"
+                              style={{ width: '100%', fontWeight: 600, background: 'var(--bg-primary)', borderColor: 'var(--accent-500)', color: 'var(--text-primary)' }}
+                              value={budgetMode}
+                              onChange={(e) => handleBudgetModeChange(e.target.value)}
+                            >
+                              <option value="start_end">Data Inizio / Data Fine (calcola giorni lavorativi ed ore escludendo sab/dom e festivi)</option>
+                              <option value="start_hours">Data Inizio / Ore (calcola data fine escludendo sab/dom e festivi, giorni = ore/8)</option>
+                              <option value="end_hours">Data Fine / Ore (calcola data inizio a ritroso escludendo sab/dom e festivi)</option>
+                              <option value="start_days">Data Inizio / Giorni (calcola data fine escludendo sab/dom e festivi, ore = giorni×8)</option>
+                              <option value="end_days">Data Fine / Giorni (calcola data inizio a ritroso escludendo sab/dom e festivi)</option>
+                              <option value="start_days_hours">Data Inizio / Giorni / Ore (es. 24h spalmate su 10 gg escludendo sab/dom e festivi)</option>
+                              <option value="end_days_hours">Data Fine / Giorni / Ore (es. 24h spalmate a ritroso su 10 gg escludendo sab/dom e festivi)</option>
+                              <option value="custom_dates">📅 Selezione Date da Calendario (giorni singoli o contigui con ore personalizzate/8h)</option>
+                            </select>
+                          </div>
+
+                          {budgetMode === 'custom_dates' ? (
+                            <div style={{ marginTop: 4 }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                                <div className="input-group">
+                                  <label>Data Inizio (prima data)</label>
+                                  <input
+                                    type="date"
+                                    className="input"
+                                    value={taskForm.start_date}
+                                    readOnly
+                                    style={{ background: 'var(--bg-secondary)', opacity: 0.85, cursor: 'not-allowed' }}
+                                    title="Calcolata automaticamente dalla prima data selezionata"
+                                  />
+                                </div>
+                                <div className="input-group">
+                                  <label>Data Fine (ultima data)</label>
+                                  <input
+                                    type="date"
+                                    className="input"
+                                    value={taskForm.end_date}
+                                    readOnly
+                                    style={{ background: 'var(--bg-secondary)', opacity: 0.85, cursor: 'not-allowed' }}
+                                    title="Calcolata automaticamente dall'ultima data selezionata"
+                                  />
+                                </div>
+                                <div className="input-group">
+                                  <label>Giorni Lavorativi Selezionati</label>
+                                  <div style={{ position: 'relative' }}>
+                                    <input
+                                      type="number"
+                                      className="input"
+                                      readOnly
+                                      value={taskForm.duration_days || (taskForm.custom_dates?.length || 0)}
+                                      style={{ fontWeight: 600, color: 'var(--accent-500)', paddingRight: '70px', background: 'var(--bg-secondary)', cursor: 'not-allowed' }}
+                                    />
+                                    <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>giorni</span>
+                                  </div>
+                                </div>
+                                <div className="input-group">
+                                  <label>Totale Ore Previste (Budget)</label>
+                                  <div style={{ position: 'relative' }}>
+                                    <input
+                                      type="number"
+                                      className="input"
+                                      readOnly
+                                      value={taskForm.planned_hours}
+                                      style={{ fontWeight: 600, color: 'var(--success)', paddingRight: '60px', background: 'var(--bg-secondary)', cursor: 'not-allowed' }}
+                                    />
+                                    <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>ore</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Calendario interattivo per la selezione delle date e ore */}
+                              <CustomDatesCalendarPicker
+                                customDates={taskForm.custom_dates || []}
+                                onChange={handleCustomDatesChange}
+                                workers={taskForm.workers || []}
+                                allVacations={allVacations}
+                                initialDate={taskForm.start_date}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                <div className="input-group">
+                                  <label>Data Avvio Lavorazione</label>
+                                  <input
+                                    type="date"
+                                    className="input"
+                                    value={taskForm.start_date}
+                                    onChange={(e) => handleStartDateChange(e.target.value)}
+                                    disabled={budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours'}
+                                    style={{ opacity: (budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours') ? 0.6 : 1 }}
+                                    title={(budgetMode === 'end_hours' || budgetMode === 'end_days' || budgetMode === 'end_days_hours') ? "Data inizio calcolata automaticamente a ritroso" : ""}
+                                  />
+                                </div>
+                                <div className="input-group">
+                                  <label>Data Fine Lavorazione</label>
+                                  <input
+                                    type="date"
+                                    className="input"
+                                    value={taskForm.end_date}
+                                    onChange={(e) => handleEndDateChange(e.target.value)}
+                                    disabled={budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours'}
+                                    style={{ opacity: (budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours') ? 0.6 : 1 }}
+                                    title={(budgetMode === 'start_hours' || budgetMode === 'start_days' || budgetMode === 'start_days_hours') ? "Data fine calcolata automaticamente escludendo sab e dom" : ""}
+                                  />
+                                </div>
+                                <div className="input-group">
+                                  <label>Durata in Giorni (Lun-Ven)</label>
+                                  <div style={{ position: 'relative' }}>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      step="1"
+                                      className="input"
+                                      style={{ fontWeight: 600, color: 'var(--accent-500)', paddingRight: '70px', opacity: (budgetMode === 'start_end' || budgetMode === 'start_hours' || budgetMode === 'end_hours') ? 0.6 : 1 }}
+                                      value={taskForm.duration_days}
+                                      onChange={(e) => handleDurationDaysChange(e.target.value)}
+                                      disabled={budgetMode === 'start_end' || budgetMode === 'start_hours' || budgetMode === 'end_hours'}
+                                    />
+                                    <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>giorni</span>
+                                  </div>
+                                </div>
+                                <div className="input-group">
+                                  <label>Durata in Ore (Budget Lavoro)</label>
+                                  <div style={{ position: 'relative' }}>
+                                    <input
+                                      type="number"
+                                      min="0.5"
+                                      step="0.5"
+                                      className="input"
+                                      style={{ fontWeight: 600, color: 'var(--success)', paddingRight: '60px', opacity: (budgetMode === 'start_days' || budgetMode === 'end_days') ? 0.6 : 1 }}
+                                      value={taskForm.planned_hours}
+                                      onChange={(e) => handlePlannedHoursChange(e.target.value)}
+                                      disabled={budgetMode === 'start_days' || budgetMode === 'end_days'}
+                                    />
+                                    <span style={{ position: 'absolute', right: 40, top: 9, fontSize: 12, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>ore</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {taskForm.workers && taskForm.workers.length > 0 && taskForm.start_date && (
+                                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
+                                  <h4 style={{ marginBottom: 6, fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                    Calendario Ferie Addetti
+                                  </h4>
+                                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+                                    Seleziona i giorni da saltare (ferie o permessi). La durata della fase si estenderà automaticamente.
+                                  </p>
+                                  <MultiDatePicker
+                                    startDate={taskForm.start_date}
+                                    allVacations={allVacations}
+                                    workers={taskForm.workers}
+                                    excludedDates={taskForm.excluded_dates || []}
+                                    onChange={(newExcluded) => {
+                                      setTaskForm(prev => {
+                                        let updates = { excluded_dates: newExcluded };
+
+                                        if (budgetMode === 'start_end') {
+                                          const days = countWorkingDays(prev.start_date, prev.end_date, newExcluded);
+                                          updates.duration_days = days;
+                                          updates.planned_hours = days * 8.0;
+                                        } else {
+                                          const newDays = Math.max(1, Number(prev.duration_days) || 1);
+                                          if (budgetMode === 'end_days' || budgetMode === 'end_days_hours' || budgetMode === 'end_hours') {
+                                            updates.start_date = subtractWorkingDays(prev.end_date || new Date(), newDays, newExcluded);
+                                          } else {
+                                            updates.end_date = addWorkingDays(prev.start_date || new Date(), newDays, newExcluded);
+                                          }
+                                        }
+
+                                        return { ...prev, ...updates };
+                                      });
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* MODAL FOOTER */}
+                  <div className="modal-footer" style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '16px 28px',
+                    borderTop: '1px solid var(--border-subtle)',
+                    background: 'var(--bg-secondary)',
+                    margin: 0,
+                    flexShrink: 0
+                  }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      {editingTask && (user?.role === 'admin' || user?.role === 'editor') && (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            onClick={async () => {
+                              setShowTaskModal(false);
+                              await handleTaskDelete(editingTask.id);
+                            }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                            title={isMilestone ? "Elimina milestone" : "Elimina fase"}
+                          >
+                            <AppIcon name="trash" size={15} />
+                            <span>{isMilestone ? 'Elimina Milestone' : 'Elimina Fase'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={async () => {
+                              const success = await handleToggleTaskCompleted(editingTask, isTaskCompleted(editingTask));
+                              if (success) {
+                                setShowTaskModal(false);
+                              }
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              background: isTaskCompleted(editingTask) ? 'var(--bg-tertiary)' : '#10b981',
+                              color: isTaskCompleted(editingTask) ? 'var(--text-primary)' : '#ffffff',
+                              border: isTaskCompleted(editingTask) ? '1px solid var(--border-default)' : '1px solid #059669',
+                              fontWeight: 600
+                            }}
+                            title={isTaskCompleted(editingTask) ? "Riapri fase (segna in corso)" : "Segna come completata"}
+                          >
+                            <AppIcon name={isTaskCompleted(editingTask) ? "undo" : "check"} size={15} />
+                            <span>{isTaskCompleted(editingTask) ? 'Riapri Fase' : (isMilestone ? 'Completa Milestone' : 'Completa Fase')}</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <button type="button" className="btn btn-secondary" onClick={() => setShowTaskModal(false)}>
+                        Annulla
+                      </button>
+                      <button type="submit" className="btn btn-primary" disabled={isOverBudget}>
+                        {editingTask ? 'Salva Modifiche' : 'Aggiungi Fase'}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              );
+            })()}
 
             {taskModalTab === 'checklist' && editingTask && (
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', padding: '10px 4px', marginRight: -8, paddingRight: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', padding: '20px 28px' }}>
                 <TaskChecklist projectId={id} taskId={editingTask.id} />
               </div>
             )}
 
             {taskModalTab === 'commenti' && editingTask && (
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', padding: '10px 4px', marginRight: -8, paddingRight: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', padding: '20px 28px' }}>
                 <TaskComments projectId={id} taskId={editingTask.id} currentUser={user} />
               </div>
             )}
