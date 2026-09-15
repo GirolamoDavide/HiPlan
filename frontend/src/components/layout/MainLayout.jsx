@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -187,6 +187,19 @@ function AppIcon({ name, size = 19 }) {
         <circle cx="11" cy="18" r="2" fill="currentColor" stroke="none" />
       </>
     ),
+    trash: (
+      <>
+        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        <line x1="10" y1="11" x2="10" y2="17" />
+        <line x1="14" y1="11" x2="14" y2="17" />
+      </>
+    ),
+    checkCheck: (
+      <>
+        <path d="M18 6 7 17l-5-5" />
+        <path d="m22 10-7.5 7.5L13 16" />
+      </>
+    ),
   };
 
   return <svg {...commonProps}>{icons[name]}</svg>;
@@ -207,6 +220,7 @@ export default function MainLayout() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [activeNotifTab, setActiveNotifTab] = useState('all');
   const [rcEnabled, setRcEnabled] = useState(() => user?.role === 'admin');
 
   useEffect(() => {
@@ -225,6 +239,9 @@ export default function MainLayout() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && showNotifications) {
+        setShowNotifications(false);
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
         setShowGlobalSearch(true);
@@ -232,7 +249,7 @@ export default function MainLayout() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [showNotifications]);
 
   useEffect(() => {
     localStorage.setItem('hiplan-sidebar-collapsed', collapsed);
@@ -282,12 +299,16 @@ export default function MainLayout() {
         data.forEach(n => notifiedIdsRef.current.add(n.id));
         initialLoadRef.current = false;
       } else {
-        data.forEach(n => {
-          if (!n.is_read && !notifiedIdsRef.current.has(n.id)) {
-            toast.info(`Nuova notifica: ${n.title}`);
-            notifiedIdsRef.current.add(n.id);
+        // Notifiche rapide (Toast): evita spam di popup multipli e non scattare se il modal è già aperto
+        if (!showNotifications) {
+          const newUnread = data.filter(n => !n.is_read && !notifiedIdsRef.current.has(n.id));
+          if (newUnread.length === 1) {
+            toast.info(`🔔 ${newUnread[0].title}`);
+          } else if (newUnread.length > 1) {
+            toast.info(`🔔 Hai ${newUnread.length} nuove notifiche nel Centro Attività`);
           }
-        });
+        }
+        data.forEach(n => notifiedIdsRef.current.add(n.id));
       }
     } catch { /* ignore */ }
   }
@@ -305,6 +326,14 @@ export default function MainLayout() {
     } catch { /* ignore */ }
   }
 
+  async function markAllAsRead() {
+    try {
+      await api.patch('/notifications/read-all');
+      fetchNotificationsData();
+      toast.success('Tutte le notifiche sono state segnate come lette');
+    } catch { /* ignore */ }
+  }
+
   async function deleteNotification(id) {
     try {
       await api.delete(`/notifications/${id}`);
@@ -313,10 +342,132 @@ export default function MainLayout() {
   }
 
   async function deleteAllNotifications() {
+    if (!window.confirm('Sei sicuro di voler eliminare tutte le notifiche?')) return;
     try {
       await api.delete('/notifications');
       fetchNotificationsData();
+      toast.success('Notifiche eliminate');
     } catch { /* ignore */ }
+  }
+
+  // Deduplicazione delle notifiche nel Centro Notifiche
+  const dedupedNotifications = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    for (const n of notifications) {
+      const cleanTitle = (n.title || '').trim().toLowerCase();
+      const cleanMsg = (n.message || '').trim().toLowerCase();
+      const key = `${cleanTitle}|${cleanMsg}|${n.project_id || ''}|${n.task_id || ''}|${n.link || ''}|${n.is_read ? '1' : '0'}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push(n);
+    }
+    return list;
+  }, [notifications]);
+
+  // Conteggi per categoria
+  const taskNotifsCount = useMemo(() => {
+    return dedupedNotifications.filter(n => n.type === 'assignment' || n.project_id || n.task_id || (n.title && n.title.toLowerCase().includes('commessa'))).length;
+  }, [dedupedNotifications]);
+
+  const todoNotifsCount = useMemo(() => {
+    return dedupedNotifications.filter(n => n.type === 'todo' || n.type === 'deadline' || (n.title && n.title.toLowerCase().includes('todo'))).length;
+  }, [dedupedNotifications]);
+
+  const ticketNotifsCount = useMemo(() => {
+    return dedupedNotifications.filter(n => n.type === 'ticket' || (n.title && n.title.toLowerCase().includes('ticket'))).length;
+  }, [dedupedNotifications]);
+
+  // Notifiche filtrate per la tab attiva
+  const filteredNotifications = useMemo(() => {
+    return dedupedNotifications.filter(n => {
+      if (activeNotifTab === 'unread') return !n.is_read;
+      if (activeNotifTab === 'tasks') {
+        return n.type === 'assignment' || n.project_id || n.task_id || (n.title && n.title.toLowerCase().includes('commessa'));
+      }
+      if (activeNotifTab === 'todo') {
+        return n.type === 'todo' || n.type === 'deadline' || (n.title && n.title.toLowerCase().includes('todo'));
+      }
+      if (activeNotifTab === 'tickets') {
+        return n.type === 'ticket' || (n.title && n.title.toLowerCase().includes('ticket'));
+      }
+      return true;
+    });
+  }, [dedupedNotifications, activeNotifTab]);
+
+  function formatNotificationTime(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMin / 60);
+
+    if (diffMin < 1) return 'Proprio adesso';
+    if (diffMin < 60) return `${diffMin} min fa`;
+    if (diffHours < 24 && d.getDate() === now.getDate()) {
+      return `Oggi alle ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (d.getDate() === yesterday.getDate() && d.getMonth() === yesterday.getMonth() && d.getFullYear() === yesterday.getFullYear()) {
+      return `Ieri alle ${d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function getNotificationIconMeta(n) {
+    const title = (n.title || '').toLowerCase();
+    const type = (n.type || '').toLowerCase();
+
+    if (type === 'todo' || title.includes('todo')) {
+      return { icon: 'todo', className: 'notif-icon--todo', label: 'TODO' };
+    }
+    if (type === 'ticket' || title.includes('ticket')) {
+      return { icon: 'ticket', className: 'notif-icon--ticket', label: 'Ticket' };
+    }
+    if (type === 'deadline' || title.includes('scadenza')) {
+      return { icon: 'alert', className: 'notif-icon--deadline', label: 'Scadenza' };
+    }
+    if (type === 'assignment' || n.project_id) {
+      return { icon: 'projects', className: 'notif-icon--project', label: 'Commessa' };
+    }
+    if (type === 'commercial' || title.includes('commerciale') || title.includes('preventiv')) {
+      return { icon: 'briefcase', className: 'notif-icon--commercial', label: 'Preventivazione' };
+    }
+    return { icon: 'bell', className: 'notif-icon--default', label: 'Avviso' };
+  }
+
+  function handleNotificationClick(n) {
+    if (!n.is_read) {
+      markAsRead(n.id);
+    }
+    setShowNotifications(false);
+
+    if (n.link) {
+      navigate(n.link);
+      return;
+    }
+    if (n.project_id && n.task_id) {
+      navigate(`/projects/${n.project_id}?open_task=${n.task_id}`);
+      return;
+    }
+    if (n.project_id) {
+      navigate(`/projects/${n.project_id}`);
+      return;
+    }
+    if (n.title?.toLowerCase().includes('todo') || n.message?.toLowerCase().includes('todo') || n.type === 'todo') {
+      navigate('/todo');
+      return;
+    }
+    if (n.title?.toLowerCase().includes('ticket') || n.message?.toLowerCase().includes('ticket') || n.type === 'ticket') {
+      navigate('/tickets');
+      return;
+    }
+    if (n.title?.toLowerCase().includes('preventiv') || n.message?.toLowerCase().includes('preventiv') || n.type === 'commercial') {
+      navigate('/richieste-commerciali');
+      return;
+    }
   }
 
   function handleLogout() {
@@ -549,97 +700,153 @@ export default function MainLayout() {
       </main>
 
       {showNotifications && (
-        <div className="modal-overlay">
+        <div className="modal-overlay" onClick={() => setShowNotifications(false)}>
           <div className="modal layout-notification-modal" onClick={e => e.stopPropagation()}>
             <div className="layout-notification-header">
-              <div>
-                <span>Centro attività</span>
-                <h2>Notifiche</h2>
+              <div className="layout-notification-title-group">
+                <div className="layout-notification-pretitle">
+                  <span className="notif-pulse-indicator" />
+                  <span>Centro attività</span>
+                </div>
+                <h2>Notifiche {unreadCount > 0 && <span className="notif-unread-chip">{unreadCount} non lette</span>}</h2>
               </div>
               <div className="layout-notification-header-actions">
+                {unreadCount > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm notif-header-action-btn"
+                    onClick={markAllAsRead}
+                    title="Segna tutte come lette"
+                  >
+                    <AppIcon name="checkCheck" size={14} />
+                    <span>Segna lette</span>
+                  </button>
+                )}
                 {notifications.length > 0 && (
                   <button
-                    className="btn btn-ghost btn-sm notification-delete-all"
+                    type="button"
+                    className="btn btn-ghost btn-sm notif-header-action-btn notif-header-delete-btn"
                     onClick={deleteAllNotifications}
                     title="Elimina tutte le notifiche"
                   >
-                    Elimina tutte
+                    <AppIcon name="trash" size={14} />
+                    <span>Elimina</span>
                   </button>
                 )}
                 <button
                   type="button"
                   className="layout-notification-close"
                   onClick={() => setShowNotifications(false)}
-                  aria-label="Chiudi notifiche"
+                  aria-label="Chiudi notifiche (Esc)"
+                  title="Chiudi (Esc)"
                 >
-                  <AppIcon name="close" size={17} />
+                  <AppIcon name="close" size={16} />
                 </button>
               </div>
             </div>
 
+            {/* TAB BAR CATEGORIE */}
+            <div className="layout-notification-tabs">
+              <button
+                type="button"
+                className={`notif-tab ${activeNotifTab === 'all' ? 'active' : ''}`}
+                onClick={() => setActiveNotifTab('all')}
+              >
+                Tutte <span className="notif-tab-count">{dedupedNotifications.length}</span>
+              </button>
+              <button
+                type="button"
+                className={`notif-tab ${activeNotifTab === 'unread' ? 'active' : ''}`}
+                onClick={() => setActiveNotifTab('unread')}
+              >
+                Non lette {unreadCount > 0 && <span className="notif-tab-count notif-tab-count--highlight">{unreadCount}</span>}
+              </button>
+              <button
+                type="button"
+                className={`notif-tab ${activeNotifTab === 'tasks' ? 'active' : ''}`}
+                onClick={() => setActiveNotifTab('tasks')}
+              >
+                Commesse <span className="notif-tab-count">{taskNotifsCount}</span>
+              </button>
+              <button
+                type="button"
+                className={`notif-tab ${activeNotifTab === 'todo' ? 'active' : ''}`}
+                onClick={() => setActiveNotifTab('todo')}
+              >
+                TODO <span className="notif-tab-count">{todoNotifsCount}</span>
+              </button>
+              <button
+                type="button"
+                className={`notif-tab ${activeNotifTab === 'tickets' ? 'active' : ''}`}
+                onClick={() => setActiveNotifTab('tickets')}
+              >
+                Ticket <span className="notif-tab-count">{ticketNotifsCount}</span>
+              </button>
+            </div>
+
             <div className="layout-notification-body">
-              {notifications.length === 0 ? (
+              {filteredNotifications.length === 0 ? (
                 <div className="empty-state layout-notification-empty">
-                  <div className="empty-state-icon"><AppIcon name="bell" size={22} /></div>
-                  <h3>Nessuna notifica</h3>
-                  <p>Quando ci saranno novità le troverai qui.</p>
+                  <div className="empty-state-icon">
+                    <AppIcon name={activeNotifTab === 'unread' ? 'check' : 'bell'} size={24} />
+                  </div>
+                  <h3>{activeNotifTab === 'unread' ? 'Nessuna notifica non letta' : 'Nessuna notifica presente'}</h3>
+                  <p>{activeNotifTab === 'unread' ? 'Ottimo lavoro! Sei in pari con tutte le tue attività.' : 'Quando ci saranno novità le troverai qui.'}</p>
                 </div>
               ) : (
                 <div className="layout-notification-list">
-                  {notifications.map((n) => (
-                    <div key={n.id} className={`notification-item ${n.is_read ? '' : 'unread'}`}
-                      onClick={() => {
-                        if (n.project_id && n.task_id) {
-                          navigate(`/projects/${n.project_id}?open_task=${n.task_id}`);
-                        } else if (n.project_id) {
-                          navigate(`/projects/${n.project_id}`);
-                        }
-                        setShowNotifications(false);
-                      }}
-                      role={n.project_id ? 'button' : undefined}
-                      tabIndex={n.project_id ? 0 : undefined}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && n.project_id) {
-                          navigate(n.task_id ? `/projects/${n.project_id}?open_task=${n.task_id}` : `/projects/${n.project_id}`);
-                          setShowNotifications(false);
-                        }
-                      }}
-                    >
-                      <span className={`notification-type-icon notification-type-${n.type || 'update'}`} aria-hidden="true">
-                        {n.type === 'assignment' ? 'A' : n.type === 'deadline' ? '!' : 'i'}
-                      </span>
-                      <div className="notification-content">
-                        <div className="notification-title">{n.title}</div>
-                        <div className="notification-message">{n.message}</div>
-                        <div className="notification-time">
-                          {(() => {
-                            // Se il backend non restituisce informazioni sul fuso orario, assumiamo UTC (SQLite standard)
-                            // per far sì che il browser lo converta correttamente nell'ora locale
-                            const dateStr = n.created_at.endsWith('Z') ? n.created_at : n.created_at + 'Z';
-                            return new Date(dateStr).toLocaleString('it-IT');
-                          })()}
+                  {filteredNotifications.map((n) => {
+                    const iconMeta = getNotificationIconMeta(n);
+                    return (
+                      <div
+                        key={n.id}
+                        className={`notification-item ${n.is_read ? 'is-read' : 'is-unread'}`}
+                        onClick={() => handleNotificationClick(n)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleNotificationClick(n);
+                        }}
+                      >
+                        <span className={`notification-category-icon ${iconMeta.className}`} title={iconMeta.label}>
+                          <AppIcon name={iconMeta.icon} size={15} />
+                        </span>
+                        <div className="notification-content">
+                          <div className="notification-header-row">
+                            <span className="notification-title">{n.title}</span>
+                            <span className="notification-category-tag">{iconMeta.label}</span>
+                          </div>
+                          {n.message && <div className="notification-message">{n.message}</div>}
+                          <div className="notification-meta-row">
+                            <span className="notification-time">
+                              {formatNotificationTime(n.created_at)}
+                            </span>
+                            {!n.is_read && <span className="notification-unread-dot" title="Non letta" />}
+                          </div>
+                        </div>
+                        <div className="notification-actions" onClick={e => e.stopPropagation()}>
+                          {!n.is_read && (
+                            <button
+                              type="button"
+                              className="notification-action-btn notification-read-btn"
+                              title="Segna come letta"
+                              onClick={() => markAsRead(n.id)}
+                            >
+                              <AppIcon name="check" size={13} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="notification-action-btn notification-remove-btn"
+                            title="Elimina"
+                            onClick={() => deleteNotification(n.id)}
+                          >
+                            <AppIcon name="close" size={13} />
+                          </button>
                         </div>
                       </div>
-                      <div className="notification-actions">
-                        {!n.is_read && (
-                          <button
-                            className="notification-action-btn notification-read-btn"
-                            title="Segna come letta"
-                            onClick={(e) => { e.stopPropagation(); markAsRead(n.id); }}
-                          >
-                            <AppIcon name="check" size={14} />
-                          </button>
-                        )}
-                        <button
-                          className="notification-action-btn notification-remove-btn"
-                          title="Elimina"
-                          onClick={(e) => { e.stopPropagation(); deleteNotification(n.id); }}
-                        >
-                          <AppIcon name="close" size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

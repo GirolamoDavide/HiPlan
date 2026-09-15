@@ -282,11 +282,14 @@ async def create_todo(
     # Notifica in-app a tutti gli assegnati (escluso il creatore)
     from app.models.notification import Notification, NotificationType
     for uid in assignees:
+        notif_title = f"📋 TODO: {todo.title}" if data.notify_now else f"Nuovo TODO: {todo.title}"
+        notif_msg = f"{current_user.full_name or current_user.username} ti ha inviato un promemoria per il TODO." if data.notify_now else f"{current_user.full_name or current_user.username} ti ha assegnato un TODO."
         notif = Notification(
             user_id=uid,
-            title=f"Nuovo TODO: {todo.title}",
-            message=f"{current_user.full_name or current_user.username} ti ha assegnato un TODO.",
-            type=NotificationType.ASSIGNMENT,
+            title=notif_title,
+            message=notif_msg,
+            type=NotificationType.TODO,
+            link=f"/todo?id={todo.id}"
         )
         db.add(notif)
     await db.commit()
@@ -294,17 +297,6 @@ async def create_todo(
     # Email di notifica immediata se l'utente ha esplicitamente spuntato 'notify_now'
     if data.notify_now:
         try:
-            # Crea notifica in-app
-            for uid in assignees:
-                notif = Notification(
-                    user_id=uid,
-                    title=f"📋 TODO: {todo.title}",
-                    message=f"{current_user.full_name or current_user.username} ti ha inviato un promemoria per il TODO.",
-                    type=NotificationType.DEADLINE,
-                )
-                db.add(notif)
-            await db.commit()
-
             from app.services.email_service import send_todo_notification_email
             recipient_emails = [all_users[uid].email for uid in assignees if uid in all_users and all_users[uid].email]
             if recipient_emails:
@@ -318,6 +310,8 @@ async def create_todo(
                     todo_due_date=todo.due_date,
                 ))
         except Exception as e:
+            logger.warning(f"[TODO] Errore invio email immediata: {e}")
+
             logger.warning(f"[TODO] Errore invio email immediata: {e}")
 
     return _serialize_todo(todo, all_users)
@@ -373,7 +367,8 @@ async def update_todo(
                     user_id=uid,
                     title=f"📋 TODO: {todo.title}",
                     message=f"{current_user.full_name or current_user.username} ti ha inviato un promemoria per il TODO.",
-                    type=NotificationType.DEADLINE,
+                    type=NotificationType.TODO,
+                    link=f"/todo?id={todo.id}"
                 )
                 db.add(notif)
             await db.commit()

@@ -8,6 +8,10 @@ class NotificationType(str, enum.Enum):
     ASSIGNMENT = "assignment"
     DEADLINE = "deadline"
     UPDATE = "update"
+    TODO = "todo"
+    TICKET = "ticket"
+    VACATION = "vacation"
+    COMMERCIAL = "commercial"
 
 
 class Notification(Base, TimestampMixin):
@@ -21,3 +25,5 @@ class Notification(Base, TimestampMixin):
     is_read = Column(Boolean, default=False, nullable=False)
     project_id = Column(uuid_fk(), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     task_id = Column(String(36), nullable=True)
+    link = Column(String(255), nullable=True)
+

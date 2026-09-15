@@ -141,15 +141,24 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     assignees = []
 
-                # Notifica in-app
+                # Notifica in-app (con controllo anti-duplicati)
                 for uid in assignees:
-                    notif = Notification(
-                        user_id=uid,
-                        title=f"📋 TODO: {todo.title}",
-                        message="Data di notifica raggiunta per il tuo TODO.",
-                        type=NotificationType.DEADLINE,
+                    existing_notif = await session.execute(
+                        select(Notification).where(
+                            Notification.user_id == uid,
+                            Notification.title == f"📋 TODO: {todo.title}",
+                            Notification.is_read == False,
+                        )
                     )
-                    session.add(notif)
+                    if not existing_notif.scalar_one_or_none():
+                        notif = Notification(
+                            user_id=uid,
+                            title=f"📋 TODO: {todo.title}",
+                            message="Data di notifica raggiunta per il tuo TODO.",
+                            type=NotificationType.TODO,
+                            link=f"/todo?id={todo.id}",
+                        )
+                        session.add(notif)
 
                 # Email: invia sempre se c'è notify_date (notify_email=True impostato dal frontend)
                 if todo.notify_email:
@@ -190,15 +199,24 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     assignees = []
 
-                # Notifica in-app
+                # Notifica in-app (con controllo anti-duplicati)
                 for uid in assignees:
-                    notif = Notification(
-                        user_id=uid,
-                        title=f"⏰ Scadenza domani: {todo.title}",
-                        message="Un TODO non ancora completato è in scadenza domani.",
-                        type=NotificationType.DEADLINE,
+                    existing_due = await session.execute(
+                        select(Notification).where(
+                            Notification.user_id == uid,
+                            Notification.title == f"⏰ Scadenza domani: {todo.title}",
+                            Notification.is_read == False,
+                        )
                     )
-                    session.add(notif)
+                    if not existing_due.scalar_one_or_none():
+                        notif = Notification(
+                            user_id=uid,
+                            title=f"⏰ Scadenza domani: {todo.title}",
+                            message="Un TODO non ancora completato è in scadenza domani.",
+                            type=NotificationType.DEADLINE,
+                            link=f"/todo?id={todo.id}",
+                        )
+                        session.add(notif)
 
                 # Email scadenza (invia se notify_email=True, ovvero se ha una due_date)
                 if todo.notify_email:

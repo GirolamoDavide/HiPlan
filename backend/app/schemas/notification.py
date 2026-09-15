@@ -13,6 +13,7 @@ class NotificationOut(BaseModel):
     is_read: bool
     project_id: Optional[str] = None
     task_id: Optional[str] = None
+    link: Optional[str] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -25,3 +26,5 @@ class NotificationCreate(BaseModel):
     type: NotificationType = NotificationType.UPDATE
     project_id: Optional[str] = None
     task_id: Optional[str] = None
+    link: Optional[str] = None
+
