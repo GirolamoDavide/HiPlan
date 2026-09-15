@@ -601,7 +601,7 @@ export default function AdminPage() {
                 Reportistica & Analisi AI
               </h2>
             </div>
-            <p className="admin-section-desc">Resoconto intelligente dello stato attuale di commesse, avanzamento e carico addetti salvato in cache.</p>
+            <p className="admin-section-desc">Resoconto intelligente a 360° su commesse, attività TODO, ticket di assistenza e pipeline di preventivazione salvato in cache.</p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
@@ -640,38 +640,62 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* KPI Cards: sempre visibili anche a sezione compressa (esattamente come in Immagine 2) */}
+        {/* KPI Cards: sempre visibili anche a sezione compressa su una sola riga */}
         {aiReportData?.kpis && (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-            gap: 12,
+            gridTemplateColumns: 'repeat(9, minmax(0, 1fr))',
+            gap: 8,
             marginTop: 18,
-            marginBottom: collapsedSections.aiReport ? 0 : 16
+            marginBottom: collapsedSections.aiReport ? 0 : 16,
+            overflowX: 'auto',
+            paddingBottom: 2
           }}>
-            <div style={{ background: 'var(--bg-secondary)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Commesse Attive</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#6366f1', marginTop: 2 }}>{aiReportData.kpis.active_projects}</div>
+            <div style={{ background: 'var(--bg-secondary)', padding: '10px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', minWidth: 0 }} title="Commesse Attive">
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Commesse Attive</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#6366f1', marginTop: 2, lineHeight: 1.2 }}>{aiReportData.kpis.active_projects ?? 0}</div>
             </div>
-            <div style={{ background: 'var(--bg-secondary)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>In Pianificazione</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f59e0b', marginTop: 2 }}>{aiReportData.kpis.planning_projects}</div>
+            <div style={{ background: 'var(--bg-secondary)', padding: '10px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', minWidth: 0 }} title="In Pianificazione">
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>In Pianificazione</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#f59e0b', marginTop: 2, lineHeight: 1.2 }}>{aiReportData.kpis.planning_projects ?? 0}</div>
             </div>
-            <div style={{ background: 'var(--bg-secondary)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Fasi in Corso</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#3b82f6', marginTop: 2 }}>{aiReportData.kpis.active_tasks}</div>
+            <div style={{ background: 'var(--bg-secondary)', padding: '10px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', minWidth: 0 }} title="Fasi in Corso">
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Fasi in Corso</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#3b82f6', marginTop: 2, lineHeight: 1.2 }}>{aiReportData.kpis.active_tasks ?? 0}</div>
             </div>
-            <div style={{ background: 'var(--bg-secondary)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Fasi in Ritardo</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: aiReportData.kpis.overdue_tasks > 0 ? '#ef4444' : '#10b981', marginTop: 2 }}>{aiReportData.kpis.overdue_tasks}</div>
+            <div style={{ background: 'var(--bg-secondary)', padding: '10px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', minWidth: 0 }} title="Fasi in Ritardo">
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Fasi in Ritardo</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: (aiReportData.kpis.overdue_tasks > 0) ? '#ef4444' : '#10b981', marginTop: 2, lineHeight: 1.2 }}>{aiReportData.kpis.overdue_tasks ?? 0}</div>
             </div>
-            <div style={{ background: 'var(--bg-secondary)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Addetti Coinvolti</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>{aiReportData.kpis.total_workers}</div>
+            <div style={{ background: 'var(--bg-secondary)', padding: '10px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', minWidth: 0 }} title="Addetti Coinvolti">
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Addetti Coinvolti</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 2, lineHeight: 1.2 }}>{aiReportData.kpis.total_workers ?? 0}</div>
             </div>
-            <div style={{ background: 'var(--bg-secondary)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Scadenze a 7gg</div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ec4899', marginTop: 2 }}>{aiReportData.kpis.upcoming_deadlines_count}</div>
+            <div style={{ background: 'var(--bg-secondary)', padding: '10px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', minWidth: 0 }} title="Scadenze a 7gg">
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Scadenze a 7gg</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ec4899', marginTop: 2, lineHeight: 1.2 }}>{aiReportData.kpis.upcoming_deadlines_count ?? 0}</div>
+            </div>
+            <div style={{ background: 'var(--bg-secondary)', padding: '10px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', minWidth: 0 }} title="TODO in Sospeso">
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>TODO in Sospeso</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: (aiReportData.kpis.overdue_todos > 0) ? '#f43f5e' : '#8b5cf6', marginTop: 2, lineHeight: 1.2, display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                {aiReportData.kpis.pending_todos ?? 0}
+                {aiReportData.kpis.overdue_todos > 0 && (
+                  <span style={{ fontSize: '0.6rem', color: '#ef4444', fontWeight: 600 }}>({aiReportData.kpis.overdue_todos})</span>
+                )}
+              </div>
+            </div>
+            <div style={{ background: 'var(--bg-secondary)', padding: '10px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', minWidth: 0 }} title="Ticket da Gestire">
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Ticket da Gestire</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: (aiReportData.kpis.high_priority_tickets > 0) ? '#ef4444' : '#f59e0b', marginTop: 2, lineHeight: 1.2, display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                {aiReportData.kpis.open_tickets ?? 0}
+                {aiReportData.kpis.high_priority_tickets > 0 && (
+                  <span style={{ fontSize: '0.6rem', color: '#ef4444', fontWeight: 600 }}>({aiReportData.kpis.high_priority_tickets})</span>
+                )}
+              </div>
+            </div>
+            <div style={{ background: 'var(--bg-secondary)', padding: '10px 8px', borderRadius: 8, border: '1px solid var(--border-subtle)', minWidth: 0 }} title="Preventivi Attivi">
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Preventivi Attivi</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#10b981', marginTop: 2, lineHeight: 1.2 }}>{aiReportData.kpis.active_preventivi ?? 0}</div>
             </div>
           </div>
         )}
@@ -711,7 +735,7 @@ export default function AdminPage() {
               }}>
                 <div className="spinner" style={{ margin: '0 auto 12px' }} />
                 <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>HiPlan AI sta analizzando...</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Elaborazione commesse attive, calcolo carichi addetti e individuazione criticità</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Elaborazione commesse attive, carico addetti, checklist TODO, ticket aperti e pipeline preventivi</div>
               </div>
             ) : aiReportData?.report ? (
               <div className="ai-report-markdown" style={{

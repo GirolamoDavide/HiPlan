@@ -1205,12 +1205,28 @@ SQLQuery:"""
         import json
         from datetime import date, datetime, timedelta
         from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
         from app.models.project import Project, ProjectStatus
         from app.models.task import Task, TaskType
         from app.models.user import User
+        from app.models.todo import Todo
+        from app.models.ticket import Ticket, TicketStatus, TicketPriority
+        from app.models.richiesta_commerciale import RichiestaCommerciale, RichiestaStatus, ArticoloRichiesta
 
         today = date.today()
         today_str = today.strftime("%d/%m/%Y")
+
+        def extract_date(val):
+            if not val:
+                return None
+            if isinstance(val, datetime):
+                return val.date()
+            if isinstance(val, date):
+                return val
+            try:
+                return datetime.fromisoformat(str(val)).date()
+            except Exception:
+                return None
 
         # 1. Carica progetti non eliminati
         res_proj = await db.execute(select(Project).where(Project.deleted_at.is_(None)))
@@ -1223,8 +1239,25 @@ SQLQuery:"""
         # 3. Carica utenti attivi
         res_users = await db.execute(select(User).where(User.is_active.is_(True)))
         users = res_users.scalars().all()
+        user_name_map = {str(u.id): (u.full_name or u.username) for u in users}
 
-        # Calcolo KPI
+        # 4. Carica TODO non eliminati
+        res_todos = await db.execute(select(Todo).where(Todo.deleted_at.is_(None)))
+        todos = res_todos.scalars().all()
+
+        # 5. Carica Ticket non eliminati
+        res_tickets = await db.execute(select(Ticket).where(Ticket.deleted_at.is_(None)))
+        tickets = res_tickets.scalars().all()
+
+        # 6. Carica Richieste Commerciali non eliminate (con articoli)
+        res_comm = await db.execute(
+            select(RichiestaCommerciale)
+            .options(selectinload(RichiestaCommerciale.articoli))
+            .where(RichiestaCommerciale.deleted_at.is_(None))
+        )
+        commerciali = res_comm.scalars().all()
+
+        # --- Calcolo KPI Commesse ---
         total_projects = len(projects)
         active_projects = [p for p in projects if p.status == ProjectStatus.ACTIVE]
         planning_projects = [p for p in projects if p.status == ProjectStatus.PLANNING]
@@ -1235,7 +1268,6 @@ SQLQuery:"""
         total_alimentare = len([p for p in projects if getattr(p, 'is_alimentare', False)])
         total_standard = len([p for p in projects if not getattr(p, 'is_atex', False) and not getattr(p, 'is_alimentare', False)])
 
-        # Task operativi (escludendo contenitori di commessa e milestone)
         operative_tasks = [
             t for t in tasks 
             if getattr(t, 'type', None) != TaskType.PROJECT 
@@ -1253,16 +1285,16 @@ SQLQuery:"""
         overdue_tasks = []
         upcoming_tasks = []
         for t in active_tasks:
-            if t.end_date:
-                if t.end_date < today:
+            t_end = extract_date(t.end_date)
+            if t_end:
+                if t_end < today:
                     overdue_tasks.append(t)
-                elif t.end_date <= today + timedelta(days=7):
+                elif t_end <= today + timedelta(days=7):
                     upcoming_tasks.append(t)
 
-        # Mappatura task per progetto
         proj_map = {str(p.id): p for p in projects}
 
-        # Statistiche per addetto (su task operativi)
+        # Carichi addetti
         worker_stats = {}
         for t in operative_tasks:
             w_list = []
@@ -1283,10 +1315,10 @@ SQLQuery:"""
                         worker_stats[w_name]["completed"] += 1
                     else:
                         worker_stats[w_name]["active"] += 1
-                        if t.end_date and t.end_date < today:
+                        t_end = extract_date(t.end_date)
+                        if t_end and t_end < today:
                             worker_stats[w_name]["overdue"] += 1
 
-        # Genera testi di riepilogo dati con avanzamento effettivo e coerente al frontend
         active_proj_lines = []
         for p in active_projects:
             p_tasks = [
@@ -1300,7 +1332,8 @@ SQLQuery:"""
             p_done = [t for t in p_tasks if getattr(t, 'completed', 0) == 1 or normalize_progress(getattr(t, 'progress', 0)) >= 100]
             tot_prog = sum(normalize_progress(getattr(t, 'progress', 0)) for t in p_tasks)
             avg_prog = round(tot_prog / tot_p_tasks) if tot_p_tasks > 0 else 0
-            end_str = p.end_date.strftime("%d/%m/%Y") if p.end_date else "N/D"
+            end_d = extract_date(p.end_date)
+            end_str = end_d.strftime("%d/%m/%Y") if end_d else "N/D"
             tipi = []
             if getattr(p, 'is_atex', False):
                 tipi.append("ATEX")
@@ -1311,77 +1344,146 @@ SQLQuery:"""
                 f"- **{p.name}** ({p.code or 'No Code'}) | Cliente: {p.client or 'Interno'} | Tipologia: **{tipo_tag}** | Scadenza: {end_str} | Avanzamento commessa: **{avg_prog}%** (Fasi operative: {tot_p_tasks}, di cui concluse al 100%: {len(p_done)})"
             )
 
-        if not active_proj_lines:
-            active_proj_text = "Nessuna commessa attiva al momento."
-        else:
-            active_proj_text = "\n".join(active_proj_lines)
+        active_proj_text = "\n".join(active_proj_lines) if active_proj_lines else "Nessuna commessa attiva al momento."
 
-        # Dettaglio ritardi
         overdue_lines = []
         for t in overdue_tasks[:15]:
             proj = proj_map.get(str(t.project_id))
             p_name = proj.name if proj and proj.name else "Commessa sconosciuta"
             w_str = t.workers or "Non assegnato"
-            overdue_lines.append(f"- *{t.text}* (Commessa: **{p_name}**) | Scaduta il: {t.end_date.strftime('%d/%m/%Y')} | Addetti: {w_str}")
-        
+            t_end = extract_date(t.end_date)
+            overdue_lines.append(f"- *{t.text}* (Commessa: **{p_name}**) | Scaduta il: {t_end.strftime('%d/%m/%Y') if t_end else 'N/D'} | Addetti: {w_str}")
         overdue_text = "\n".join(overdue_lines) if overdue_lines else "Nessuna attività scaduta in ritardo."
 
-        # Distribuzione addetti
         worker_lines = []
         sorted_workers = sorted(worker_stats.items(), key=lambda x: x[1]["active"], reverse=True)
         for w_name, s in sorted_workers:
             worker_lines.append(f"- **{w_name}**: {s['active']} attive in corso, {s['completed']} completate, {s['overdue']} in ritardo (Totale: {s['total']})")
-        
         worker_text = "\n".join(worker_lines) if worker_lines else "Nessun addetto attualmente assegnato a fasi di commessa."
 
-        # Scadenze prossimi 7 giorni
         upcoming_lines = []
         for t in upcoming_tasks[:15]:
             proj = proj_map.get(str(t.project_id))
             p_name = proj.name if proj and proj.name else "Commessa sconosciuta"
             w_str = t.workers or "Non assegnato"
-            upcoming_lines.append(f"- *{t.text}* (Commessa: **{p_name}**) | Scadenza: {t.end_date.strftime('%d/%m/%Y')} | Addetti: {w_str}")
+            t_end = extract_date(t.end_date)
+            upcoming_lines.append(f"- *{t.text}* (Commessa: **{p_name}**) | Scadenza: {t_end.strftime('%d/%m/%Y') if t_end else 'N/D'} | Addetti: {w_str}")
         upcoming_text = "\n".join(upcoming_lines) if upcoming_lines else "Nessuna scadenza critica nei prossimi 7 giorni."
+
+        # --- Calcolo Metriche & Sintesi TODO ---
+        completed_todos = [t for t in todos if t.is_completed]
+        active_todos = [t for t in todos if not t.is_completed]
+        overdue_todos = []
+        upcoming_todos = []
+        for t in active_todos:
+            t_due = extract_date(t.due_date)
+            if t_due:
+                if t_due < today:
+                    overdue_todos.append(t)
+                elif t_due <= today + timedelta(days=7):
+                    upcoming_todos.append(t)
+
+        todo_lines = []
+        for t in active_todos[:12]:
+            t_due = extract_date(t.due_date)
+            due_str = f"Scadenza: {t_due.strftime('%d/%m/%Y')}" if t_due else "Senza scadenza"
+            creator_name = user_name_map.get(str(t.creator_id), "Utente")
+            is_overdue_flag = " ⚠️ **IN RITARDO**" if (t_due and t_due < today) else ""
+            todo_lines.append(f"- **{t.title}** ({due_str}{is_overdue_flag}) | Creato da: {creator_name}")
+        todo_text = "\n".join(todo_lines) if todo_lines else "Nessun TODO pendente."
+
+        # --- Calcolo Metriche & Sintesi Ticket ---
+        tickets_da_gestire = [t for t in tickets if str(t.status).lower() in ["da gestire", "ticketstatus.da_gestire"]]
+        tickets_in_attesa = [t for t in tickets if str(t.status).lower() in ["in attesa del cliente", "ticketstatus.in_attesa"]]
+        tickets_completati = [t for t in tickets if str(t.status).lower() in ["completato", "ticketstatus.completato"]]
+        unresolved_tickets = [t for t in tickets if t not in tickets_completati]
+        
+        high_tickets = [t for t in unresolved_tickets if str(t.priority).lower() in ["high", "ticketpriority.high"]]
+        medium_tickets = [t for t in unresolved_tickets if str(t.priority).lower() in ["medium", "ticketpriority.medium"]]
+        low_tickets = [t for t in unresolved_tickets if str(t.priority).lower() in ["low", "ticketpriority.low"]]
+
+        ticket_lines = []
+        for t in unresolved_tickets[:12]:
+            pr_code = t.custom_project_code or ""
+            if not pr_code and t.project_id:
+                pr = proj_map.get(str(t.project_id))
+                pr_code = pr.code or pr.name if pr else ""
+            pr_label = f" [Commessa: {pr_code}]" if pr_code else ""
+            prio_badge = "🔴 ALTA" if str(t.priority).lower() in ["high", "ticketpriority.high"] else ("🟡 MEDIA" if str(t.priority).lower() in ["medium", "ticketpriority.medium"] else "🟢 BASSA")
+            ticket_lines.append(f"- **{t.title}** ({prio_badge} | Stato: *{t.status}*{pr_label})")
+        ticket_text = "\n".join(ticket_lines) if ticket_lines else "Nessun ticket in attesa di gestione."
+
+        # --- Calcolo Metriche & Sintesi Preventivazione (Richieste Commerciali) ---
+        commerciali_aperte = [r for r in commerciali if str(r.status).lower() in ["aperta", "richiestastatus.aperta"]]
+        commerciali_in_lav = [r for r in commerciali if str(r.status).lower() in ["in_lavorazione", "richiestastatus.in_lavorazione"]]
+        commerciali_manca_listino = [r for r in commerciali if str(r.status).lower() in ["manca_listino", "richiestastatus.manca_listino"]]
+        commerciali_completate = [r for r in commerciali if str(r.status).lower() in ["completata", "richiestastatus.completata"]]
+        active_commerciali = [r for r in commerciali if r not in commerciali_completate]
+
+        total_preventivi_val = 0.0
+        comm_lines = []
+        for r in active_commerciali[:12]:
+            num_art = len(r.articoli) if r.articoli else 0
+            val_r = sum((a.prezzo_listino or a.costo or 0.0) for a in (r.articoli or []))
+            total_preventivi_val += val_r
+            off_str = f"Offerta: {r.numero_offerta} | " if r.numero_offerta else ""
+            comm_lines.append(f"- **{r.title}** (Cliente: **{r.cliente}**) | {off_str}Stato: *{r.status}* | Articoli: {num_art} | Valore stimato: {val_r:,.2f} €")
+        commerciali_text = "\n".join(comm_lines) if comm_lines else "Nessuna richiesta di preventivazione aperta o in corso."
 
         # Tentativo chiamata LLM
         report_markdown = ""
         if self.llm:
             try:
                 system_prompt = (
-                    f"Sei un Senior Project Management AI Consultant per la piattaforma HiPlan.\n"
+                    f"Sei un Senior Business & Project Management AI Consultant per la piattaforma HiPlan.\n"
                     f"Oggi è il {today_str}.\n"
-                    f"Genera un Resoconto Esecutivo chiaro, professionale, completo e altamente azionabile per la direzione aziendale e gli amministratori.\n\n"
+                    f"Genera un Resoconto Esecutivo Globale chiaro, professionale, completo e altamente azionabile per la direzione aziendale e gli amministratori.\n"
+                    f"Il resoconto deve coprire in modo organico: COMMESSE, CARICHI ADDETTI, CHECKLIST TODO, ASSISTENZA TICKET e PIPELINE PREVENTIVAZIONE.\n\n"
                     f"DATI AGGIORNATI DEL SISTEMA:\n"
-                    f"- Commesse Totali: {total_projects} (Attive: {len(active_projects)}, In Pianificazione: {len(planning_projects)}, Completate: {len(completed_projects)}, Archiviate: {len(archived_projects)})\n"
-                    f"- Ripartizione Tipologie Commessa: Standard: {total_standard}, ATEX (Rischio esplosione): {total_atex}, Alimentare (Food Grade): {total_alimentare}\n"
-                    f"- Fasi Operative Totali: {total_tasks} (Avanzamento medio ponderato: {avg_global_progress}%, Fasi 100% completate: {len(completed_tasks)}, Fasi in lavorazione: {len(active_tasks)}, In Ritardo: {len(overdue_tasks)})\n"
-                    f"- Scadenze nei prossimi 7 giorni: {len(upcoming_tasks)}\n\n"
-                    f"COMMESSE ATTIVE CON STATO AVANZAMENTO REALE:\n{active_proj_text}\n\n"
-                    f"ATTIVITÀ SCADUTE O IN RITARDO:\n{overdue_text}\n\n"
-                    f"CARICO ADDETTI:\n{worker_text}\n\n"
-                    f"SCADENZE IMMINENTI (PROSSIMI 7 GIORNI):\n{upcoming_text}\n\n"
+                    f"1. COMMESSE:\n"
+                    f"- Totali: {total_projects} (Attive: {len(active_projects)}, In Pianificazione: {len(planning_projects)}, Completate: {len(completed_projects)}, Archiviate: {len(archived_projects)})\n"
+                    f"- Ripartizione Tipologie: Standard: {total_standard}, ATEX (Rischio esplosione): {total_atex}, Alimentare (Food Grade): {total_alimentare}\n"
+                    f"- Fasi Operative: Totali: {total_tasks}, Avanzamento medio ponderato: {avg_global_progress}%, Fasi 100%: {len(completed_tasks)}, Fasi in corso: {len(active_tasks)}, In Ritardo: {len(overdue_tasks)}\n"
+                    f"- Scadenze a 7 giorni: {len(upcoming_tasks)}\n"
+                    f"{active_proj_text}\n\n"
+                    f"2. CRITICITÀ E RITARDI COMMESSE:\n{overdue_text}\n\n"
+                    f"3. CARICO DI LAVORO ADDETTI:\n{worker_text}\n\n"
+                    f"4. SCADENZE IMMINENTI:\n{upcoming_text}\n\n"
+                    f"5. CHECKLIST TODO & ATTIVITÀ INTERNE:\n"
+                    f"- Totali: {len(todos)} (In sospeso: {len(active_todos)}, Completati: {len(completed_todos)}, Scaduti: {len(overdue_todos)}, Scadenza a 7gg: {len(upcoming_todos)})\n"
+                    f"{todo_text}\n\n"
+                    f"6. ASSISTENZA & TICKET:\n"
+                    f"- Totali: {len(tickets)} (Da gestire: {len(tickets_da_gestire)}, In attesa cliente: {len(tickets_in_attesa)}, Completati: {len(tickets_completati)})\n"
+                    f"- Priorità ticket aperti: Alta: {len(high_tickets)}, Media: {len(medium_tickets)}, Bassa: {len(low_tickets)}\n"
+                    f"{ticket_text}\n\n"
+                    f"7. PIPELINE PREVENTIVAZIONE (RICHIESTE COMMERCIALI):\n"
+                    f"- Totali: {len(commerciali)} (Aperte: {len(commerciali_aperte)}, In lavorazione: {len(commerciali_in_lav)}, Manca listino: {len(commerciali_manca_listino)}, Completate: {len(commerciali_completate)})\n"
+                    f"- Valore totale stimato offerte attive: {total_preventivi_val:,.2f} €\n"
+                    f"{commerciali_text}\n\n"
                     f"ISTRUZIONI RIGOROSE E VINCOLANTI:\n"
-                    f"1. PRECISIONE ASSOLUTA SULL'AVANZAMENTO E STATO DI COMPLETAMENTO:\n"
-                    f"   - Riporta FEDELMENTE la percentuale reale di avanzamento specificata per ciascuna commessa ('Avanzamento commessa: X%'). Per esempio, se una commessa indica 70%, DEVI scrivere 70%, NON 0%! Se indica 97%, riporta 97%, se indica 17%, riporta 17%.\n"
-                    f"   - È SEVERAMENTE VIETATO calcolare l'avanzamento dividendo le fasi al 100% per il totale: le fasi in corso possiedono percentuali parziali già calcolate nel valore complessivo della commessa.\n"
-                    f"   - Puoi specificare a completamento il numero di fasi chiuse al 100% (es. 'COMM1 è al 97% con 5 fasi su 6 concluse al 100%', oppure 'COMM2 è al 70% sulla fase attualmente in lavorazione').\n"
+                    f"1. PRECISIONE ASSOLUTA SUI DATI:\n"
+                    f"   - Riporta fedelmente le percentuali di avanzamento e i dati numerici reali indicati sopra per tutte le sezioni.\n"
                     f"2. DIVIETO ASSOLUTO DI CONSIGLI GENERALISTI O DI BUON SENSO:\n"
-                    f"   - NON usare MAI formule ovvie, generiche o vaghe come: 'monitorare attentamente', 'fare riunioni di coordinamento', 'verificare periodicamente', 'prestare attenzione alle scadenze', 'sollecitare gli addetti', 'ottimizzare la comunicazione'.\n"
-                    f"   - Nella sezione '4. 💡 Raccomandazioni Strategiche & Operative', OGNI punto DEVE essere PUNTUALE, NOMINATIVO E CIRCOSTANZIATO: cita per nome la commessa, la fase esatta o l'addetto sovraccarico, specificando l'azione decisionale precisa.\n"
-                    f"   - Se NON vi sono ritardi o criticità rilevanti nei dati, NON inventare raccomandazioni di facciata: scrivi semplicemente 'Nessuna misura correttiva d'emergenza necessaria. I carichi operativi e le scadenze a breve risultano presidiati regolarmente.'\n"
-                    f"3. FORMATTAZIONE:\n"
-                    f"   - Formatta in Markdown pulito ed elegante, senza preamboli né saluti.\n"
-                    f"   - Nel resoconto tieni in debito conto la tipologia normativa delle commesse (Standard, ATEX per atmosfere potenzialmente esplosive, Alimentare per settore igienico/food grade), sottolineando l'importanza delle certificazioni e dei collaudi specifici.\n"
-                    f"Usa esattamente questa struttura:\n"
-                    f"# 📑 Resoconto Esecutivo: Stato Commesse & Addetti ({today_str})\n\n"
+                    f"   - Evita formule ovvie ('fare riunioni', 'monitorare attentamente', 'prestare attenzione').\n"
+                    f"   - Nelle raccomandazioni operative cita esplicitamente commesse, ticket o preventivi specifici e l'azione concreta da intraprendere.\n"
+                    f"3. STRUTTURA DEL DOCUMENTO:\n"
+                    f"   - Formatta in Markdown pulito, autorevole ed elegante senza saluti iniziali o finali.\n"
+                    f"Usa esattamente questa struttura a 7 capitoli:\n"
+                    f"# 📑 Resoconto Esecutivo Globale: Commesse, Operatività & Preventivazione ({today_str})\n\n"
                     f"### 1. 📊 Sintesi Esecutiva & Stato Commesse\n"
-                    f"Descrivi la situazione complessiva con tono professionale, evidenziando avanzamento, ripartizione delle tipologie (Standard, ATEX, Alimentare) e stato delle commesse attive.\n\n"
+                    f"Panoramica sintetica dello stato commesse attive, avanzamento ponderato e tipologie speciali (ATEX, Alimentare, Standard).\n\n"
                     f"### 2. 👥 Analisi Carico di Lavoro & Distribuzione Addetti\n"
-                    f"Evidenzia la concentrazione dei carichi: chi è maggiormente occupato, chi ha task in ritardo e come bilanciare le risorse.\n\n"
-                    f"### 3. ⚠️ Criticità, Ritardi & Scadenze Imminenti\n"
-                    f"Analizza le attività in ritardo e quelle che scadono a breve termine, indicando possibili colli di bottiglia o rischi di consegna (con particolare attenzione ai vincoli tecnici delle commesse speciali ATEX / Alimentare).\n\n"
-                    f"### 4. 💡 Raccomandazioni Strategiche & Operative\n"
-                    f"Fornisci 2-3 raccomandazioni concrete, nominative e azionabili (no frasi generiche).\n"
+                    f"Distribuzione del carico sulle fasi di commessa, individuazione di picchi o sbilanciamenti tra risorse.\n\n"
+                    f"### 3. ⚠️ Criticità, Ritardi & Scadenze Imminenti (Commesse)\n"
+                    f"Fasi in ritardo e attività in consegna a breve termine (7 giorni), evidenziando vincoli tecnici o collaudi.\n\n"
+                    f"### 4. 📋 Panoramica Operativa: TODO & Checklist Interne\n"
+                    f"Stato dei TODO aziendali, task scaduti, checklist in lavorazione e priorità operative.\n\n"
+                    f"### 5. 🎫 Assistenza & Ticket di Supporto\n"
+                    f"Analisi dei ticket aperti, richieste con priorità alta, tempi di attesa e impatto sui clienti o sulle commesse.\n\n"
+                    f"### 6. 💼 Pipeline Preventivazione & Richieste Commerciali\n"
+                    f"Stato dell'ufficio commerciale e acquisti: richieste in corso, offerte in valutazione, prezzi mancanti e volume stimato.\n\n"
+                    f"### 7. 💡 Raccomandazioni Strategiche & Operative Interfunzionali\n"
+                    f"3-4 azioni prioritarie e circostanziate che incrociano commesse, smaltimento ticket critici e sblocco preventivi.\n"
                 )
                 response = await self.llm.ainvoke(system_prompt)
                 content = getattr(response, "content", response)
@@ -1394,33 +1496,39 @@ SQLQuery:"""
             except Exception as e:
                 logger.error(f"Errore nella generazione report con LLM: {e}")
 
-        # Fallback raccomandazioni specifiche e concrete (no consigli generalisti)
+        # Fallback raccomandazioni specifiche interfunzionali
         rec_bullets = []
         if overdue_tasks:
             for ot in overdue_tasks[:2]:
                 pr = proj_map.get(str(ot.project_id))
                 pr_label = f"**{pr.name}** ({pr.code or ''})" if pr else "Commessa"
                 w_str = ot.workers or "non assegnato"
-                rec_bullets.append(f"- **Riprogrammazione immediata**: ridefinire data utile per la fase *{ot.text}* ({pr_label}), scaduta il {ot.end_date.strftime('%d/%m/%Y')} e in carico a {w_str}.")
+                t_end = extract_date(ot.end_date)
+                rec_bullets.append(f"- **Riprogrammazione commessa**: ridefinire scadenza per fase *{ot.text}* ({pr_label}), scaduta il {t_end.strftime('%d/%m/%Y') if t_end else 'N/D'} (in carico a {w_str}).")
+        
+        if high_tickets:
+            ht = high_tickets[0]
+            rec_bullets.append(f"- **Priorità Ticket di Assistenza**: intervenire immediatamente sul ticket ad alta priorità *{ht.title}* per evitare disservizi verso il cliente.")
+        
+        if commerciali_manca_listino:
+            rc = commerciali_manca_listino[0]
+            rec_bullets.append(f"- **Sblocco Preventivo ({rc.cliente})**: completare l'inserimento dei prezzi listino per la richiesta *{rc.title}* per consentire l'invio dell'offerta.")
+        elif commerciali_in_lav:
+            rc = commerciali_in_lav[0]
+            rec_bullets.append(f"- **Avanzamento Preventivazione**: sollecitare la quotazione degli articoli per la richiesta di *{rc.cliente}* in lavorazione presso l'ufficio acquisti.")
+
         if sorted_workers and sorted_workers[0][1]["active"] >= 3:
             bw, bs = sorted_workers[0]
-            rec_bullets.append(f"- **Ribilanciamento carico {bw}**: l'addetto concentra {bs['active']} fasi aperte contemporanee; riassegnare una delle fasi a un collega dello stesso reparto con minor carico.")
-        atex_actives = [p for p in active_projects if getattr(p, 'is_atex', False)]
-        if atex_actives:
-            p_names = ", ".join([p.code or p.name for p in atex_actives[:2]])
-            rec_bullets.append(f"- **Conformità ATEX ({p_names})**: verificare l'acquisizione delle schede tecniche dei componenti antideflagranti prima dell'inizio del montaggio quadro.")
-        alim_actives = [p for p in active_projects if getattr(p, 'is_alimentare', False)]
-        if alim_actives:
-            p_names = ", ".join([p.code or p.name for p in alim_actives[:2]])
-            rec_bullets.append(f"- **Presidio MOCA Alimentare ({p_names})**: accertare l'idoneità al contatto alimentare dei materiali impiegati prima del collaudo finale.")
+            rec_bullets.append(f"- **Ribilanciamento risorse**: l'addetto {bw} concentra {bs['active']} fasi aperte contemporanee; ridistribuire le lavorazioni non critiche.")
+
         if not rec_bullets:
-            rec_bullets.append("- Nessuna misura correttiva d'emergenza necessaria. I carichi operativi e le scadenze a breve risultano presidiati regolarmente.")
+            rec_bullets.append("- Nessuna misura correttiva d'emergenza necessaria. Commesse, ticket e preventivi risultano regolarmente presidiati.")
         fallback_rec_text = "\n".join(rec_bullets)
 
-        # Fallback se LLM non disponibile o fallito
+        # Fallback deterministico completo con tutte le 7 sezioni
         if not report_markdown:
             report_markdown = (
-                f"# 📑 Resoconto Esecutivo: Stato Commesse & Addetti ({today_str})\n\n"
+                f"# 📑 Resoconto Esecutivo Globale: Commesse, Operatività & Preventivazione ({today_str})\n\n"
                 f"### 1. 📊 Sintesi Esecutiva & Stato Commesse\n"
                 f"Nel sistema risultano registrate **{total_projects} commesse complessive**, di cui **{len(active_projects)} attive**, "
                 f"**{len(planning_projects)} in fase di pianificazione** e **{len(completed_projects)} completate**.\n"
@@ -1428,19 +1536,37 @@ SQLQuery:"""
                 f"**Stato delle commesse attive:**\n"
                 f"{active_proj_text}\n\n"
                 f"### 2. 👥 Analisi Carico di Lavoro & Distribuzione Addetti\n"
-                f"Gli addetti coinvolti nelle attività sono **{len(worker_stats)}**. Di seguito il riepilogo del carico di ciascun membro del team:\n\n"
+                f"Gli addetti coinvolti nelle attività sono **{len(worker_stats)}**. Di seguito il riepilogo del carico di ciascun membro del team sulle fasi operative:\n\n"
                 f"{worker_text}\n\n"
-                f"### 3. ⚠️ Criticità, Ritardi & Scadenze Imminenti\n"
-                f"Attualmente si registrano **{len(overdue_tasks)} attività in ritardo** rispetto alla data di oggi e **{len(upcoming_tasks)} attività in scadenza nei prossimi 7 giorni**.\n\n"
+                f"### 3. ⚠️ Criticità, Ritardi & Scadenze Imminenti (Commesse)\n"
+                f"Attualmente si registrano **{len(overdue_tasks)} attività in ritardo** e **{len(upcoming_tasks)} attività in scadenza nei prossimi 7 giorni**.\n\n"
                 f"**Attività in ritardo:**\n{overdue_text}\n\n"
                 f"**Scadenze nei prossimi 7 giorni:**\n{upcoming_text}\n\n"
-                f"### 4. 💡 Raccomandazioni Strategiche & Operative\n"
+                f"### 4. 📋 Panoramica Operativa: TODO & Checklist Interne\n"
+                f"Nel modulo TODO figurano **{len(todos)} attività complessive**, di cui **{len(active_todos)} in sospeso** e **{len(completed_todos)} completate**. "
+                f"Attualmente si contano **{len(overdue_todos)} TODO scaduti** e **{len(upcoming_todos)} in scadenza nei prossimi 7 giorni**.\n\n"
+                f"**Principali TODO in lavorazione:**\n"
+                f"{todo_text}\n\n"
+                f"### 5. 🎫 Assistenza & Ticket di Supporto\n"
+                f"Il sistema registra **{len(tickets)} ticket complessivi**. Di questi, **{len(tickets_da_gestire)} sono da gestire**, "
+                f"**{len(tickets_in_attesa)} in attesa di risposta dal cliente** e **{len(tickets_completati)} risolti**.\n"
+                f"Distribuzione per priorità sui ticket non chiusi: **{len(high_tickets)} Alta**, **{len(medium_tickets)} Media**, **{len(low_tickets)} Bassa**.\n\n"
+                f"**Ticket aperti o in attesa:**\n"
+                f"{ticket_text}\n\n"
+                f"### 6. 💼 Pipeline Preventivazione & Richieste Commerciali\n"
+                f"Nella sezione commerciale sono presenti **{len(commerciali)} richieste di offerta**, di cui **{len(active_commerciali)} attive** "
+                f"(**{len(commerciali_aperte)} aperte**, **{len(commerciali_in_lav)} in lavorazione ufficio acquisti**, **{len(commerciali_manca_listino)} in attesa listino**, **{len(commerciali_completate)} completate**).\n"
+                f"Il volume economico stimato per le offerte attive ammonta a **{total_preventivi_val:,.2f} €**.\n\n"
+                f"**Richieste commerciali attive:**\n"
+                f"{commerciali_text}\n\n"
+                f"### 7. 💡 Raccomandazioni Strategiche & Operative Interfunzionali\n"
                 f"{fallback_rec_text}"
             )
 
         return {
             "report": report_markdown.strip(),
             "kpis": {
+                # Commesse
                 "total_projects": total_projects,
                 "active_projects": len(active_projects),
                 "planning_projects": len(planning_projects),
@@ -1452,10 +1578,28 @@ SQLQuery:"""
                 "upcoming_deadlines_count": len(upcoming_tasks),
                 "atex_projects": total_atex,
                 "alimentare_projects": total_alimentare,
-                "standard_projects": total_standard
+                "standard_projects": total_standard,
+                # TODO
+                "total_todos": len(todos),
+                "pending_todos": len(active_todos),
+                "overdue_todos": len(overdue_todos),
+                "completed_todos": len(completed_todos),
+                # Ticket
+                "total_tickets": len(tickets),
+                "open_tickets": len(tickets_da_gestire),
+                "waiting_tickets": len(tickets_in_attesa),
+                "high_priority_tickets": len(high_tickets),
+                # Preventivazione
+                "total_preventivi": len(commerciali),
+                "active_preventivi": len(active_commerciali),
+                "in_progress_preventivi": len(commerciali_in_lav),
+                "waiting_listino_preventivi": len(commerciali_manca_listino),
+                "completed_preventivi": len(commerciali_completate),
+                "preventivi_estimated_value": round(total_preventivi_val, 2)
             },
             "generated_at": datetime.now().strftime("%d/%m/%Y alle %H:%M"),
             "generated_timestamp": int(datetime.now().timestamp() * 1000)
         }
 
 chat_service = ChatService()
+

@@ -239,3 +239,93 @@ async def test_chat_intents_routing_standard():
     assert chat_service._classify_intent("Quali fasi sono in scadenza questo mese?") == "deadlines"
     assert chat_service._classify_intent("Rileva conflitti e ritardi nelle commesse") == "alarms"
 
+
+@pytest.mark.asyncio
+async def test_admin_report_with_todos_tickets_preventivazione(db_session: AsyncSession):
+    """Verifica che il report AI esecutivo dell'Admin includa la panoramica su TODO, Ticket e Preventivazione."""
+    from datetime import datetime
+    from app.models.todo import Todo
+    from app.models.ticket import Ticket, TicketStatus, TicketPriority
+    from app.models.richiesta_commerciale import RichiestaCommerciale, RichiestaStatus, ArticoloRichiesta
+
+    # Utente creatore
+    user = User(
+        email="test_multidomain@example.com",
+        username="multidomain_user",
+        hashed_password="pw",
+        full_name="Multi Domain User",
+        role=UserRole.ADMIN,
+        is_active=True
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    # Inserisci un TODO pendente
+    todo = Todo(
+        title="Verifica conformità collaudo finale",
+        creator_id=user.id,
+        due_date=datetime.now() + timedelta(days=2),
+        is_completed=False
+    )
+    db_session.add(todo)
+
+    # Inserisci un Ticket ad alta priorità
+    ticket = Ticket(
+        title="Anomalia sensore di pressione linea 3",
+        description="Il sensore segnala allarme fuorigiri",
+        author_id=user.id,
+        status=TicketStatus.DA_GESTIRE,
+        priority=TicketPriority.HIGH
+    )
+    db_session.add(ticket)
+
+    # Inserisci una Richiesta Commerciale con articolo
+    richiesta = RichiestaCommerciale(
+        title="Fornitura Skid Idrogeno 2026",
+        cliente="Eni S.p.A.",
+        numero_offerta="OFF-2026-99",
+        author_id=user.id,
+        status=RichiestaStatus.IN_LAVORAZIONE
+    )
+    db_session.add(richiesta)
+    await db_session.flush()
+
+    articolo = ArticoloRichiesta(
+        richiesta_id=richiesta.id,
+        titolo="Modulo Elettrolizzatore 500kW",
+        costo=85000.0,
+        prezzo_listino=115000.0,
+        is_atex=True
+    )
+    db_session.add(articolo)
+    await db_session.commit()
+
+    # Genera il report
+    res = await chat_service.generate_admin_report(db_session)
+    kpis = res["kpis"]
+    report = res["report"]
+
+    # Verifica KPI TODO
+    assert kpis["total_todos"] >= 1
+    assert kpis["pending_todos"] >= 1
+    assert "completed_todos" in kpis
+
+    # Verifica KPI Ticket
+    assert kpis["total_tickets"] >= 1
+    assert kpis["open_tickets"] >= 1
+    assert kpis["high_priority_tickets"] >= 1
+
+    # Verifica KPI Preventivazione
+    assert kpis["total_preventivi"] >= 1
+    assert kpis["active_preventivi"] >= 1
+    assert kpis["preventivi_estimated_value"] >= 115000.0
+
+    # Verifica sezioni nel report Markdown
+    assert "Panoramica Operativa: TODO & Checklist Interne" in report
+    assert "Assistenza & Ticket di Supporto" in report
+    assert "Pipeline Preventivazione & Richieste Commerciali" in report
+    assert "Raccomandazioni Strategiche & Operative Interfunzionali" in report
+    assert "Verifica conformità collaudo finale" in report
+    assert "Anomalia sensore di pressione linea 3" in report
+    assert "Eni S.p.A." in report
+
