@@ -168,15 +168,27 @@ function TextDiffBadges({ original, current, origAuthor, origDate, currAuthor, c
   return (
     <div className="rc-diff-badges" style={{ flexWrap: 'wrap' }}>
       {stepList.map((st, idx) => {
+        const isFirst = idx === 0;
         const isLast = idx === stepList.length - 1;
         const meta = [st.author, st.date].filter(Boolean).join(' • ');
+
+        let badgeClass = "rc-diff-step";
+        let stepTitle = `Modifica #${idx}`;
+        if (isFirst) {
+          badgeClass = "rc-diff-original";
+          stepTitle = "Testo originale";
+        } else if (isLast) {
+          badgeClass = "rc-diff-modified";
+          stepTitle = "Valore attuale / in uso";
+        }
+
         return (
           <Fragment key={idx}>
             {idx > 0 && <span className="rc-diff-arrow">→</span>}
             <span className="rc-diff-item">
               <span
-                className={isLast ? "rc-diff-modified" : "rc-diff-original"}
-                title={isLast ? "Valore attuale modificato" : `Passaggio #${idx + 1}`}
+                className={badgeClass}
+                title={stepTitle}
               >
                 {st.value}
               </span>
@@ -189,14 +201,27 @@ function TextDiffBadges({ original, current, origAuthor, origDate, currAuthor, c
   );
 }
 
-/** Visualizza il diff di un campo basandosi sulla sequenza completa di passaggi o modifiche locali in corso */
-function FieldDiffBadge({ mod, origFallback, origAuthor, currentVal, isDirty, dirtyAuthor, dirtyDate, isCosto }) {
-  if (!isDirty && !mod) return null;
+/** Visualizza il diff di un campo basandosi sulla sequenza completa di passaggi partendo dal testo originale e tutte le modifiche */
+function FieldDiffBadge({
+  mod,
+  origCommerciale,
+  origFallback,
+  origAuthor,
+  origDate,
+  currentVal,
+  isDirty,
+  dirtyAuthor,
+  dirtyDate,
+  isCosto,
+}) {
+  if (!isDirty && !mod && !origCommerciale) return null;
 
   const isCostoField = isCosto || mod?.field === 'costo';
   const defaultAuthor = isCostoField ? (origAuthor || 'Ufficio Acquisti') : (origAuthor || 'Commerciale');
 
   let steps = [];
+
+  // 1. Inizializza con gli step registrati nel modello
   if (mod && Array.isArray(mod.steps) && mod.steps.length > 0) {
     steps = mod.steps.map(s => ({
       value: s.value,
@@ -221,13 +246,38 @@ function FieldDiffBadge({ mod, origFallback, origAuthor, currentVal, isDirty, di
       {
         value: origFallback,
         author_name: defaultAuthor,
-        created_at: '',
+        created_at: origDate || '',
       },
     ];
   }
 
-  // Per il campo costo, il Commerciale non può aver inserito il costo:
-  // rimuoviamo qualsiasi step attribuito a Commerciale o originato da 0 € da Commerciale
+  // 2. Assicura che il testo originale del Commerciale sia al vertice della catena (step 0)
+  const commVal = origCommerciale && typeof origCommerciale === 'object'
+    ? String(origCommerciale.value || '').trim()
+    : String(origCommerciale || '').trim();
+  const commAuthor = (typeof origCommerciale === 'object' ? origCommerciale?.author : '') || 'Commerciale';
+  const commDate = (typeof origCommerciale === 'object' ? origCommerciale?.date : '') || '';
+
+  if (!isCostoField && commVal) {
+    if (steps.length === 0) {
+      steps = [{
+        value: commVal,
+        author_name: commAuthor,
+        created_at: commDate,
+      }];
+    } else {
+      const firstVal = String(steps[0].value || '').trim();
+      if (firstVal !== commVal) {
+        steps.unshift({
+          value: commVal,
+          author_name: commAuthor,
+          created_at: commDate,
+        });
+      }
+    }
+  }
+
+  // 3. Per il campo costo, il Commerciale non può aver inserito il costo
   if (isCostoField && steps.length > 0) {
     steps = steps.filter(s =>
       s.author_name !== 'Commerciale' &&
@@ -235,12 +285,13 @@ function FieldDiffBadge({ mod, origFallback, origAuthor, currentVal, isDirty, di
     );
   }
 
+  // 4. Se il campo è dirty (modifica in corso da parte dell'utente), aggiungi lo step corrente
   if (isDirty && currentVal !== undefined && currentVal !== null) {
     const trimmedDirty = String(currentVal).trim();
     if (steps.length === 0) {
       if (origFallback && String(origFallback).trim() !== trimmedDirty && (!isCostoField || (parseFloat(origFallback) > 0))) {
         steps = [
-          { value: origFallback, author_name: defaultAuthor, created_at: '' },
+          { value: origFallback, author_name: defaultAuthor, created_at: origDate || '' },
           { value: trimmedDirty, author_name: dirtyAuthor || 'Tu', created_at: dirtyDate || 'Adesso' },
         ];
       }
@@ -256,11 +307,30 @@ function FieldDiffBadge({ mod, origFallback, origAuthor, currentVal, isDirty, di
     }
   }
 
-  if (steps.length < 2) return null;
-  const firstVal = String(steps[0].value || '').trim();
-  if (steps.every(s => String(s.value || '').trim() === firstVal)) return null;
+  // 5. Rimuovi duplicati consecutivi collassando gli step identici
+  const cleanSteps = [];
+  for (const s of steps) {
+    const val = String(s.value !== undefined && s.value !== null ? s.value : '').trim();
+    if (!val) continue;
+    if (cleanSteps.length === 0) {
+      cleanSteps.push(s);
+    } else {
+      const prevVal = String(cleanSteps[cleanSteps.length - 1].value || '').trim();
+      if (prevVal !== val) {
+        cleanSteps.push(s);
+      } else {
+        if (s.author_name && s.author_name !== 'Commerciale') {
+          cleanSteps[cleanSteps.length - 1] = s;
+        }
+      }
+    }
+  }
 
-  return <TextDiffBadges steps={steps} />;
+  if (cleanSteps.length < 2) return null;
+  const firstVal = String(cleanSteps[0].value || '').trim();
+  if (cleanSteps.every(s => String(s.value || '').trim() === firstVal)) return null;
+
+  return <TextDiffBadges steps={cleanSteps} />;
 }
 
 function TextDiff({ original, current, origAuthor, origDate, currAuthor, currDate }) {
@@ -1189,7 +1259,14 @@ const ArticoloForm = forwardRef(function ArticoloForm({ richiestaId, richiesta, 
         <label className="rc-label">Titolo Articolo <span className="required">*</span></label>
         <FieldDiffBadge
           mod={articolo?.modifiche?.titolo}
+          origCommerciale={{
+            value: origComm?.titolo,
+            author: origComm?.author_name || articolo?.author?.full_name || 'Commerciale',
+            date: origComm?.created_at || articolo?.created_at,
+          }}
           origFallback={origTitolo}
+          origAuthor={origAuthorName}
+          origDate={origDateStr}
           currentVal={form.titolo}
           isDirty={form.titolo.trim() !== (articolo?.titolo || '').trim()}
           dirtyAuthor={currAuthorName}
@@ -1209,7 +1286,14 @@ const ArticoloForm = forwardRef(function ArticoloForm({ richiestaId, richiesta, 
         <label className="rc-label">Descrizione</label>
         <FieldDiffBadge
           mod={articolo?.modifiche?.descrizione}
+          origCommerciale={{
+            value: origComm?.descrizione,
+            author: origComm?.author_name || articolo?.author?.full_name || 'Commerciale',
+            date: origComm?.created_at || articolo?.created_at,
+          }}
           origFallback={origDesc}
+          origAuthor={origAuthorName}
+          origDate={origDateStr}
           currentVal={form.descrizione}
           isDirty={(form.descrizione || '').trim() !== (articolo?.descrizione || '').trim()}
           dirtyAuthor={currAuthorName}
@@ -2178,7 +2262,14 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                 <label className="rc-label">Descrizione</label>
                 <FieldDiffBadge
                   mod={richiesta.modifiche?.description}
-                  origFallback={richiesta.description}
+                  origCommerciale={{
+                    value: richiesta.description_originale,
+                    author: richiesta.author?.full_name || 'Commerciale',
+                    date: richiesta.created_at,
+                  }}
+                  origFallback={richiesta.description_originale || richiesta.description}
+                  origAuthor={richiesta.author?.full_name || 'Commerciale'}
+                  origDate={richiesta.created_at}
                   currentVal={editRichiestaForm.description}
                   isDirty={editRichiestaForm.description.trim() !== (richiesta.description || '').trim()}
                   dirtyAuthor={user?.full_name || 'Tu'}
@@ -2425,9 +2516,9 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                 const currentUserName = user?.full_name || user?.username || 'Tu';
                 const currAuthorName = articolo.updated_by?.full_name || articolo.updated_by?.name || currentUserName;
 
-                const titoloIsDirty = titoliAdmin[articolo.id] !== undefined && titoliAdmin[articolo.id] !== (originalSnap?.titolo || articolo.titolo || '');
-                const descIsDirty = descrizioniAdmin[articolo.id] !== undefined && descrizioniAdmin[articolo.id] !== (originalSnap?.descrizione !== undefined ? originalSnap.descrizione : (articolo.descrizione || ''));
-                const noteIsDirty = noteAdmin[articolo.id] !== undefined && noteAdmin[articolo.id] !== (originalSnap?.note_admin !== undefined ? originalSnap.note_admin : (articolo.note_admin || ''));
+                const titoloIsDirty = titoliAdmin[articolo.id] !== undefined && titoliAdmin[articolo.id].trim() !== (articolo.titolo || '').trim();
+                const descIsDirty = descrizioniAdmin[articolo.id] !== undefined && descrizioniAdmin[articolo.id].trim() !== (articolo.descrizione || '').trim();
+                const noteIsDirty = noteAdmin[articolo.id] !== undefined && noteAdmin[articolo.id].trim() !== (articolo.note_admin || '').trim();
                 const artAuthorName = articolo.author?.full_name || articolo.author?.username || origComm?.author_name || (richiesta.articoli_inserted_by?.full_name || richiesta.articoli_inserted_by?.username) || '—';
                 const artDateStr = formatDate(articolo.created_at || origComm?.created_at || richiesta.articoli_inserted_at || richiesta.created_at);
 
@@ -2476,7 +2567,14 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                       <label className="rc-label">Titolo</label>
                       <FieldDiffBadge
                         mod={articolo.modifiche?.titolo}
+                        origCommerciale={{
+                          value: origComm?.titolo,
+                          author: origComm?.author_name || articolo.author?.full_name || 'Commerciale',
+                          date: origComm?.created_at || articolo.created_at,
+                        }}
                         origFallback={originalSnap?.titolo || origComm?.titolo || articolo.titolo}
+                        origAuthor={origAuthorName}
+                        origDate={origDateStr}
                         currentVal={titoliAdmin[articolo.id]}
                         isDirty={titoloIsDirty}
                         dirtyAuthor={currentUserName}
@@ -2492,7 +2590,14 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                       <label className="rc-label">Descrizione</label>
                       <FieldDiffBadge
                         mod={articolo.modifiche?.descrizione}
+                        origCommerciale={{
+                          value: origComm?.descrizione,
+                          author: origComm?.author_name || articolo.author?.full_name || 'Commerciale',
+                          date: origComm?.created_at || articolo.created_at,
+                        }}
                         origFallback={originalSnap?.descrizione !== undefined ? originalSnap.descrizione : (origComm?.descrizione !== undefined ? origComm.descrizione : (articolo.descrizione || ''))}
+                        origAuthor={origAuthorName}
+                        origDate={origDateStr}
                         currentVal={descrizioniAdmin[articolo.id]}
                         isDirty={descIsDirty}
                         dirtyAuthor={currentUserName}
@@ -2689,7 +2794,14 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                       <label className="rc-label">Titolo Articolo <span className="required">*</span></label>
                       <FieldDiffBadge
                         mod={articolo.modifiche?.titolo}
+                        origCommerciale={{
+                          value: origCommTitolo,
+                          author: commAuthorName,
+                          date: commDateStr,
+                        }}
                         origFallback={origCommTitolo}
+                        origAuthor={commAuthorName}
+                        origDate={commDateStr}
                         currentVal={currentTitolo}
                         isDirty={titoloDirty}
                         dirtyAuthor={currentUserName}
@@ -2707,7 +2819,14 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
                       <label className="rc-label">Descrizione</label>
                       <FieldDiffBadge
                         mod={articolo.modifiche?.descrizione}
+                        origCommerciale={{
+                          value: origCommDesc,
+                          author: commAuthorName,
+                          date: commDateStr,
+                        }}
                         origFallback={origCommDesc}
+                        origAuthor={commAuthorName}
+                        origDate={commDateStr}
                         currentVal={currentDesc}
                         isDirty={descDirty}
                         dirtyAuthor={currentUserName}

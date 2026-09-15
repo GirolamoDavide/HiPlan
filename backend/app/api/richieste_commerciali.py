@@ -255,9 +255,18 @@ def _record_field_modification(
 
     prev_mod = modifiche_dict.get(field_name, {})
     existing_steps = prev_mod.get("steps")
+    init_str = str(initial_val).strip() if initial_val is not None else ""
 
     if existing_steps and isinstance(existing_steps, list):
         steps = [dict(s) for s in existing_steps]
+        # Se abbiamo il valore originale iniziale e non è già lo step 0, inseriamolo come step 0
+        if init_str and field_name != "costo" and steps and str(steps[0].get("value", "")).strip() != init_str:
+            steps.insert(0, {
+                "value": init_str,
+                "author_name": old_author,
+                "created_at": old_created_at or now_iso,
+                "author_id": "",
+            })
     elif prev_mod.get("old_value") or prev_mod.get("new_value"):
         steps = [
             {
@@ -273,8 +282,14 @@ def _record_field_modification(
                 "author_id": prev_mod.get("author_id", ""),
             },
         ]
+        if init_str and field_name != "costo" and steps and str(steps[0].get("value", "")).strip() != init_str:
+            steps.insert(0, {
+                "value": init_str,
+                "author_name": old_author,
+                "created_at": old_created_at or now_iso,
+                "author_id": "",
+            })
     else:
-        init_str = str(initial_val).strip() if initial_val is not None else ""
         if init_str and init_str != old_str:
             steps = [
                 {
@@ -346,16 +361,18 @@ def _record_field_modification(
 
 
 def _filter_visible_modifiche(modifiche_dict: dict, role: str, current_user: Optional[User]) -> dict:
-    """Filtra le modifiche: visibili solo all'admin e a chi ha fatto la modifica."""
+    """Filtra le modifiche: visibili interamente all'admin e a chi ha fatto le modifiche."""
     visible = {}
     user_id = str(current_user.id) if current_user else None
     for k, m in modifiche_dict.items():
         if not isinstance(m, dict):
             continue
+        # L'admin deve vedere TUTTO lo storico delle modifiche per qualsiasi campo
+        if role == "admin":
+            visible[k] = m
+            continue
         # Differenze tra vecchio e nuovo costo: visibili SOLO all'admin
         if k == "costo":
-            if role == "admin":
-                visible[k] = m
             continue
         if user_id:
             is_author = str(m.get("author_id", "")) == user_id
@@ -570,6 +587,18 @@ def _serialize_articolo(
             "author_name": acq_author,
             "updated_at": acq_date,
         }
+    elif "titolo" in modifiche and isinstance(modifiche["titolo"], dict) and snap_comm.get("titolo"):
+        t_steps = modifiche["titolo"].get("steps")
+        if isinstance(t_steps, list) and t_steps and str(t_steps[0].get("value", "")).strip() != snap_comm["titolo"].strip():
+            t_steps.insert(0, {
+                "value": snap_comm["titolo"].strip(),
+                "author_name": comm_author,
+                "created_at": comm_date,
+                "author_id": "",
+            })
+            modifiche["titolo"]["old_value"] = snap_comm["titolo"].strip()
+            modifiche["titolo"]["old_author_name"] = comm_author
+            modifiche["titolo"]["old_created_at"] = comm_date
 
     # Sintesi Descrizione per record storici
     old_desc = (snap_comm.get("descrizione") or "").strip()
@@ -590,6 +619,18 @@ def _serialize_articolo(
             "author_name": acq_author,
             "updated_at": acq_date,
         }
+    elif "descrizione" in modifiche and isinstance(modifiche["descrizione"], dict) and old_desc:
+        d_steps = modifiche["descrizione"].get("steps")
+        if isinstance(d_steps, list) and d_steps and str(d_steps[0].get("value", "")).strip() != old_desc:
+            d_steps.insert(0, {
+                "value": old_desc,
+                "author_name": comm_author,
+                "created_at": comm_date,
+                "author_id": "",
+            })
+            modifiche["descrizione"]["old_value"] = old_desc
+            modifiche["descrizione"]["old_author_name"] = comm_author
+            modifiche["descrizione"]["old_created_at"] = comm_date
 
     # Sintesi Tipologia per record storici
     if "tipologia" not in modifiche and snap_comm:
