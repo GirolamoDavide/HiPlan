@@ -407,27 +407,7 @@ export default function MainLayout() {
             <span className="sidebar-link-icon"><AppIcon name="timeline" /></span>
             {showSidebarText && <span>Calendario Commesse</span>}
           </NavLink>
-          <span className="sidebar-section-label">Collaborazione</span>
-          <NavLink to="/notes" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="sidebar-link-icon"><AppIcon name="notes" /></span>
-            {showSidebarText && <span>Blocchi Note</span>}
-          </NavLink>
-          <NavLink to="/todo" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="sidebar-link-icon"><AppIcon name="todo" /></span>
-            {showSidebarText && <span>TODO</span>}
-          </NavLink>
-          <NavLink to="/tickets" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="sidebar-link-icon"><AppIcon name="ticket" /></span>
-            {showSidebarText && <span>Ticket</span>}
-          </NavLink>
-          <NavLink to="/personal-calendar" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="sidebar-link-icon"><AppIcon name="calendar" /></span>
-            {showSidebarText && <span>Calendario Personale</span>}
-          </NavLink>
-          <NavLink to="/chat" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="sidebar-link-icon"><AppIcon name="robot" /></span>
-            {showSidebarText && <span>HiPlan AI</span>}
-          </NavLink>
+
           {rcEnabled && (
             <>
               <span className="sidebar-section-label">Coordinamento</span>
@@ -437,7 +417,30 @@ export default function MainLayout() {
               </NavLink>
             </>
           )}
-          <span className="sidebar-section-label">Controllo</span>
+
+          <span className="sidebar-section-label">Produttività</span>
+          <NavLink to="/personal-calendar" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="sidebar-link-icon"><AppIcon name="calendar" /></span>
+            {showSidebarText && <span>Calendario Personale</span>}
+          </NavLink>
+          <NavLink to="/todo" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="sidebar-link-icon"><AppIcon name="todo" /></span>
+            {showSidebarText && <span>TODO</span>}
+          </NavLink>
+          <NavLink to="/notes" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="sidebar-link-icon"><AppIcon name="notes" /></span>
+            {showSidebarText && <span>Blocchi Note</span>}
+          </NavLink>
+          <NavLink to="/tickets" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="sidebar-link-icon"><AppIcon name="ticket" /></span>
+            {showSidebarText && <span>Ticket</span>}
+          </NavLink>
+
+          <span className="sidebar-section-label">Controllo & AI</span>
+          <NavLink to="/chat" className={({ isActive }) => `sidebar-link sidebar-link--ai ${isActive ? 'active' : ''}`}>
+            <span className="sidebar-link-icon"><AppIcon name="robot" /></span>
+            {showSidebarText && <span>HiPlan AI</span>}
+          </NavLink>
           <NavLink to="/conflicts" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="sidebar-link-icon"><AppIcon name="users" /></span>
             {showSidebarText && <span>Panoramica addetti</span>}
@@ -459,6 +462,7 @@ export default function MainLayout() {
               {showSidebarText && <span>Admin</span>}
             </NavLink>
           )}
+
           <span className="sidebar-section-label">Software Esterni</span>
           <a href="http://192.168.2.13/accounts/login/" target="_blank" rel="noopener noreferrer" className="sidebar-link">
             <span className="sidebar-link-icon"><AppIcon name="externalLink" /></span>

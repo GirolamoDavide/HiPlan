@@ -200,6 +200,25 @@
   content: '';
 }
 
+.sidebar-link--ai .sidebar-link-icon {
+  color: #a78bfa;
+}
+
+.sidebar-link--ai:hover {
+  background: linear-gradient(90deg, rgba(167, 139, 250, 0.12) 0%, rgba(53, 183, 235, 0.06) 100%);
+  border-color: rgba(167, 139, 250, 0.22);
+}
+
+.sidebar-link--ai.active {
+  background: linear-gradient(90deg, rgba(167, 139, 250, 0.18) 0%, rgba(53, 183, 235, 0.1) 100%);
+  border-color: rgba(167, 139, 250, 0.35);
+}
+
+.sidebar-link--ai.active::before {
+  background: linear-gradient(180deg, #c084fc 0%, #38bdf8 100%);
+  box-shadow: 0 0 12px rgba(192, 132, 252, 0.65);
+}
+
 .sidebar-link-icon {
   display: inline-flex;
   width: 24px;
