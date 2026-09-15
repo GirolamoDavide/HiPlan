@@ -276,14 +276,15 @@ async def test_smart_replanning_cross_project_preview(db_session: AsyncSession, 
     await db_session.commit()
     await db_session.refresh(u_shared)
 
+    today = date.today()
     # Commessa 1
     p1 = Project(
         name="Commessa Alfa Preview",
         code="COMM-ALFA",
         status=ProjectStatus.ACTIVE,
         owner_id=test_user.id,
-        start_date=date(2026, 8, 1),
-        end_date=date(2026, 10, 30)
+        start_date=today - timedelta(days=30),
+        end_date=today + timedelta(days=60)
     )
     # Commessa 2
     p2 = Project(
@@ -291,20 +292,20 @@ async def test_smart_replanning_cross_project_preview(db_session: AsyncSession, 
         code="COMM-BETA",
         status=ProjectStatus.ACTIVE,
         owner_id=test_user.id,
-        start_date=date(2026, 8, 1),
-        end_date=date(2026, 11, 15)
+        start_date=today - timedelta(days=30),
+        end_date=today + timedelta(days=60)
     )
     db_session.add_all([p1, p2])
     await db_session.commit()
     await db_session.refresh(p1)
     await db_session.refresh(p2)
 
-    # Task su Commessa 1 scaduto nel passato (oggi = 2026-09-07)
+    # Task su Commessa 1 scaduto nel passato
     t1 = Task(
         project_id=p1.id,
         text="Progettazione Alfa",
-        start_date=date(2026, 8, 20),
-        end_date=date(2026, 9, 2),  # scaduto
+        start_date=today - timedelta(days=15),
+        end_date=today - timedelta(days=5),  # scaduto
         duration=10,
         planned_hours=80.0,
         workers=json.dumps(["Worker Shared"]),
@@ -315,8 +316,8 @@ async def test_smart_replanning_cross_project_preview(db_session: AsyncSession, 
     t2 = Task(
         project_id=p2.id,
         text="Progettazione Beta",
-        start_date=date(2026, 9, 7),
-        end_date=date(2026, 9, 14),
+        start_date=today,
+        end_date=today + timedelta(days=7),
         duration=6,
         planned_hours=48.0,
         workers=json.dumps(["Worker Shared"]),
@@ -327,8 +328,8 @@ async def test_smart_replanning_cross_project_preview(db_session: AsyncSession, 
     t3 = Task(
         project_id=p2.id,
         text="Montaggio Beta",
-        start_date=date(2026, 9, 15),
-        end_date=date(2026, 9, 22),
+        start_date=today + timedelta(days=8),
+        end_date=today + timedelta(days=15),
         duration=6,
         planned_hours=48.0,
         workers=json.dumps(["Giovanni Prod"]),
@@ -386,14 +387,15 @@ async def test_apply_cross_project_corrections_flow(db_session: AsyncSession, te
     il task impattato dell'altra commessa e i suoi successori a valle vengono aggiornati nel DB
     e tracciati nel ReplanLog.
     """
+    today = date.today()
     # 1. Commessa 1
     p1 = Project(
         name="Commessa Alfa Principale",
         code="COMM-ALFA",
         status=ProjectStatus.ACTIVE,
         owner_id=test_user.id,
-        start_date=date(2026, 9, 1),
-        end_date=date(2026, 10, 31)
+        start_date=today - timedelta(days=30),
+        end_date=today + timedelta(days=60)
     )
     # Commessa 2
     p2 = Project(
@@ -401,8 +403,8 @@ async def test_apply_cross_project_corrections_flow(db_session: AsyncSession, te
         code="COMM-BETA",
         status=ProjectStatus.ACTIVE,
         owner_id=test_user.id,
-        start_date=date(2026, 9, 1),
-        end_date=date(2026, 10, 31)
+        start_date=today - timedelta(days=30),
+        end_date=today + timedelta(days=60)
     )
     db_session.add_all([p1, p2])
     await db_session.commit()
@@ -413,8 +415,8 @@ async def test_apply_cross_project_corrections_flow(db_session: AsyncSession, te
     t1 = Task(
         project_id=p1.id,
         text="Fase Alfa",
-        start_date=date(2026, 8, 20),
-        end_date=date(2026, 9, 2),
+        start_date=today - timedelta(days=15),
+        end_date=today - timedelta(days=5),
         duration=10,
         planned_hours=80.0,
         workers=json.dumps(["Worker Shared"]),
@@ -425,8 +427,8 @@ async def test_apply_cross_project_corrections_flow(db_session: AsyncSession, te
     t2 = Task(
         project_id=p2.id,
         text="Fase Beta Sovrapposta",
-        start_date=date(2026, 9, 7),
-        end_date=date(2026, 9, 14),
+        start_date=today,
+        end_date=today + timedelta(days=7),
         duration=6,
         planned_hours=48.0,
         workers=json.dumps(["Worker Shared"]),
@@ -437,8 +439,8 @@ async def test_apply_cross_project_corrections_flow(db_session: AsyncSession, te
     t3 = Task(
         project_id=p2.id,
         text="Fase Beta Successiva",
-        start_date=date(2026, 9, 15),
-        end_date=date(2026, 9, 18),
+        start_date=today + timedelta(days=8),
+        end_date=today + timedelta(days=12),
         duration=4,
         planned_hours=32.0,
         workers=json.dumps(["Worker Altro"]),

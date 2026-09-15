@@ -825,12 +825,19 @@ class ChatService:
         return "sql"
 
     async def get_response(self, user_message: str, current_user=None, history=None) -> str:
-        if not self.llm:
-            return "Errore: Chiave API AI non configurata nel backend."
-
-        today_str = date.today().strftime('%d/%m/%Y (%Y-%m-%d)')
         intent = self._classify_intent(user_message)
         logger.info(f"Chatbot Router: messaggio '{user_message}' classificato come INTENT '{intent}'")
+
+        # Esclusione prioritaria: Preventivazione / Richieste Commerciali (non richiede LLM)
+        if intent == "preventivazione_restricted":
+            return (
+                "🔒 **Sezione Riservata: Preventivazione**\n\n"
+                "Tutti i dati e i contenuti della pagina **Preventivazione** (richieste commerciali, articoli, specifiche tecniche d'acquisto, prezzi fornitore e margini) "
+                "sono strettamente riservati e sono stati **esclusi** dall'assistente virtuale.\n\n"
+                "---\n"
+                "💡 **Azione consigliata:** Per visualizzare, inserire o gestire i preventivi e le richieste commerciali, "
+                "accedi direttamente alla sezione dedicata nel menu laterale (**Coordinamento ➔ Preventivazione**)."
+            )
 
         # Contesto utente
         username = str(getattr(current_user, 'username', '') or '')
@@ -838,6 +845,31 @@ class ChatService:
         user_role = str(getattr(current_user.role, 'value', current_user.role)).upper() if (current_user and hasattr(current_user, 'role')) else "VIEWER"
         user_id = str(getattr(current_user, 'id', '') or '')
         user_dept = str(getattr(current_user, 'department', 'generale') or 'generale')
+
+        # Tool deterministici che interrogano il DB senza richiedere necessariamente LLM
+        if intent == "briefing":
+            return await self._tool_get_morning_briefing(current_user)
+
+        if intent == "my_tasks":
+            return await self._tool_get_user_tasks(current_user)
+
+        if intent == "budget":
+            return await self._tool_get_budget_and_hours()
+
+        if intent == "projects_overview":
+            return await self._tool_get_projects_overview()
+
+        if intent == "team_workload":
+            return await self._tool_get_team_workload()
+
+        if intent == "deadlines":
+            return await self._tool_get_deadlines(days=30)
+
+        # Per le risposte che richiedono inferenza AI generativa o Text-to-SQL:
+        if not self.llm:
+            return "Errore: Chiave API AI non configurata nel backend."
+
+        today_str = date.today().strftime('%d/%m/%Y (%Y-%m-%d)')
 
         # Formatta cronologia recente
         history_context = ""

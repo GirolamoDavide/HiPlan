@@ -179,3 +179,63 @@ async def test_project_ai_analysis_progress_and_tipologia(db_session: AsyncSessi
     assert analysis_res["tipologia"] == "ATEX"
     assert "analysis" in analysis_res
     assert len(analysis_res["analysis"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_chat_preventivazione_exclusion_intent():
+    """Verifica che tutte le domande su preventivi e richieste commerciali siano intercettate come preventivazione_restricted."""
+    queries = [
+        "Mostrami i preventivi aperti",
+        "Ci sono richieste commerciali da gestire?",
+        "Qual è lo stato della preventivazione?",
+        "Quali sono i prezzi fornitore degli articoli di preventivo?",
+        "Mostrami gli articoli richiesta del cliente Rossi",
+        "Elenco offerte commerciali di questa settimana",
+        "Costi fornitore per la richiesta commerciale",
+        "Che margine preventivo abbiamo su questo pezzo?",
+        "Visualizza i prezzi d'acquisto concordati coi fornitori"
+    ]
+    for q in queries:
+        intent = chat_service._classify_intent(q)
+        assert intent == "preventivazione_restricted", f"Query '{q}' doveva essere classificata come 'preventivazione_restricted', ma è '{intent}'"
+
+
+@pytest.mark.asyncio
+async def test_chat_preventivazione_response_block():
+    """Verifica che il chatbot risponda con messaggio di accesso riservato e rimandi alla pagina Preventivazione."""
+    test_user = User(
+        email="test_user@example.com",
+        username="mario_pm",
+        full_name="Mario PM",
+        role=UserRole.EDITOR,
+        is_active=True
+    )
+    res = await chat_service.get_response("Puoi riepilogarmi i preventivi dei clienti?", current_user=test_user)
+    assert "🔒" in res or "Riservat" in res
+    assert "Preventivazione" in res
+    assert "Coordinamento ➔ Preventivazione" in res
+
+
+@pytest.mark.asyncio
+async def test_chat_database_excludes_richieste_tables():
+    """Verifica che le tabelle richieste_commerciali e articoli_richiesta non siano esposte al SQLDatabase del chatbot."""
+    usable_tables = chat_service.db.get_usable_table_names()
+    assert "richieste_commerciali" not in usable_tables
+    assert "articoli_richiesta" not in usable_tables
+    assert "activity_logs" not in usable_tables
+
+
+@pytest.mark.asyncio
+async def test_chat_intents_routing_standard():
+    """Verifica che gli altri intent standard del chatbot continuino a funzionare regolarmente."""
+    assert chat_service._classify_intent("Ciao buongiorno!") == "chat"
+    assert chat_service._classify_intent("Chi sei e cosa sai fare?") == "chat"
+    assert chat_service._classify_intent("Dammi il briefing di oggi") == "briefing"
+    assert chat_service._classify_intent("Quali sono le mie attività?") == "my_tasks"
+    assert chat_service._classify_intent("Verifica il budget e ore consuntivate") == "budget"
+    assert chat_service._classify_intent("Cosa succede se slitta la consegna?") == "what_if"
+    assert chat_service._classify_intent("Mostrami la panoramica commesse") == "projects_overview"
+    assert chat_service._classify_intent("Chi ha il maggior carico addetti?") == "team_workload"
+    assert chat_service._classify_intent("Quali fasi sono in scadenza questo mese?") == "deadlines"
+    assert chat_service._classify_intent("Rileva conflitti e ritardi nelle commesse") == "alarms"
+
