@@ -996,8 +996,7 @@ export default function ProjectDetailPage() {
 
   function openEditTaskModal(task, initialTab = 'generale') {
     if (!canManageProject && initialTab === 'generale') {
-      openOreModalForTask(task);
-      return;
+      initialTab = 'consuntivo';
     }
     let realTask = null;
     if (ganttData && Array.isArray(ganttData.tasks)) {
@@ -1018,6 +1017,7 @@ export default function ProjectDetailPage() {
 
     setEditingTask(realTask);
     setTaskModalTab(initialTab);
+    prepareOreDataForTask(realTask, true);
     setShowPhaseDropdown(false);
 
     const safeDate = (d) => {
@@ -1404,7 +1404,18 @@ export default function ProjectDetailPage() {
 
   // Modale Consuntivo Ore
   function openOreModalForTask(task) {
+    openEditTaskModal(task, 'consuntivo');
+  }
+
+  function prepareOreDataForTask(task, forceReset = false) {
+    if (!task) return;
     setSelectedTaskForHours(task);
+
+    // Se stiamo già lavorando su questo task e abbiamo ore in memoria, non sovrascrivere se non forzato
+    if (!forceReset && selectedTaskForHours && String(selectedTaskForHours.id) === String(task.id) && Object.keys(actualHoursMap).length > 0) {
+      return;
+    }
+
     const initialMap = task.actual_hours && typeof task.actual_hours === 'object'
       ? JSON.parse(JSON.stringify(task.actual_hours))
       : {};
@@ -1432,7 +1443,6 @@ export default function ProjectDetailPage() {
 
     existingExtraDates.sort();
     setModalExtraDates(existingExtraDates);
-    setShowOreModal(true);
   }
 
   function handleSpecificDateChange(dateStr) {
@@ -1509,6 +1519,7 @@ export default function ProjectDetailPage() {
       });
       toast.success('Ore consuntivate salvate!');
       setShowOreModal(false);
+      setShowTaskModal(false);
       loadProject();
     } catch (err) {
       console.error("Errore salvataggio ore:", err);
@@ -3177,6 +3188,24 @@ export default function ProjectDetailPage() {
                       <AppIcon name="messageSquare" size={15} />
                       <span>Commenti</span>
                     </button>
+                    {editingTask.type !== 'milestone' && (
+                      <button
+                        type="button"
+                        className={`task-tab-btn ${taskModalTab === 'consuntivo' ? 'active' : ''}`}
+                        onClick={() => {
+                          const currentTaskForHours = {
+                            ...editingTask,
+                            ...taskForm,
+                            budget_mode: taskForm.budgetMode || editingTask.budget_mode
+                          };
+                          prepareOreDataForTask(currentTaskForHours, false);
+                          setTaskModalTab('consuntivo');
+                        }}
+                      >
+                        <AppIcon name="clock" size={15} />
+                        <span>Consuntivo</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -3812,95 +3841,8 @@ export default function ProjectDetailPage() {
                 <TaskComments projectId={id} taskId={editingTask.id} currentUser={user} />
               </div>
             )}
-          </div>
-        </div>
-      )}
 
-      {/* MODALE CONSUNTIVO ORE EFFETTIVE (ORE MODAL) */}
-      {showOreModal && selectedTaskForHours && (
-        <div className="modal-overlay">
-          <div
-            className="modal"
-            style={{
-              maxWidth: 'min(1560px, 97vw)',
-              width: '97vw',
-              maxHeight: '94vh',
-              padding: '24px 28px',
-              display: 'flex',
-              flexDirection: 'column'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header" style={{ flexWrap: 'wrap', gap: 12 }}>
-              <div style={{ flex: 1, minWidth: 240 }}>
-                <h2 className="inline-heading"><AppIcon name="clock" size={18} />Giornale ore consuntivate</h2>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-                  Fase: <strong style={{ color: 'var(--accent-500)' }}>{selectedTaskForHours.text}</strong> |{' '}
-                  Ore previste: <strong>{selectedTaskForHours.planned_hours || 8}h</strong>
-                  {user?.role !== 'admin' && (
-                    <span style={{ marginLeft: 10, fontSize: 11, color: 'var(--text-tertiary)', background: 'var(--bg-tertiary)', padding: '2px 8px', borderRadius: 6 }}>
-                      Puoi modificare solo le tue ore
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                {/* Date picker per data specifica — auto-aggiunge al cambio data */}
-                <div
-                  title="Clicca per scegliere una data specifica da aggiungere"
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    background: specificExtraDate ? 'var(--bg-tertiary)' : 'transparent',
-                    border: `1px solid ${specificExtraDate ? 'var(--border-default)' : 'transparent'}`,
-                    borderRadius: 8, padding: '4px 10px',
-                    opacity: specificExtraDate ? 1 : 0.45,
-                    transition: 'opacity 0.2s, background 0.2s, border-color 0.2s',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={e => { if (!specificExtraDate) e.currentTarget.style.opacity = '0.8'; }}
-                  onMouseLeave={e => { if (!specificExtraDate) e.currentTarget.style.opacity = '0.45'; }}
-                >
-                  <AppIcon name="calendar" size={14} style={{ color: specificExtraDate ? 'var(--accent-500)' : 'var(--text-muted)', flexShrink: 0 }} />
-                  <input
-                    type="date"
-                    value={specificExtraDate}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (!val) return;
-                      handleSpecificDateChange(val);
-                    }}
-                    style={{ border: 'none', background: 'transparent', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer', width: specificExtraDate ? 'auto' : 100 }}
-                    title="Scegli una data specifica da aggiungere — si inserisce subito"
-                  />
-                  {!specificExtraDate && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Aggiungi giorno con data specifica</span>}
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleAddExtraDayToModal}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 600 }}
-                  title="Aggiungi il prossimo giorno lavorativo dopo l'ultimo presente"
-                >
-                  <AppIcon name="plus" size={14} />Aggiungi giorno extra in coda
-                </button>
-                {modalExtraDates.length > 0 && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={handleRemoveLastExtraDay}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 600, color: '#ef4444' }}
-                    title="Rimuovi l'ultimo giorno extra aggiunto"
-                  >
-                    <AppIcon name="trash" size={14} />Rimuovi giorno
-                  </button>
-                )}
-                <button className="btn-ghost btn-icon" onClick={() => setShowOreModal(false)} aria-label="Chiudi">
-                  <AppIcon name="close" />
-                </button>
-              </div>
-            </div>
-
-            {(() => {
+            {taskModalTab === 'consuntivo' && editingTask && selectedTaskForHours && (() => {
               const plannedDates = getAssignedDatesForTask(selectedTaskForHours);
               const datesSet = new Set([...plannedDates, ...modalExtraDates]);
               Object.values(actualHoursMap).forEach(workerMap => {
@@ -3944,8 +3886,75 @@ export default function ProjectDetailPage() {
               }, 0) : (Number(selectedTaskForHours.planned_hours || 8));
 
               return (
-                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-                  <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(94vh - 240px)', minHeight: 280, border: '1px solid var(--border-default)', borderRadius: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, padding: '16px 24px', overflow: 'hidden' }}>
+                  {/* Sottotitolo & Barra azioni date */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+                    <div>
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                        Fase: <strong style={{ color: 'var(--accent-500)' }}>{selectedTaskForHours.text}</strong> |{' '}
+                        Ore previste: <strong>{selectedTaskForHours.planned_hours || 8}h</strong>
+                        {user?.role !== 'admin' && (
+                          <span style={{ marginLeft: 10, fontSize: 11, color: 'var(--text-tertiary)', background: 'var(--bg-tertiary)', padding: '2px 8px', borderRadius: 6 }}>
+                            Puoi modificare solo le tue ore
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {/* Date picker per data specifica */}
+                      <div
+                        title="Clicca per scegliere una data specifica da aggiungere"
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          background: specificExtraDate ? 'var(--bg-tertiary)' : 'transparent',
+                          border: `1px solid ${specificExtraDate ? 'var(--border-default)' : 'transparent'}`,
+                          borderRadius: 8, padding: '4px 10px',
+                          opacity: specificExtraDate ? 1 : 0.6,
+                          transition: 'opacity 0.2s, background 0.2s, border-color 0.2s',
+                          cursor: 'pointer',
+                        }}
+                        onMouseEnter={e => { if (!specificExtraDate) e.currentTarget.style.opacity = '0.9'; }}
+                        onMouseLeave={e => { if (!specificExtraDate) e.currentTarget.style.opacity = '0.6'; }}
+                      >
+                        <AppIcon name="calendar" size={14} style={{ color: specificExtraDate ? 'var(--accent-500)' : 'var(--text-muted)', flexShrink: 0 }} />
+                        <input
+                          type="date"
+                          value={specificExtraDate}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            handleSpecificDateChange(val);
+                          }}
+                          style={{ border: 'none', background: 'transparent', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer', width: specificExtraDate ? 'auto' : 100 }}
+                          title="Scegli una data specifica da aggiungere — si inserisce subito"
+                        />
+                        {!specificExtraDate && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Aggiungi data specifica</span>}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleAddExtraDayToModal}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 600 }}
+                        title="Aggiungi il prossimo giorno lavorativo dopo l'ultimo presente"
+                      >
+                        <AppIcon name="plus" size={14} />Aggiungi giorno extra in coda
+                      </button>
+                      {modalExtraDates.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={handleRemoveLastExtraDay}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 600, color: '#ef4444' }}
+                          title="Rimuovi l'ultimo giorno extra aggiunto"
+                        >
+                          <AppIcon name="trash" size={14} />Rimuovi giorno
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Tabella Consuntivo scrollabile */}
+                  <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', minHeight: 280, border: '1px solid var(--border-default)', borderRadius: 8 }}>
                     <table className="ore-grid-table">
                       <thead>
                         <tr>
@@ -4066,7 +4075,8 @@ export default function ProjectDetailPage() {
                     </table>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, background: 'var(--bg-primary)', padding: 12, borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                  {/* Barra Totali & Bottoni Footer */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, background: 'var(--bg-primary)', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: 12 }}>
                     <div>
                       {(() => {
                         const tempTask = {
@@ -4079,7 +4089,7 @@ export default function ProjectDetailPage() {
                         const isModalCompleted = isTaskCompleted(tempTask);
                         return (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: 15, color: 'var(--text-primary)' }}>
+                            <span style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
                               Totale consuntivato finora: <strong style={{ color: 'var(--accent-500)' }}>{totAll} h</strong> / {plannedH} h prev
                             </span>
                             {st === 'ok' && <span className="semaforo-ok"><span className="status-dot completed" />Stato regolare</span>}
@@ -4097,34 +4107,36 @@ export default function ProjectDetailPage() {
                         );
                       })()}
                     </div>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                       <button
                         type="button"
                         className={`btn ${Number(selectedTaskForHours.completed) === 1 ? '' : 'btn-secondary'}`}
                         style={{
-                          marginRight: 16,
+                          marginRight: 6,
                           borderColor: Number(selectedTaskForHours.completed) === 1 ? '#10b981' : undefined,
                           color: Number(selectedTaskForHours.completed) === 1 ? '#10b981' : undefined,
                           background: Number(selectedTaskForHours.completed) === 1 ? 'rgba(16, 185, 129, 0.1)' : undefined,
                           display: 'flex', alignItems: 'center', gap: 6,
-                          fontWeight: 600
+                          fontWeight: 600,
+                          fontSize: '0.85rem'
                         }}
                         onClick={() => {
                           const isCurrentlyCompleted = Number(selectedTaskForHours.completed) === 1;
                           handleToggleTaskCompleted(selectedTaskForHours, isCurrentlyCompleted).then((success) => {
                             if (success) {
                               setSelectedTaskForHours(prev => ({ ...prev, completed: isCurrentlyCompleted ? -1 : 1 }));
+                              setEditingTask(prev => ({ ...prev, completed: isCurrentlyCompleted ? -1 : 1 }));
                             }
                           });
                         }}
                       >
                         {Number(selectedTaskForHours.completed) === 1 ? (
-                          <><AppIcon name="check" size={16} /> Fase Completata</>
+                          <><AppIcon name="check" size={15} /> Fase Completata</>
                         ) : (
-                          <><AppIcon name="checkCircle" size={16} /> Segna Completata</>
+                          <><AppIcon name="checkCircle" size={15} /> Segna Completata</>
                         )}
                       </button>
-                      <button type="button" className="btn btn-secondary" onClick={() => setShowOreModal(false)}>
+                      <button type="button" className="btn btn-secondary" onClick={() => setShowTaskModal(false)}>
                         Annulla
                       </button>
                       <button type="button" className="btn btn-primary" onClick={handleSaveOreModal}>
