@@ -153,7 +153,10 @@ class ChatService:
             inspector = inspect(self.engine)
             existing_tables = set(inspector.get_table_names())
             
-            to_ignore = ["activity_logs", "agent_logs", "email_logs", "replan_logs", "planning_runs", "notes", "todos", "calendar_events"]
+            to_ignore = [
+                "activity_logs", "agent_logs", "email_logs", "replan_logs", "planning_runs",
+                "notes", "todos", "calendar_events", "richieste_commerciali", "articoli_richiesta"
+            ]
             ignore_existing = [t for t in to_ignore if t in existing_tables]
 
             self._db = SQLDatabase(
@@ -722,6 +725,17 @@ class ChatService:
     def _classify_intent(self, user_message: str) -> str:
         m = user_message.strip().lower()
         
+        # 0. Esclusione tassativa: Preventivazione / Richieste Commerciali
+        preventivazione_keys = [
+            "preventiv", "richieste commercial", "richiesta commercial",
+            "articoli richiest", "articolo richiest", "offerte commercial",
+            "offerta commercial", "prezzi fornitore", "prezzo fornitore",
+            "costi fornitore", "costo fornitore", "prezzi d'acquisto",
+            "prezzo d'acquisto", "margine preventiv", "margini preventiv"
+        ]
+        if any(k in m for k in preventivazione_keys):
+            return "preventivazione_restricted"
+
         # 1. Chat generica / Saluti / Aiuto / Ringraziamenti
         greetings = ["ciao", "salve", "buongiorno", "buonasera", "buondi", "buondì", "hey", "hello", "buon pomeriggio"]
         if m in greetings or (any(m.startswith(g) for g in greetings) and len(m.split()) <= 4):
@@ -839,6 +853,19 @@ class ChatService:
                 history_context = "CRONOLOGIA RECENTE DELLA CHAT:\n" + "\n".join(h_lines) + "\n\n"
 
         try:
+            # ==========================================
+            # INTENT 0: ESCLUSIONE PREVENTIVAZIONE / RICHIESTE COMMERCIALI
+            # ==========================================
+            if intent == "preventivazione_restricted":
+                return (
+                    "🔒 **Sezione Riservata: Preventivazione**\n\n"
+                    "Tutti i dati e i contenuti della pagina **Preventivazione** (richieste commerciali, articoli, specifiche tecniche d'acquisto, prezzi fornitore e margini) "
+                    "sono strettamente riservati e sono stati **esclusi** dall'assistente virtuale.\n\n"
+                    "---\n"
+                    "💡 **Azione consigliata:** Per visualizzare, inserire o gestire i preventivi e le richieste commerciali, "
+                    "accedi direttamente alla sezione dedicata nel menu laterale (**Coordinamento ➔ Preventivazione**)."
+                )
+
             # ==========================================
             # INTENT 1: STRUMENTI DETERMINISTICI (AGENTIC TOOLS)
             # ==========================================
@@ -994,7 +1021,10 @@ DIZIONARIO DEL DOMINIO E REGOLE CRITICHE SULLE TABELLE:
 3. Tabella 'tickets' (Ticket di supporto e commessa):
    * {ticket_permission_rule}
    * 'status' contiene: 'DA_GESTIRE', 'IN_ATTESA', 'COMPLETATO'. I ticket aperti sono: `status IN ('DA_GESTIRE', 'IN_ATTESA')`.
-4. Per ricerche testuali usa sempre `LIKE '%...%' COLLATE NOCASE`.
+4. ESCLUSIONE TASSATIVA SEZIONE PREVENTIVAZIONE:
+   * Le tabelle 'richieste_commerciali' e 'articoli_richiesta' e qualsiasi informazione su preventivi, prezzi fornitore, margini o richieste commerciali sono RISERVATE ed ESCLUSE dal chatbot.
+   * NON generare MAI query che coinvolgono preventivi o richieste commerciali.
+5. Per ricerche testuali usa sempre `LIKE '%...%' COLLATE NOCASE`.
 
 ESEMPI DI QUERY SQL CORRETTE (FEW-SHOT EXAMPLES):
 - Domanda: "Quali sono le commesse attive del cliente Alfa?"
@@ -1050,6 +1080,10 @@ SQLQuery:"""
             
             def execute_and_log(sql_query: str) -> str:
                 """Esegue la query SQL e, in caso di errore, esegue il Self-Correction Loop automatico."""
+                # Blocco di sicurezza rigoroso su dati di preventivazione
+                if re.search(r'\b(richieste_commerciali|articoli_richiesta)\b', sql_query, re.IGNORECASE):
+                    logger.warning(f"Bloccato tentativo di query su tabelle di preventivazione: {sql_query}")
+                    return "ACCESSO_NEGATO_PREVENTIVAZIONE: I dati della pagina Preventivazione sono riservati ed esclusi dal chatbot."
                 try:
                     res = self.db.run(sql_query)
                     logger.info(f"Risultato SQL (1° tentativo riuscito): {res}")
@@ -1101,7 +1135,10 @@ SQLQuery:"""
                 "     ---\n"
                 "     💡 **Azione consigliata:** [Raccomandazione PUNTUALE e NOMINATIVA citando date, commesse o persone specifiche. NON dare MAI consigli banali o generalisti come 'verificare', 'monitorare', 'fare attenzione', 'sollecitare'. Se tutto è regolare scrivi semplicemente che la situazione è allineata.]\n"
                 "4. TRADUZIONE CODICI:\n"
-                "   * Non mostrare ID numerici o valori grezzi ('ACTIVE' -> 'Attiva', 'HIGH' -> 'Alta', 'DA_GESTIRE' -> 'Da gestire').\n\n"
+                "   * Non mostrare ID numerici o valori grezzi ('ACTIVE' -> 'Attiva', 'HIGH' -> 'Alta', 'DA_GESTIRE' -> 'Da gestire').\n"
+                "5. ESCLUSIONE CONTENUTI PREVENTIVAZIONE:\n"
+                "   * I contenuti della pagina Preventivazione (richieste commerciali, articoli di preventivo, offerte, prezzi fornitore) sono rigorosamente esclusi dal chatbot.\n"
+                "   * Se il risultato estratto o la domanda fa riferimento a preventivi o richieste commerciali, rispondi spiegando chiaramente che tali dati sono riservati e consultabili unicamente nella pagina Preventivazione di HiPlan.\n\n"
                 "{history_context}"
                 "Domanda dell'utente: {question}\n"
                 "Dati estratti dal sistema: {result}\n\n"
