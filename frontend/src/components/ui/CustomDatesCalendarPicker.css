@@ -239,6 +239,8 @@
   flex-direction: column;
   border-left: 1px solid var(--border-default);
   padding-left: 20px;
+  min-width: 0;
+  height: 100%;
 }
 
 @media (max-width: 768px) {
@@ -255,14 +257,15 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-default);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
 }
 
 .cdp-summary-heading {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-weight: 700;
   font-size: 0.95rem;
   color: var(--text-primary);
@@ -271,13 +274,13 @@
 .cdp-total-badge {
   background: var(--accent-500, #3b82f6);
   color: #ffffff;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm, 6px);
+  padding: 4px 12px;
+  border-radius: 20px;
   font-size: 0.8rem;
   display: inline-flex;
   gap: 6px;
   align-items: baseline;
-  box-shadow: 0 1px 3px rgba(59, 130, 246, 0.25);
+  box-shadow: 0 1px 4px rgba(59, 130, 246, 0.3);
 }
 
 .cdp-total-badge strong {
@@ -312,45 +315,88 @@
 .cdp-days-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   overflow-y: auto;
-  max-height: 280px;
-  padding-right: 4px;
+  max-height: 380px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+
+.cdp-days-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.cdp-days-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cdp-days-list::-webkit-scrollbar-thumb {
+  background: var(--border-default, #cbd5e1);
+  border-radius: 4px;
+}
+
+.cdp-days-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary, #94a3b8);
 }
 
 .cdp-day-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: var(--bg-primary);
-  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
-  border-radius: var(--radius-sm, 6px);
-  transition: border-color 0.15s ease;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .cdp-day-row:hover {
-  border-color: var(--border-default);
+  border-color: var(--accent-400);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
 .cdp-day-row.has-vacation-conflict {
-  border-color: rgba(245, 158, 11, 0.4);
-  background: rgba(245, 158, 11, 0.04);
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.05);
 }
 
 .cdp-day-row__info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+}
+
+.cdp-weekday-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--bg-tertiary, #f1f5f9);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  line-height: 1.2;
+}
+
+.cdp-weekday-pill.is-weekend {
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--danger, #ef4444);
+  border-color: rgba(239, 68, 68, 0.2);
 }
 
 .cdp-day-row__date {
   font-size: 0.85rem;
+  font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: 0.01em;
 }
 
 .cdp-day-row__vacation-tag {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: #d97706;
   display: inline-flex;
@@ -364,46 +410,98 @@
   gap: 8px;
 }
 
-.cdp-hours-input-wrapper {
+/* Stepper personalizzato per le ore */
+.cdp-stepper {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  padding: 1px;
+  overflow: hidden;
+}
+
+.cdp-stepper-btn {
+  width: 24px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.cdp-stepper-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent-600);
+}
+
+.cdp-stepper-btn:active {
+  background: var(--bg-tertiary);
+  transform: scale(0.92);
+}
+
+.cdp-stepper-input-box {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 
-.cdp-hours-input {
-  width: 70px;
-  height: 30px;
-  padding: 4px 22px 4px 8px;
-  font-size: 0.85rem;
+.cdp-stepper-input {
+  width: 44px;
+  height: 28px;
+  padding: 2px 14px 2px 4px;
+  font-size: 0.88rem;
   font-weight: 700;
-  color: var(--accent-500, #3b82f6);
-  text-align: right;
-  border-radius: var(--radius-sm, 4px);
+  color: var(--accent-600, #2563eb);
+  text-align: center;
+  background: var(--bg-primary);
+  border: none;
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
-.cdp-hours-unit {
+.cdp-stepper-input::-webkit-inner-spin-button,
+.cdp-stepper-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+.cdp-stepper-unit {
   position: absolute;
-  right: 6px;
-  font-size: 0.75rem;
+  right: 4px;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--text-muted);
   pointer-events: none;
 }
 
 .cdp-remove-day-btn {
+  width: 26px;
+  height: 26px;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: all 0.15s ease;
+  padding: 0;
 }
 
 .cdp-remove-day-btn:hover {
-  background: var(--danger-bg, rgba(239, 68, 68, 0.1));
+  background: rgba(239, 68, 68, 0.1);
   color: var(--danger, #ef4444);
+  border-color: rgba(239, 68, 68, 0.2);
 }

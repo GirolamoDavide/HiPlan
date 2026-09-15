@@ -730,6 +730,124 @@ async def test_revert_with_cascade_modifications(db_session: AsyncSession, test_
     assert t2.end_date == orig_fase2_end
 
 
+@pytest.mark.asyncio
+async def test_smart_replanning_custom_dates_cascade_and_revert(db_session: AsyncSession, test_user: User):
+    """
+    Test: Verifica che le fasi spezzettate (budget_mode == 'custom_dates')
+    vengano correttamente gestite nella propagazione a cascata e nell'applicazione/annullamento:
+    - Conservano le date personalizzate non consecutive traslandole di N giorni lavorativi
+    - Calcolano la data di fine coerente con l'ultima data spezzettata
+    - Registrano old_custom_dates nel ReplanLog
+    - Ripristinano le date spezzettate originali in caso di revert
+    """
+    project = Project(
+        name="Commessa Spezzettata",
+        code="COMM-SPLIT",
+        status=ProjectStatus.ACTIVE,
+        owner_id=test_user.id,
+        start_date=date(2026, 10, 5),
+        end_date=date(2026, 11, 30)
+    )
+    db_session.add(project)
+    await db_session.commit()
+    await db_session.refresh(project)
+
+    # Fase 1 (normale)
+    t1 = Task(
+        project_id=project.id,
+        text="Fase 1 Predecessore",
+        start_date=date(2026, 10, 5),
+        end_date=date(2026, 10, 7),
+        duration=3,
+        planned_hours=24.0,
+        workers=json.dumps(["Operatore 1"]),
+        completed=0
+    )
+    # Fase 2 (spezzettata: Lun 12, Mar 13, Ven 16, Lun 19)
+    orig_custom_dates = [
+        {"date": "2026-10-12", "hours": 8},
+        {"date": "2026-10-13", "hours": 8},
+        {"date": "2026-10-16", "hours": 8},
+        {"date": "2026-10-19", "hours": 8}
+    ]
+    t2 = Task(
+        project_id=project.id,
+        text="Fase 2 Spezzettata",
+        budget_mode="custom_dates",
+        custom_dates=json.dumps(orig_custom_dates),
+        start_date=date(2026, 10, 12),
+        end_date=date(2026, 10, 19),
+        duration=4,
+        planned_hours=32.0,
+        workers=json.dumps(["Operatore 2"]),
+        completed=0
+    )
+    db_session.add_all([t1, t2])
+    await db_session.commit()
+    await db_session.refresh(t1)
+    await db_session.refresh(t2)
+
+    # Link FS tra Fase 1 e Fase 2
+    link = Link(
+        project_id=project.id,
+        source=t1.id,
+        target=t2.id,
+        type=LinkType.FS,
+        lag=0
+    )
+    db_session.add(link)
+    await db_session.commit()
+
+    # Simuliamo che Fase 1 slitti e finisca il 14/10 invece del 7/10 (+5 giorni lavorativi)
+    # Di conseguenza Fase 2 deve iniziare il 15/10 (invece del 12/10, slittamento di 3 gg lavorativi)
+    # e le sue custom_dates devono traslare di 3 giorni lavorativi:
+    # 12/10 + 3gg = 15/10 (Gio)
+    # 13/10 + 3gg = 16/10 (Ven)
+    # 16/10 + 3gg = 21/10 (Mer)
+    # 19/10 + 3gg = 22/10 (Gio)
+    proposal = {
+        "task_id": str(t1.id),
+        "start_date": "2026-10-12",
+        "end_date": "2026-10-14",
+        "shift_working_days": 5,
+        "cascade_successors": [
+            {
+                "task_id": str(t2.id),
+                "proposed_start": "2026-10-15",
+                "proposed_end": "2026-10-22",
+                "shift_working_days": 3
+            }
+        ]
+    }
+
+    # Applica proposta
+    apply_res = await apply_smart_replanning_proposal(db_session, str(project.id), proposal, test_user)
+    assert apply_res["success"] is True
+    log_id = apply_res["log_id"]
+
+    await db_session.refresh(t2)
+    assert t2.start_date == date(2026, 10, 15)
+    assert t2.end_date == date(2026, 10, 22)
+    new_c_dates = json.loads(t2.custom_dates)
+    assert len(new_c_dates) == 4
+    assert new_c_dates[0]["date"] == "2026-10-15"
+    assert new_c_dates[1]["date"] == "2026-10-16"
+    assert new_c_dates[2]["date"] == "2026-10-21"
+    assert new_c_dates[3]["date"] == "2026-10-22"
+
+    # Revert
+    revert_res = await revert_smart_replanning_log(db_session, log_id, test_user)
+    assert revert_res["success"] is True
+
+    await db_session.refresh(t2)
+    assert t2.start_date == date(2026, 10, 12)
+    assert t2.end_date == date(2026, 10, 19)
+    restored_c_dates = json.loads(t2.custom_dates)
+    assert len(restored_c_dates) == 4
+    assert restored_c_dates[0]["date"] == "2026-10-12"
+    assert restored_c_dates[3]["date"] == "2026-10-19"
+
+
 
 
 

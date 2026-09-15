@@ -5,6 +5,7 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import TimelineView from '../components/calendar/TimelineView';
 import AppIcon from '../components/ui/AppIcon';
+import WeatherDateWidget from '../components/ui/WeatherDateWidget';
 import './DashboardPage.css';
 import { STATUS_LABELS_IT } from '../utils/statusLabels';
 
@@ -12,14 +13,8 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
-  const [now, setNow] = useState(new Date());
-  const [timelineYear, setTimelineYear] = useState(now.getFullYear());
-  const [timelineMonth, setTimelineMonth] = useState(now.getMonth());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const [timelineYear, setTimelineYear] = useState(() => new Date().getFullYear());
+  const [timelineMonth, setTimelineMonth] = useState(() => new Date().getMonth());
   const [projects, setProjects] = useState([]);
   const [projectsWithTasks, setProjectsWithTasks] = useState([]);
   const [assignedTodos, setAssignedTodos] = useState([]);
@@ -174,16 +169,6 @@ export default function DashboardPage() {
     return <div className="loading-screen"><div className="spinner" /></div>;
   }
 
-  const todayLabel = now.toLocaleDateString('it-IT', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  });
-  const timeLabel = now.toLocaleTimeString('it-IT', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
   return (
     <div className="dashboard dashboard-shell animate-fadeIn">
       {globalBanners.map(banner => (
@@ -202,10 +187,7 @@ export default function DashboardPage() {
           <h1>Bentornato, {user?.full_name || user?.username}</h1>
           <p>Attività, scadenze e avanzamento in un unico colpo d'occhio.</p>
         </div>
-        <div className="dashboard-date">
-          <span className="dashboard-date-dot" />
-          <span>{todayLabel} · {timeLabel}</span>
-        </div>
+        <WeatherDateWidget />
       </div>
 
       <div className="stats-grid">

@@ -106,6 +106,66 @@ def parse_actual_hours_map(actual_val: Any) -> Dict[str, Dict[str, float]]:
     return {}
 
 
+def parse_custom_dates(custom_dates_val: Any) -> List[Dict[str, Any]]:
+    if not custom_dates_val:
+        return []
+    if isinstance(custom_dates_val, list):
+        items = []
+        for it in custom_dates_val:
+            if isinstance(it, str):
+                items.append({"date": it, "hours": 8.0})
+            elif isinstance(it, dict) and "date" in it:
+                items.append({"date": str(it["date"]), "hours": float(it.get("hours", 8.0))})
+        return items
+    try:
+        data = json.loads(custom_dates_val)
+        if isinstance(data, list):
+            items = []
+            for it in data:
+                if isinstance(it, str):
+                    items.append({"date": it, "hours": 8.0})
+                elif isinstance(it, dict) and "date" in it:
+                    items.append({"date": str(it["date"]), "hours": float(it.get("hours", 8.0))})
+            return items
+    except Exception:
+        pass
+    return []
+
+
+def shift_custom_dates(custom_dates_list: List[Dict[str, Any]], shift_days: int) -> Tuple[List[Dict[str, Any]], Optional[date], Optional[date]]:
+    """
+    Sposta ciascuna data del calendario personalizzato di shift_days giorni lavorativi.
+    Restituisce (shifted_list, new_start_date, new_end_date).
+    """
+    if not custom_dates_list or shift_days == 0:
+        if not custom_dates_list:
+            return [], None, None
+        dates = [datetime.strptime(str(it["date"])[:10], "%Y-%m-%d").date() for it in custom_dates_list if it.get("date")]
+        return custom_dates_list, min(dates) if dates else None, max(dates) if dates else None
+
+    shifted = []
+    shifted_dates = []
+    for it in custom_dates_list:
+        d_str = it.get("date")
+        if not d_str:
+            continue
+        try:
+            orig_d = datetime.strptime(str(d_str)[:10], "%Y-%m-%d").date()
+            new_d = add_working_days(orig_d, shift_days)
+            shifted.append({
+                "date": new_d.strftime("%Y-%m-%d"),
+                "hours": it.get("hours", 8.0)
+            })
+            shifted_dates.append(new_d)
+        except Exception:
+            continue
+
+    shifted.sort(key=lambda x: str(x["date"]))
+    new_start = min(shifted_dates) if shifted_dates else None
+    new_end = max(shifted_dates) if shifted_dates else None
+    return shifted, new_start, new_end
+
+
 async def build_global_schedule_context(db: AsyncSession) -> Dict[str, Any]:
     """
     Costruisce la vista olistica globale di:
@@ -420,7 +480,18 @@ def calculate_cascade_impact(
                 needed_start = add_working_days(min_allowed_end, -duration)
 
         if needed_start > succ_start:
-            needed_end = add_working_days(needed_start, duration - 1)
+            shift_days = get_working_days_count(succ_start, needed_start) - 1
+            is_custom = succ_task.budget_mode == "custom_dates" and succ_task.custom_dates
+            succ_custom_dates = parse_custom_dates(succ_task.custom_dates) if is_custom else []
+            shifted_custom = None
+
+            if succ_custom_dates:
+                shifted_custom, c_start, c_end = shift_custom_dates(succ_custom_dates, shift_days)
+                needed_start = c_start or needed_start
+                needed_end = c_end or add_working_days(needed_start, duration - 1)
+            else:
+                needed_end = add_working_days(needed_start, duration - 1)
+
             if needed_end > max_reach_date:
                 max_reach_date = needed_end
 
@@ -434,7 +505,8 @@ def calculate_cascade_impact(
                 "current_end": str(succ_end),
                 "proposed_start": str(needed_start),
                 "proposed_end": str(needed_end),
-                "shift_working_days": get_working_days_count(succ_start, needed_start) - 1
+                "shift_working_days": shift_days,
+                "custom_dates": shifted_custom
             }
 
             # Ricorsione sui successori di questo successore
@@ -1015,6 +1087,9 @@ async def generate_project_smart_suggestions(
         # -------------------------------------------------------------
         # 1. ANALISI CONFLITTO FERIE
         # -------------------------------------------------------------
+        task_custom_dates = parse_custom_dates(task.custom_dates) if task.budget_mode == "custom_dates" else []
+        task_custom_dates_set = {it["date"] for it in task_custom_dates} if task_custom_dates else None
+
         for w in workers:
             w_user = user_by_name.get(w.strip().lower())
             if not w_user:
@@ -1026,7 +1101,8 @@ async def generate_project_smart_suggestions(
             c = task.start_date
             while c <= task.end_date:
                 if not is_weekend_or_holiday(c) and c in w_vacations:
-                    conflicting_vac_dates.append(c)
+                    if task_custom_dates_set is None or c.strftime("%Y-%m-%d") in task_custom_dates_set:
+                        conflicting_vac_dates.append(c)
                 c += timedelta(days=1)
 
             if conflicting_vac_dates:
@@ -1066,6 +1142,12 @@ async def generate_project_smart_suggestions(
                 if same_worker_res and cascade and target_start and target_end and not cascade["exceeds_project_deadline"]:
                     # L'addetto stesso recupera il lavoro al rientro senza violare la scadenza commessa
                     shift_days = get_working_days_count(task.start_date, target_start) - 1
+                    shifted_custom_dates = None
+                    if task_custom_dates:
+                        shifted_custom_dates, sc_start, sc_end = shift_custom_dates(task_custom_dates, shift_days)
+                        target_start = sc_start or target_start
+                        target_end = sc_end or target_end
+
                     sugg_id = f"vac_shift_{task.id}_{w_uid}_{target_start.strftime('%Y%m%d')}"
                     daily_needed_h = float(task.planned_hours or 8.0) / max(1, len(workers) * duration_days)
                     cross_proj_impact = detect_cross_project_impact(
@@ -1098,7 +1180,8 @@ async def generate_project_smart_suggestions(
                             "worker_hours": w_hours_map,
                             "start_date": str(target_start),
                             "end_date": str(target_end),
-                            "shift_working_days": shift_days
+                            "shift_working_days": shift_days,
+                            "custom_dates": shifted_custom_dates
                         },
                         "cascade_impact": {
                             "same_project_tasks": cascade["affected_successors"],
@@ -1755,18 +1838,21 @@ async def apply_smart_replanning_proposal(
                 "start_date": task.start_date,
                 "end_date": task.end_date,
                 "workers": task.workers,
-                "worker_hours": getattr(task, "worker_hours", None)
+                "worker_hours": getattr(task, "worker_hours", None),
+                "custom_dates": getattr(task, "custom_dates", None)
             }
         snap = task_snapshots[t_key]
         old_start = snap["start_date"]
         old_end = snap["end_date"]
         old_workers = snap["workers"]
         old_worker_hours = snap["worker_hours"]
+        old_custom_dates = snap.get("custom_dates")
     else:
         old_start = task.start_date
         old_end = task.end_date
         old_workers = task.workers
         old_worker_hours = getattr(task, "worker_hours", None)
+        old_custom_dates = getattr(task, "custom_dates", None)
 
     # 1. Aggiorna date se fornite
     new_start_str = proposal_payload.get("start_date")
@@ -1780,6 +1866,21 @@ async def apply_smart_replanning_proposal(
     if task.start_date and task.end_date:
         task.duration = get_working_days_count(task.start_date, task.end_date)
 
+    # Se la fase ha modalità custom_dates, aggiorna le singole date spostate
+    shift_days = int(proposal_payload.get("shift_working_days", 0))
+    if task.budget_mode == "custom_dates":
+        new_c_dates = proposal_payload.get("custom_dates")
+        if new_c_dates:
+            task.custom_dates = json.dumps(new_c_dates) if isinstance(new_c_dates, list) else str(new_c_dates)
+        elif shift_days > 0 and task.custom_dates:
+            c_items = parse_custom_dates(task.custom_dates)
+            shifted_c, sc_s, sc_e = shift_custom_dates(c_items, shift_days)
+            task.custom_dates = json.dumps(shifted_c)
+            if sc_s:
+                task.start_date = sc_s
+            if sc_e:
+                task.end_date = sc_e
+
     # 2. Aggiorna addetti e ore addetto se forniti
     new_workers = proposal_payload.get("workers")
     if new_workers is not None:
@@ -1790,7 +1891,6 @@ async def apply_smart_replanning_proposal(
         task.worker_hours = json.dumps(new_w_hours) if isinstance(new_w_hours, dict) else str(new_w_hours)
 
     # Determina l'azione di log
-    shift_days = int(proposal_payload.get("shift_working_days", 0))
     action_type = ReplanActionType.SHIFT_OVERLOAD
     if proposal_payload.get("workers") != json.loads(old_workers or "[]"):
         action_type = ReplanActionType.SHIFT_CONFLICT
@@ -1812,6 +1912,7 @@ async def apply_smart_replanning_proposal(
         new_end_date=task.end_date,
         old_workers=old_workers,
         old_worker_hours=old_worker_hours,
+        old_custom_dates=old_custom_dates,
         shift_days=shift_days,
         reverted=False
     )
@@ -1844,23 +1945,40 @@ async def apply_smart_replanning_proposal(
                             "start_date": s_task.start_date,
                             "end_date": s_task.end_date,
                             "workers": s_task.workers,
-                            "worker_hours": getattr(s_task, "worker_hours", None)
+                            "worker_hours": getattr(s_task, "worker_hours", None),
+                            "custom_dates": getattr(s_task, "custom_dates", None)
                         }
                     s_snap = task_snapshots[st_key]
                     s_old_start = s_snap["start_date"]
                     s_old_end = s_snap["end_date"]
                     s_old_workers = s_snap["workers"]
                     s_old_worker_hours = s_snap["worker_hours"]
+                    s_old_custom_dates = s_snap.get("custom_dates")
                 else:
                     s_old_start = s_task.start_date
                     s_old_end = s_task.end_date
                     s_old_workers = s_task.workers
                     s_old_worker_hours = getattr(s_task, "worker_hours", None)
+                    s_old_custom_dates = getattr(s_task, "custom_dates", None)
 
                 s_task.start_date = datetime.strptime(s_start_str[:10], "%Y-%m-%d").date()
                 s_task.end_date = datetime.strptime(s_end_str[:10], "%Y-%m-%d").date()
                 s_task.duration = get_working_days_count(s_task.start_date, s_task.end_date)
-                
+
+                succ_shift = int(succ_data.get("shift_working_days", 0))
+                if s_task.budget_mode == "custom_dates":
+                    succ_c_dates = succ_data.get("custom_dates")
+                    if succ_c_dates:
+                        s_task.custom_dates = json.dumps(succ_c_dates) if isinstance(succ_c_dates, list) else str(succ_c_dates)
+                    elif succ_shift > 0 and s_task.custom_dates:
+                        c_items = parse_custom_dates(s_task.custom_dates)
+                        shifted_c, sc_s, sc_e = shift_custom_dates(c_items, succ_shift)
+                        s_task.custom_dates = json.dumps(shifted_c)
+                        if sc_s:
+                            s_task.start_date = sc_s
+                        if sc_e:
+                            s_task.end_date = sc_e
+
                 # Log successore collegato al log principale genitore o al batch
                 s_log = ReplanLog(
                     id=str(uuid4()),
@@ -1876,7 +1994,8 @@ async def apply_smart_replanning_proposal(
                     new_end_date=s_task.end_date,
                     old_workers=s_old_workers,
                     old_worker_hours=s_old_worker_hours,
-                    shift_days=int(succ_data.get("shift_working_days", 0)),
+                    old_custom_dates=s_old_custom_dates,
+                    shift_days=succ_shift,
                     reverted=False
                 )
                 db.add(s_log)
@@ -2114,6 +2233,8 @@ async def revert_smart_replanning_log(
                     task.workers = item.old_workers
                 if hasattr(item, "old_worker_hours") and item.old_worker_hours is not None:
                     task.worker_hours = item.old_worker_hours
+                if hasattr(item, "old_custom_dates") and item.old_custom_dates is not None:
+                    task.custom_dates = item.old_custom_dates
                 reverted_task_names.append(task.text)
 
         item.reverted = True

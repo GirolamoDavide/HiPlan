@@ -33,6 +33,7 @@ class ReplanLog(Base, TimestampMixin):
     new_end_date = Column(Date, nullable=True)
     old_workers = Column(Text, nullable=True)
     old_worker_hours = Column(Text, nullable=True)
+    old_custom_dates = Column(Text, nullable=True)
     shift_days = Column(Integer, default=0, nullable=False)
     reverted = Column(Boolean, default=False, nullable=False)
     reverted_at = Column(DateTime(timezone=True), nullable=True)

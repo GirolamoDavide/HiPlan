@@ -621,15 +621,71 @@
    ========================================================================== */
 .gantt_task_line.gantt-task-split-parent,
 .gantt_bars_area .gantt_task_line.gantt-task-split-parent {
-  opacity: 0 !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
   pointer-events: none !important;
+  z-index: 20 !important;
 }
 
-.gantt_task_line.gantt-task-split-parent .gantt_task_content {
+.gantt_task_line.gantt-task-split-parent .gantt_task_content,
+.gantt_task_line.gantt-task-split-parent .gantt_task_progress,
+.gantt_task_line.gantt-task-split-parent .gantt_task_progress_wrapper,
+.gantt_task_line.gantt-task-split-parent .gantt_task_drag {
   display: none !important;
+}
+
+/* Attivazione punti di connessione dipendenze per fasi spezzettate (prima del 1° pezzo e dopo l'ultimo) */
+.gantt_task_line.gantt-task-split-parent .gantt_link_control {
+  pointer-events: auto !important;
+  z-index: 50 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  cursor: pointer !important;
+}
+
+.gantt_task_line.gantt-task-split-parent .gantt_link_control .gantt_link_point {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
+/* Mostra i punti link al passaggio del mouse sulla fase spezzettata, sul link control o durante il trascinamento */
+.gantt_task_line.gantt-task-split-parent.task-split-hovered .gantt_link_control div,
+.gantt_task_line.gantt-task-split-parent .gantt_link_control:hover div,
+.gantt_task_line.gantt-task-split-parent.gantt_link_source .gantt_link_control div,
+.gantt_task_line.gantt-task-split-parent.gantt_link_target .gantt_link_control div,
+body.gantt-dragging-link .gantt_task_line.gantt-task-split-parent .gantt_link_control div {
+  display: block !important;
+}
+
+/* Punti di aggancio link (cerchietti discreti, eleganti e reattivi) */
+.gantt_link_control div {
+  width: 11px !important;
+  height: 11px !important;
+  border-radius: 50% !important;
+  border: 1.5px solid var(--accent-500, #3b82f6) !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+  cursor: pointer !important;
+}
+
+.gantt_link_control div:hover {
+  background: var(--accent-500, #3b82f6) !important;
+  border-color: #ffffff !important;
+  transform: scale(1.25) !important;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.45) !important;
+}
+
+/* Durante il drag, aumenta l'area sensibile ai lati della fase spezzettata per un aggancio impeccabile */
+body.gantt-dragging-link .gantt_task_line.gantt-task-split-parent .gantt_link_control.task_left {
+  width: 32px !important;
+  transform: translate(-75%, -50%) !important;
+}
+
+body.gantt-dragging-link .gantt_task_line.gantt-task-split-parent .gantt_link_control.task_right {
+  width: 32px !important;
+  transform: translate(75%, -50%) !important;
 }
 
 .gantt-custom-date-bar {

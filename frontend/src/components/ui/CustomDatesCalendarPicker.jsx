@@ -126,20 +126,6 @@ export default function CustomDatesCalendarPicker({
     onChange(sorted);
   };
 
-  // Quick Preset: Seleziona tutti i feriali del mese corrente
-  const selectAllWorkdaysInMonth = () => {
-    const nextMap = new Map(datesMap);
-    const y = currentMonth.getFullYear();
-    const m = String(currentMonth.getMonth() + 1).padStart(2, '0');
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dStr = `${y}-${m}-${String(d).padStart(2, '0')}`;
-      if (!isWeekendOrHoliday(dStr)) {
-        if (!nextMap.has(dStr)) nextMap.set(dStr, 8);
-      }
-    }
-    emitChange(nextMap);
-  };
-
   // Quick Preset: Imposta tutte a N ore
   const setAllHoursTo = (h) => {
     const nextMap = new Map();
@@ -253,14 +239,6 @@ export default function CustomDatesCalendarPicker({
             <button
               type="button"
               className="cdp-quick-btn"
-              onClick={selectAllWorkdaysInMonth}
-              title="Seleziona tutti i giorni feriali (Lun-Ven) di questo mese"
-            >
-              <AppIcon name="calendar" size={13} /> + Mese Lun-Ven
-            </button>
-            <button
-              type="button"
-              className="cdp-quick-btn"
               onClick={() => setAllHoursTo(8)}
               disabled={totalDays === 0}
               title="Imposta 8 ore per tutti i giorni selezionati"
@@ -343,13 +321,19 @@ export default function CustomDatesCalendarPicker({
                 const parts = date.split('-');
                 const dt = new Date(parts[0], parts[1] - 1, parts[2]);
                 const dayName = WEEKDAY_NAMES_SHORT[dt.getDay()];
-                const formatted = `${dayName} ${parts[2]}/${parts[1]}/${parts[0]}`;
+                const isWeekendDay = dt.getDay() === 0 || dt.getDay() === 6;
+                const formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
                 const hasVacation = vacations.length > 0;
 
                 return (
                   <div key={date} className={`cdp-day-row${hasVacation ? ' has-vacation-conflict' : ''}`}>
                     <div className="cdp-day-row__info">
-                      <strong className="cdp-day-row__date">{formatted}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className={`cdp-weekday-pill${isWeekendDay ? ' is-weekend' : ''}`}>
+                          {dayName}
+                        </span>
+                        <strong className="cdp-day-row__date">{formattedDate}</strong>
+                      </div>
                       {hasVacation && (
                         <span
                           className="cdp-day-row__vacation-tag"
@@ -362,18 +346,36 @@ export default function CustomDatesCalendarPicker({
                     </div>
 
                     <div className="cdp-day-row__actions">
-                      <div className="cdp-hours-input-wrapper">
-                        <input
-                          type="number"
-                          min="0.5"
-                          max="24"
-                          step="0.5"
-                          className="input cdp-hours-input"
-                          value={hours}
-                          onChange={(e) => handleHoursChange(date, e.target.value)}
-                          title="Ore di lavoro previste per questa data"
-                        />
-                        <span className="cdp-hours-unit">h</span>
+                      <div className="cdp-stepper">
+                        <button
+                          type="button"
+                          className="cdp-stepper-btn"
+                          onClick={() => handleHoursChange(date, Math.max(0.5, (Number(hours) || 8) - 1))}
+                          title="-1 ora"
+                        >
+                          −
+                        </button>
+                        <div className="cdp-stepper-input-box">
+                          <input
+                            type="number"
+                            min="0.5"
+                            max="24"
+                            step="0.5"
+                            className="cdp-stepper-input"
+                            value={hours}
+                            onChange={(e) => handleHoursChange(date, e.target.value)}
+                            title="Ore di lavoro previste per questa data"
+                          />
+                          <span className="cdp-stepper-unit">h</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="cdp-stepper-btn"
+                          onClick={() => handleHoursChange(date, Math.min(24, (Number(hours) || 8) + 1))}
+                          title="+1 ora"
+                        >
+                          +
+                        </button>
                       </div>
                       <button
                         type="button"
@@ -381,7 +383,7 @@ export default function CustomDatesCalendarPicker({
                         onClick={() => handleRemoveDate(date)}
                         title="Rimuovi questa data"
                       >
-                        <AppIcon name="close" size={14} />
+                        <AppIcon name="close" size={13} />
                       </button>
                     </div>
                   </div>

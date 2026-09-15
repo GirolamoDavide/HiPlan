@@ -70,6 +70,95 @@ const formatProjectTitleWithCode = (name, code) => {
   return cleanName;
 };
 
+// Funzioni helper per la gestione delle fasi spezzettate (budget_mode === 'custom_dates')
+const getCustomDatesList = (task) => {
+  if (!task || !task.custom_dates) return [];
+  let list = task.custom_dates;
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list);
+    } catch (e) {
+      return [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .map(item => {
+      if (typeof item === 'string') return { date: item, hours: 8 };
+      if (item && item.date) return { date: item.date, hours: Number(item.hours) || 8 };
+      return null;
+    })
+    .filter(Boolean);
+};
+
+const clusterCustomDates = (customDatesList) => {
+  if (!customDatesList || customDatesList.length === 0) return [];
+
+  const sorted = [...customDatesList]
+    .map(item => {
+      const d = typeof item === 'string' ? item : item.date;
+      const h = typeof item === 'object' && item.hours !== undefined ? Number(item.hours) : 8;
+      return { date: d, hours: h };
+    })
+    .filter(x => Boolean(x.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const clusters = [];
+  let curCluster = null;
+
+  for (const item of sorted) {
+    const itemDate = new Date(item.date + 'T00:00:00');
+    if (isNaN(itemDate)) continue;
+
+    if (!curCluster) {
+      curCluster = {
+        startDate: itemDate,
+        endDate: itemDate,
+        lastDateStr: item.date,
+        hours: item.hours,
+        dates: [item.date]
+      };
+    } else {
+      const prevDate = new Date(curCluster.lastDateStr + 'T00:00:00');
+      const diffMs = itemDate.getTime() - prevDate.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 1) {
+        curCluster.endDate = itemDate;
+        curCluster.lastDateStr = item.date;
+        curCluster.hours += item.hours;
+        curCluster.dates.push(item.date);
+      } else {
+        clusters.push(curCluster);
+        curCluster = {
+          startDate: itemDate,
+          endDate: itemDate,
+          lastDateStr: item.date,
+          hours: item.hours,
+          dates: [item.date]
+        };
+      }
+    }
+  }
+  if (curCluster) {
+    clusters.push(curCluster);
+  }
+
+  return clusters;
+};
+
+const shiftCustomDatesList = (customDatesList, shiftWorkingDays, excludedDates = []) => {
+  if (!customDatesList || customDatesList.length === 0 || !shiftWorkingDays) {
+    return customDatesList || [];
+  }
+  return customDatesList.map(item => {
+    const dStr = typeof item === 'string' ? item : item.date;
+    const h = typeof item === 'object' && item.hours !== undefined ? item.hours : 8;
+    const newDateStr = addWorkDaysUtil(dStr, shiftWorkingDays + 1, excludedDates);
+    return { date: newDateStr, hours: h };
+  });
+};
+
 export default function ReplanningGanttPreview({
   tasks = [],
   links = [],
@@ -206,6 +295,8 @@ export default function ReplanningGanttPreview({
       const origStart = parseDateSafe(t.start_date);
       const origEnd = parseDateSafe(t.end_date) || origStart;
       const origWorkers = parseWorkers(t.workers);
+      const origCustomDates = getCustomDatesList(t);
+      let simCustomDates = origCustomDates;
 
       let simStart = origStart;
       let simEnd = origEnd;
@@ -221,12 +312,30 @@ export default function ReplanningGanttPreview({
         simEnd = parseDateSafe(direct.changes.end_date) || origEnd;
         simWorkers = direct.changes.workers || origWorkers;
         shiftDays = direct.changes.shift_working_days || 0;
+        if (direct.changes.custom_dates) {
+          simCustomDates = getCustomDatesList({ custom_dates: direct.changes.custom_dates });
+        } else if (shiftDays > 0 && t.budget_mode === 'custom_dates') {
+          simCustomDates = shiftCustomDatesList(origCustomDates, shiftDays, t.excluded_dates || []);
+        }
       } else if (cascade) {
         status = 'cascade';
         relatedSugg = cascade.sugg;
         simStart = parseDateSafe(cascade.cascade.proposed_start) || origStart;
         simEnd = parseDateSafe(cascade.cascade.proposed_end) || origEnd;
         shiftDays = cascade.cascade.shift_working_days || 0;
+        if (cascade.cascade.custom_dates) {
+          simCustomDates = getCustomDatesList({ custom_dates: cascade.cascade.custom_dates });
+        } else if (shiftDays > 0 && t.budget_mode === 'custom_dates') {
+          simCustomDates = shiftCustomDatesList(origCustomDates, shiftDays, t.excluded_dates || []);
+        }
+      }
+
+      if (t.budget_mode === 'custom_dates' && simCustomDates && simCustomDates.length > 0) {
+        const cList = clusterCustomDates(simCustomDates);
+        if (cList.length > 0) {
+          simStart = cList[0].startDate;
+          simEnd = cList[cList.length - 1].endDate;
+        }
       }
 
       taskMap.set(tId, {
@@ -234,9 +343,11 @@ export default function ReplanningGanttPreview({
         origStart,
         origEnd,
         origWorkers,
+        origCustomDates,
         simStart,
         simEnd,
         simWorkers,
+        simCustomDates,
         status,
         shiftDays,
         relatedSugg
@@ -284,7 +395,16 @@ export default function ReplanningGanttPreview({
               }
               const origS = simTask.origStart;
               if (origS && minAllowedStart > origS) {
-                simTask.shiftDays = Math.max(1, countWorkingDays(origS, minAllowedStart, simTask.excluded_dates || []) - 1);
+                const sDays = Math.max(1, countWorkingDays(origS, minAllowedStart, simTask.excluded_dates || []) - 1);
+                simTask.shiftDays = sDays;
+                if (simTask.budget_mode === 'custom_dates' && simTask.origCustomDates?.length > 0) {
+                  simTask.simCustomDates = shiftCustomDatesList(simTask.origCustomDates, sDays, simTask.excluded_dates || []);
+                  const cList = clusterCustomDates(simTask.simCustomDates);
+                  if (cList.length > 0) {
+                    simTask.simStart = cList[0].startDate;
+                    simTask.simEnd = cList[cList.length - 1].endDate;
+                  }
+                }
               }
               changed = true;
             }
@@ -340,6 +460,8 @@ export default function ReplanningGanttPreview({
       const origStart = parseDateSafe(t.start_date);
       const origEnd = parseDateSafe(t.end_date) || origStart;
       const origWorkers = parseWorkers(t.workers);
+      const origCustomDates = getCustomDatesList(t);
+      let simCustomDates = origCustomDates;
       const tId = String(t.id);
 
       // Trova impatto warning originario (se presente)
@@ -372,6 +494,11 @@ export default function ReplanningGanttPreview({
         impactedWorker = directCorr.impact.worker;
         impactMessage = directCorr.corr.summary || directCorr.impact.message;
         changes = directCorr.corr;
+        if (directCorr.corr.custom_dates) {
+          simCustomDates = getCustomDatesList({ custom_dates: directCorr.corr.custom_dates });
+        } else if (shiftDays > 0 && t.budget_mode === 'custom_dates') {
+          simCustomDates = shiftCustomDatesList(origCustomDates, shiftDays, t.excluded_dates || []);
+        }
       } else if (cascadeCorr) {
         isCascade = true;
         status = 'cascade';
@@ -380,6 +507,11 @@ export default function ReplanningGanttPreview({
         shiftDays = cascadeCorr.cascadeItem.shift_working_days || 0;
         cascadeInfo = cascadeCorr.cascadeItem;
         impactMessage = `Slittamento a cascata a catena (+${shiftDays} gg)`;
+        if (cascadeCorr.cascadeItem.custom_dates) {
+          simCustomDates = getCustomDatesList({ custom_dates: cascadeCorr.cascadeItem.custom_dates });
+        } else if (shiftDays > 0 && t.budget_mode === 'custom_dates') {
+          simCustomDates = shiftCustomDatesList(origCustomDates, shiftDays, t.excluded_dates || []);
+        }
       } else if (impact) {
         status = impact.status === 'warning' ? 'warning' : 'safe';
         peakHours = impact.peak_hours;
@@ -395,15 +527,25 @@ export default function ReplanningGanttPreview({
         }
       }
 
+      if (t.budget_mode === 'custom_dates' && simCustomDates && simCustomDates.length > 0) {
+        const cList = clusterCustomDates(simCustomDates);
+        if (cList.length > 0) {
+          simStart = cList[0].startDate;
+          simEnd = cList[cList.length - 1].endDate;
+        }
+      }
+
       return {
         id: tId,
         text: t.text,
         origStart,
         origEnd,
         origWorkers,
+        origCustomDates,
         simStart,
         simEnd,
         simWorkers: origWorkers,
+        simCustomDates,
         status,
         shiftDays,
         peakHours,
@@ -1773,6 +1915,21 @@ export default function ReplanningGanttPreview({
                   const rowHeight = getRowHeight(task);
                   const isHovered = hoveredTaskId === String(task.id);
 
+                  // Gestione fasi spezzettate (budget_mode === 'custom_dates')
+                  const isCustom = task.budget_mode === 'custom_dates';
+                  const origCustomList = task.origCustomDates || getCustomDatesList(task);
+                  const origClusters = isCustom && origCustomList.length > 0 ? clusterCustomDates(origCustomList) : null;
+
+                  let simCustomList = task.simCustomDates;
+                  if (isCustom && (!simCustomList || simCustomList.length === 0)) {
+                    if (task.shiftDays > 0 && origCustomList.length > 0) {
+                      simCustomList = shiftCustomDatesList(origCustomList, task.shiftDays, task.excluded_dates || []);
+                    } else {
+                      simCustomList = origCustomList;
+                    }
+                  }
+                  const simClusters = isCustom && simCustomList && simCustomList.length > 0 ? clusterCustomDates(simCustomList) : null;
+
                   // Coordinate barra originale
                   const origLeft = getLeftPx(task.origStart);
                   const origWidth = getWidthPx(task.origStart, task.origEnd);
@@ -1800,54 +1957,254 @@ export default function ReplanningGanttPreview({
                       {isModified ? (
                         <>
                           {/* CORSIA 1 (ALTO): STATO ORIGINALE GHOST BAR */}
+                          {origClusters && origClusters.length > 0 ? (
+                            origClusters.map((cluster, cIdx) => {
+                              const cLeft = getLeftPx(cluster.startDate);
+                              const cWidth = getWidthPx(cluster.startDate, cluster.endDate);
+                              const rangeText = cluster.dates.length === 1
+                                ? formatShortDate(cluster.startDate)
+                                : `${formatShortDate(cluster.startDate)} - ${formatShortDate(cluster.endDate)}`;
+                              return (
+                                <div
+                                  key={`ghost-c-${task.id}-${cIdx}`}
+                                  style={{
+                                    position: 'absolute',
+                                    left: `${cLeft}px`,
+                                    width: `${cWidth}px`,
+                                    top: '8px',
+                                    height: '22px',
+                                    borderRadius: '5px',
+                                    border: '1px dashed #94a3b8',
+                                    backgroundColor: 'rgba(226, 232, 240, 0.75)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '0 4px',
+                                    fontSize: 10,
+                                    color: '#64748b',
+                                    fontWeight: 600,
+                                    zIndex: 6,
+                                    overflow: 'hidden',
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                  title={`Stato Originale: ${rangeText} (${cluster.hours}h) - ${task.origWorkers.join(', ')}`}
+                                >
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {cWidth >= 65 ? `${rangeText} (${cluster.hours}h)` : `${cluster.hours}h`}
+                                  </span>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                left: `${origLeft}px`,
+                                width: `${origWidth}px`,
+                                top: '8px',
+                                height: '22px',
+                                borderRadius: '5px',
+                                border: '1px dashed #94a3b8',
+                                backgroundColor: 'rgba(226, 232, 240, 0.7)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: origWidth > 130 ? 'space-between' : 'center',
+                                padding: '0 8px',
+                                fontSize: 10,
+                                color: '#64748b',
+                                fontWeight: 600,
+                                zIndex: 6,
+                                overflow: 'hidden',
+                                whiteSpace: 'nowrap'
+                              }}
+                              title={`Stato Originale: ${formatDateIt(task.origStart)} → ${formatDateIt(task.origEnd)} (${task.origWorkers.join(', ')})`}
+                            >
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                Orig: {formatShortDate(task.origStart)} - {formatShortDate(task.origEnd)}
+                              </span>
+                              {origWidth > 130 && (
+                                <span style={{ opacity: 0.8, fontSize: 9, flexShrink: 0 }}>
+                                  {task.origWorkers.join(', ')}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* CORSIA 2 (BASSO): NUOVO STATO PROPOSTO */}
+                          {simClusters && simClusters.length > 0 ? (
+                            simClusters.map((cluster, cIdx) => {
+                              const cLeft = getLeftPx(cluster.startDate);
+                              const cWidth = getWidthPx(cluster.startDate, cluster.endDate);
+                              const rangeText = cluster.dates.length === 1
+                                ? formatShortDate(cluster.startDate)
+                                : `${formatShortDate(cluster.startDate)} - ${formatShortDate(cluster.endDate)}`;
+                              const isFirst = cIdx === 0;
+                              const isLast = cIdx === simClusters.length - 1;
+                              return (
+                                <div
+                                  key={`sim-c-${task.id}-${cIdx}`}
+                                  style={{
+                                    position: 'absolute',
+                                    left: `${cLeft}px`,
+                                    width: `${cWidth}px`,
+                                    top: '36px',
+                                    height: '24px',
+                                    borderRadius: '5px',
+                                    background: isDirect
+                                      ? isViewingRelated
+                                        ? 'linear-gradient(90deg, #7c3aed, #6366f1)'
+                                        : 'linear-gradient(90deg, #6366f1, #4f46e5)'
+                                      : 'linear-gradient(90deg, #f59e0b, #d97706)',
+                                    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: isFirst && cWidth >= 120 ? 'space-between' : 'center',
+                                    padding: '0 6px',
+                                    color: '#ffffff',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    zIndex: 8,
+                                    overflow: 'hidden',
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                  title={task.impactMessage ? `${task.impactMessage} | Nuovo Stato: ${rangeText} (${cluster.hours}h)` : `Nuovo Stato Proposto: ${rangeText} (${cluster.hours}h)`}
+                                >
+                                  {isFirst && (
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', marginRight: 4 }}>
+                                      {task.text}
+                                    </span>
+                                  )}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                    <span style={{ fontSize: 9, opacity: 0.9 }}>
+                                      {cWidth >= 65 ? `${rangeText} (${cluster.hours}h)` : `${cluster.hours}h`}
+                                    </span>
+                                    {isLast && task.shiftDays > 0 && (
+                                      <span
+                                        style={{
+                                          padding: '1px 4px',
+                                          borderRadius: '3px',
+                                          background: 'rgba(0, 0, 0, 0.3)',
+                                          fontSize: 9,
+                                          fontWeight: 700
+                                        }}
+                                      >
+                                        +{task.shiftDays}g
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                left: `${simLeft}px`,
+                                width: `${simWidth}px`,
+                                top: '36px',
+                                height: '24px',
+                                borderRadius: '5px',
+                                background: isDirect
+                                  ? isViewingRelated
+                                    ? 'linear-gradient(90deg, #7c3aed, #6366f1)'
+                                    : 'linear-gradient(90deg, #6366f1, #4f46e5)'
+                                  : 'linear-gradient(90deg, #f59e0b, #d97706)',
+                                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '0 8px',
+                                color: '#ffffff',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                zIndex: 8,
+                                overflow: 'hidden',
+                                whiteSpace: 'nowrap'
+                              }}
+                              title={task.impactMessage ? `${task.impactMessage} | Nuovo Stato: ${formatDateIt(task.simStart)} → ${formatDateIt(task.simEnd)}` : `Nuovo Stato Proposto: ${formatDateIt(task.simStart)} → ${formatDateIt(task.simEnd)} (${task.simWorkers.join(', ')})`}
+                            >
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {task.text}
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                <span style={{ fontSize: 10, opacity: 0.9 }}>
+                                  {formatShortDate(task.simStart)} - {formatShortDate(task.simEnd)}
+                                </span>
+                                {task.shiftDays > 0 && (
+                                  <span
+                                    style={{
+                                      padding: '1px 5px',
+                                      borderRadius: '3px',
+                                      background: 'rgba(0, 0, 0, 0.3)',
+                                      fontSize: 9,
+                                      fontWeight: 700
+                                    }}
+                                  >
+                                    +{task.shiftDays}g
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : task.isRelatedImpact ? (
+                        /* FASE IN SOVRACCARICO SU COMMESSA CORRELATA */
+                        origClusters && origClusters.length > 0 ? (
+                          origClusters.map((cluster, cIdx) => {
+                            const cLeft = getLeftPx(cluster.startDate);
+                            const cWidth = getWidthPx(cluster.startDate, cluster.endDate);
+                            const rangeText = cluster.dates.length === 1
+                              ? formatShortDate(cluster.startDate)
+                              : `${formatShortDate(cluster.startDate)} - ${formatShortDate(cluster.endDate)}`;
+                            const isFirst = cIdx === 0;
+                            return (
+                              <div
+                                key={`warn-c-${task.id}-${cIdx}`}
+                                style={{
+                                  position: 'absolute',
+                                  left: `${cLeft}px`,
+                                  width: `${cWidth}px`,
+                                  height: '26px',
+                                  borderRadius: '6px',
+                                  background: 'linear-gradient(90deg, #f59e0b, #d97706)',
+                                  border: '1px solid #b45309',
+                                  boxShadow: '0 2px 6px rgba(245, 158, 11, 0.25)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: isFirst && cWidth >= 120 ? 'space-between' : 'center',
+                                  padding: '0 6px',
+                                  color: '#ffffff',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  zIndex: 8,
+                                  overflow: 'hidden',
+                                  whiteSpace: 'nowrap'
+                                }}
+                                title={task.impactMessage || `Sovraccarico: ${task.peakHours}h/gg con ${formatProjectTitleWithCode(projectName || 'Commessa Principale', projectCode)}`}
+                              >
+                                {isFirst && (
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', marginRight: 4 }}>
+                                    <AlertTriangle size={12} color="#ffffff" />
+                                    {task.text}
+                                  </span>
+                                )}
+                                <span style={{ fontSize: 9, opacity: 0.9, flexShrink: 0 }}>
+                                  {cWidth >= 65 ? `${rangeText} (${cluster.hours}h)` : `${cluster.hours}h`}
+                                </span>
+                              </div>
+                            );
+                          })
+                        ) : (
                           <div
                             style={{
                               position: 'absolute',
                               left: `${origLeft}px`,
                               width: `${origWidth}px`,
-                              top: '8px',
-                              height: '22px',
-                              borderRadius: '5px',
-                              border: '1px dashed #94a3b8',
-                              backgroundColor: 'rgba(226, 232, 240, 0.7)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: origWidth > 130 ? 'space-between' : 'center',
-                              padding: '0 8px',
-                              fontSize: 10,
-                              color: '#64748b',
-                              fontWeight: 600,
-                              zIndex: 6,
-                              overflow: 'hidden',
-                              whiteSpace: 'nowrap'
-                            }}
-                            title={`Stato Originale: ${formatDateIt(task.origStart)} → ${formatDateIt(task.origEnd)} (${task.origWorkers.join(', ')})`}
-                          >
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              Orig: {formatShortDate(task.origStart)} - {formatShortDate(task.origEnd)}
-                            </span>
-                            {origWidth > 130 && (
-                              <span style={{ opacity: 0.8, fontSize: 9, flexShrink: 0 }}>
-                                {task.origWorkers.join(', ')}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* CORSIA 2 (BASSO): NUOVO STATO PROPOSTO */}
-                          <div
-                            style={{
-                              position: 'absolute',
-                              left: `${simLeft}px`,
-                              width: `${simWidth}px`,
-                              top: '36px',
-                              height: '24px',
-                              borderRadius: '5px',
-                              background: isDirect
-                                ? isViewingRelated
-                                  ? 'linear-gradient(90deg, #7c3aed, #6366f1)'
-                                  : 'linear-gradient(90deg, #6366f1, #4f46e5)'
-                                : 'linear-gradient(90deg, #f59e0b, #d97706)',
-                              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+                              height: '26px',
+                              borderRadius: '6px',
+                              background: 'linear-gradient(90deg, #f59e0b, #d97706)',
+                              border: '1px solid #b45309',
+                              boxShadow: '0 2px 6px rgba(245, 158, 11, 0.25)',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'space-between',
@@ -1859,109 +2216,109 @@ export default function ReplanningGanttPreview({
                               overflow: 'hidden',
                               whiteSpace: 'nowrap'
                             }}
-                            title={task.impactMessage ? `${task.impactMessage} | Nuovo Stato: ${formatDateIt(task.simStart)} → ${formatDateIt(task.simEnd)}` : `Nuovo Stato Proposto: ${formatDateIt(task.simStart)} → ${formatDateIt(task.simEnd)} (${task.simWorkers.join(', ')})`}
+                            title={task.impactMessage || `Sovraccarico: ${task.peakHours}h/gg con ${formatProjectTitleWithCode(projectName || 'Commessa Principale', projectCode)}`}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              <AlertTriangle size={12} color="#ffffff" />
+                              {task.text}
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                              <span style={{ fontSize: 9, opacity: 0.9 }}>
+                                {formatShortDate(task.origStart)} - {formatShortDate(task.origEnd)}
+                              </span>
+                              <span
+                                style={{
+                                  padding: '1px 5px',
+                                  borderRadius: '3px',
+                                  background: 'rgba(0, 0, 0, 0.3)',
+                                  fontSize: 9,
+                                  fontWeight: 700
+                                }}
+                              >
+                                ⚠️ {task.peakHours ? `${task.peakHours}h/gg` : 'Sovraccarico'}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      ) : (
+                        /* FASE INVARIATA (SINGOLA CORSIA) */
+                        origClusters && origClusters.length > 0 ? (
+                          origClusters.map((cluster, cIdx) => {
+                            const cLeft = getLeftPx(cluster.startDate);
+                            const cWidth = getWidthPx(cluster.startDate, cluster.endDate);
+                            const rangeText = cluster.dates.length === 1
+                              ? formatShortDate(cluster.startDate)
+                              : `${formatShortDate(cluster.startDate)} - ${formatShortDate(cluster.endDate)}`;
+                            const isFirst = cIdx === 0;
+                            return (
+                              <div
+                                key={`unchanged-c-${task.id}-${cIdx}`}
+                                style={{
+                                  position: 'absolute',
+                                  left: `${cLeft}px`,
+                                  width: `${cWidth}px`,
+                                  top: `${Math.round((rowHeight - 24) / 2)}px`,
+                                  height: '24px',
+                                  borderRadius: '5px',
+                                  background: 'linear-gradient(90deg, #3b82f6, #2563eb)',
+                                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: isFirst && cWidth >= 120 ? 'space-between' : 'center',
+                                  padding: '0 6px',
+                                  color: '#ffffff',
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  zIndex: 6,
+                                  overflow: 'hidden',
+                                  whiteSpace: 'nowrap',
+                                  opacity: isViewingRelated ? 0.85 : 0.95
+                                }}
+                                title={`Fase: ${rangeText} (${cluster.hours}h) - ${task.origWorkers.join(', ')}`}
+                              >
+                                {isFirst && (
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', marginRight: 4 }}>
+                                    {task.text}
+                                  </span>
+                                )}
+                                <span style={{ fontSize: 9, opacity: 0.85, flexShrink: 0 }}>
+                                  {cWidth >= 65 ? `${rangeText} (${cluster.hours}h)` : `${cluster.hours}h`}
+                                </span>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: `${origLeft}px`,
+                              width: `${origWidth}px`,
+                              height: '24px',
+                              borderRadius: '5px',
+                              background: 'linear-gradient(90deg, #3b82f6, #2563eb)',
+                              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '0 8px',
+                              color: '#ffffff',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              zIndex: 6,
+                              overflow: 'hidden',
+                              whiteSpace: 'nowrap',
+                              opacity: isViewingRelated ? 0.85 : 0.95
+                            }}
+                            title={`Fase: ${formatDateIt(task.origStart)} → ${formatDateIt(task.origEnd)} (${task.origWorkers.join(', ')})`}
                           >
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {task.text}
                             </span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                              <span style={{ fontSize: 10, opacity: 0.9 }}>
-                                {formatShortDate(task.simStart)} - {formatShortDate(task.simEnd)}
-                              </span>
-                              {task.shiftDays > 0 && (
-                                <span
-                                  style={{
-                                    padding: '1px 5px',
-                                    borderRadius: '3px',
-                                    background: 'rgba(0, 0, 0, 0.3)',
-                                    fontSize: 9,
-                                    fontWeight: 700
-                                  }}
-                                >
-                                  +{task.shiftDays}g
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </>
-                      ) : task.isRelatedImpact ? (
-                        /* FASE IN SOVRACCARICO SU COMMESSA CORRELATA */
-                        <div
-                          style={{
-                            position: 'absolute',
-                            left: `${origLeft}px`,
-                            width: `${origWidth}px`,
-                            height: '26px',
-                            borderRadius: '6px',
-                            background: 'linear-gradient(90deg, #f59e0b, #d97706)',
-                            border: '1px solid #b45309',
-                            boxShadow: '0 2px 6px rgba(245, 158, 11, 0.25)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '0 8px',
-                            color: '#ffffff',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            zIndex: 8,
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap'
-                          }}
-                          title={task.impactMessage || `Sovraccarico: ${task.peakHours}h/gg con ${formatProjectTitleWithCode(projectName || 'Commessa Principale', projectCode)}`}
-                        >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            <AlertTriangle size={12} color="#ffffff" />
-                            {task.text}
-                          </span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                            <span style={{ fontSize: 9, opacity: 0.9 }}>
+                            <span style={{ fontSize: 10, opacity: 0.85, flexShrink: 0 }}>
                               {formatShortDate(task.origStart)} - {formatShortDate(task.origEnd)}
                             </span>
-                            <span
-                              style={{
-                                padding: '1px 5px',
-                                borderRadius: '3px',
-                                background: 'rgba(0, 0, 0, 0.3)',
-                                fontSize: 9,
-                                fontWeight: 700
-                              }}
-                            >
-                              ⚠️ {task.peakHours ? `${task.peakHours}h/gg` : 'Sovraccarico'}
-                            </span>
                           </div>
-                        </div>
-                      ) : (
-                        /* FASE INVARIATA (SINGOLA CORSIA) */
-                        <div
-                          style={{
-                            position: 'absolute',
-                            left: `${origLeft}px`,
-                            width: `${origWidth}px`,
-                            height: '24px',
-                            borderRadius: '5px',
-                            background: 'linear-gradient(90deg, #3b82f6, #2563eb)',
-                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '0 8px',
-                            color: '#ffffff',
-                            fontSize: 11,
-                            fontWeight: 500,
-                            zIndex: 6,
-                            overflow: 'hidden',
-                            whiteSpace: 'nowrap',
-                            opacity: isViewingRelated ? 0.85 : 0.95
-                          }}
-                          title={`Fase: ${formatDateIt(task.origStart)} → ${formatDateIt(task.origEnd)} (${task.origWorkers.join(', ')})`}
-                        >
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {task.text}
-                          </span>
-                          <span style={{ fontSize: 10, opacity: 0.85, flexShrink: 0 }}>
-                            {formatShortDate(task.origStart)} - {formatShortDate(task.origEnd)}
-                          </span>
-                        </div>
+                        )
                       )}
                     </div>
                   );

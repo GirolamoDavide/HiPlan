@@ -346,7 +346,7 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
     // Tooltip e Marker per il giorno di oggi e Drag Timeline
     gantt.plugins({ tooltip: true, marker: true, drag_timeline: true });
     gantt.config.drag_timeline = {
-      ignore: ".gantt_task_line, .gantt_task_link, .gantt_link_control, .gantt_link_point",
+      ignore: ".gantt_task_line, .gantt_task_link, .gantt_link_control, .gantt_link_point, .custom-date-cluster-bar, .gantt-custom-date-bar",
       useKey: false
     };
     gantt.templates.tooltip_text = function (start, end, task) {
@@ -570,6 +570,7 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
     });
 
     gantt.attachEvent("onAfterLinkAdd", (id, item) => {
+      document.body.classList.remove('gantt-dragging-link');
       if (onLinkCreateRef.current) {
         onLinkCreateRef.current({
           source: String(item.source),
@@ -762,10 +763,29 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
       },
     ];
 
+    // Listener globale per rilevare il drag delle dipendenze e illuminare i punti di ancoraggio
+    const handleLinkPointDown = (e) => {
+      if (e.target && e.target.closest && (e.target.closest('.gantt_link_point') || e.target.closest('.gantt_link_control'))) {
+        document.body.classList.add('gantt-dragging-link');
+      }
+    };
+    const handleLinkPointUp = () => {
+      document.body.classList.remove('gantt-dragging-link');
+    };
+
+    document.addEventListener('mousedown', handleLinkPointDown, true);
+    document.addEventListener('mouseup', handleLinkPointUp, true);
+
     gantt.config.columns = baseColumns.filter(c =>
       c.name === 'text' || (visibleColumns && visibleColumns.includes(c.name))
     );
     gantt.render();
+
+    return () => {
+      document.removeEventListener('mousedown', handleLinkPointDown, true);
+      document.removeEventListener('mouseup', handleLinkPointUp, true);
+      document.body.classList.remove('gantt-dragging-link');
+    };
   }, [visibleColumns, readOnly]);
 
   const drawCustomMarkers = useCallback(() => {
@@ -961,13 +981,15 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
                     };
 
                     seg.onmouseenter = (e) => {
-                      if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip) {
+                      if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip && !document.body.classList.contains('gantt-dragging-link')) {
                         gantt.ext.tooltips.tooltip.show(buildTooltipHtml(), { x: e.clientX + 14, y: e.clientY + 14 });
                       }
+                      const taskNode = gantt.getTaskNode(task.id);
+                      if (taskNode) taskNode.classList.add('task-split-hovered');
                     };
 
                     seg.onmousemove = (e) => {
-                      if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip) {
+                      if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip && !document.body.classList.contains('gantt-dragging-link')) {
                         const tooltipNode = typeof gantt.ext.tooltips.tooltip.getNode === 'function'
                           ? gantt.ext.tooltips.tooltip.getNode()
                           : document.querySelector('.gantt_tooltip');
@@ -978,9 +1000,23 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
                       }
                     };
 
-                    seg.onmouseleave = () => {
+                    seg.onmouseleave = (e) => {
                       if (gantt.ext && gantt.ext.tooltips && gantt.ext.tooltips.tooltip) {
                         gantt.ext.tooltips.tooltip.hide();
+                      }
+                      const related = e?.relatedTarget;
+                      if (related && related.closest && (related.closest('.gantt_link_control') || related.closest(`[task_id="${task.id}"]`))) {
+                        return;
+                      }
+                      const taskNode = gantt.getTaskNode(task.id);
+                      if (taskNode) {
+                        setTimeout(() => {
+                          const stillHovered = taskNode.matches(':hover') ||
+                            Array.from(document.querySelectorAll(`.custom-date-cluster-bar[task_id="${task.id}"]`)).some(el => el.matches(':hover'));
+                          if (!stillHovered) {
+                            taskNode.classList.remove('task-split-hovered');
+                          }
+                        }, 120);
                       }
                     };
 
@@ -1309,8 +1345,26 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
         const plannedH = Number(t.planned_hours || 8.0);
         const isOverrun = plannedH > 0 && totEff > plannedH;
 
+        let t_startDate = t.start_date;
         let parsedEndDate = t.end_date;
-        if (parsedEndDate && t.type !== 'milestone') {
+
+        if (t.budget_mode === 'custom_dates') {
+          const cDates = getCustomDatesList(t);
+          if (cDates.length > 0) {
+            const sortedDates = cDates.map(x => x.date).sort();
+            t_startDate = sortedDates[0];
+            const lastDate = sortedDates[sortedDates.length - 1];
+            const dateParts = String(lastDate).split(' ')[0].split('T')[0].split('-');
+            if (dateParts.length === 3) {
+              const ed = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+              ed.setDate(ed.getDate() + 1);
+              const y = ed.getFullYear();
+              const m = String(ed.getMonth() + 1).padStart(2, '0');
+              const d = String(ed.getDate()).padStart(2, '0');
+              parsedEndDate = `${y}-${m}-${d}`;
+            }
+          }
+        } else if (parsedEndDate && t.type !== 'milestone') {
           const dateParts = String(parsedEndDate).split(' ')[0].split('T')[0].split('-');
           if (dateParts.length === 3) {
             const ed = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
@@ -1323,11 +1377,11 @@ export default function GanttChart({ projectId, sortResetKey, tasks, links, onTa
         }
         const taskPayload = {
           ...t,
+          start_date: t_startDate,
           end_date: parsedEndDate,
 
           id: String(t.id),
           text: t.text,
-          start_date: t.start_date,
           orig_duration: t.orig_duration || t.duration,
           // duration: t.duration,
           progress: isCompleted ? 1 : Math.min(1, t.progress || (plannedH > 0 ? totEff / plannedH : 0)),
