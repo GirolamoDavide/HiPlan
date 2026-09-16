@@ -9,10 +9,18 @@ import shutil
 import uuid
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List, Union, Dict, Any, Optional
+from typing import List, Union, Dict, Any, Optional, Tuple
 
 # pyrefly: ignore [missing-import]
+import io
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
+from fastapi.responses import StreamingResponse
+# pyrefly: ignore [missing-import]
+from openpyxl import Workbook
+# pyrefly: ignore [missing-import]
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+# pyrefly: ignore [missing-import]
+from openpyxl.utils import get_column_letter
 # pyrefly: ignore [missing-import]
 from sqlalchemy.ext.asyncio import AsyncSession
 # pyrefly: ignore [missing-import]
@@ -34,6 +42,9 @@ from app.schemas.richiesta_commerciale import (
     ArticoloUpdate,
     InviaAdAdminIn,
     CompletaRichiestaIn,
+    ArticoloListinoItemOut,
+    ArticoliListinoResponse,
+    ArticoliListinoStatsOut,
 )
 
 logger = logging.getLogger(__name__)
@@ -966,6 +977,382 @@ async def hard_delete_richiesta(
     await db.delete(richiesta)
     await db.commit()
     return {"message": "Richiesta eliminata definitivamente"}
+
+
+# ─── Archivio Articoli a Listino (Consultazione Admin & Export Excel) ───────
+
+async def _fetch_articoli_listino_data(
+    db: AsyncSession,
+    q: Optional[str] = None,
+    tipologia: Optional[str] = None,
+    tipo_fornitura: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    stmt = (
+        select(ArticoloRichiesta)
+        .join(RichiestaCommerciale, ArticoloRichiesta.richiesta_id == RichiestaCommerciale.id)
+        .options(
+            selectinload(ArticoloRichiesta.author),
+            selectinload(ArticoloRichiesta.updated_by),
+            selectinload(ArticoloRichiesta.richiesta).selectinload(RichiestaCommerciale.author),
+            selectinload(ArticoloRichiesta.richiesta).selectinload(RichiestaCommerciale.listino_inserted_by),
+        )
+        .where(
+            RichiestaCommerciale.status == RichiestaStatus.COMPLETATA,
+            RichiestaCommerciale.deleted_at.is_(None),
+            ArticoloRichiesta.prezzo_listino.isnot(None),
+        )
+        .order_by(
+            RichiestaCommerciale.listino_inserted_at.desc().nullslast(),
+            ArticoloRichiesta.created_at.desc(),
+        )
+    )
+
+    res = await db.execute(stmt)
+    all_articoli = res.scalars().all()
+
+    items = []
+    totale_costo = 0.0
+    totale_listino = 0.0
+
+    for a in all_articoli:
+        r = a.richiesta
+        if not r:
+            continue
+
+        is_std = bool(getattr(a, "is_standard", False))
+        is_atx = bool(getattr(a, "is_atex", False))
+        is_alm = bool(getattr(a, "is_alimentare", False))
+        tf = a.tipo_fornitura.value if hasattr(a.tipo_fornitura, "value") else (str(a.tipo_fornitura) if a.tipo_fornitura else None)
+
+        if tipologia:
+            t_lower = tipologia.lower().strip()
+            if t_lower == "standard" and not is_std:
+                continue
+            elif t_lower == "atex" and not is_atx:
+                continue
+            elif t_lower == "alimentare" and not is_alm:
+                continue
+
+        if tipo_fornitura and tipo_fornitura.strip():
+            if tf != tipo_fornitura.strip():
+                continue
+
+        costo_val = float(a.costo or 0.0)
+        pl_val = float(a.prezzo_listino or 0.0)
+        margine_val = round(pl_val - costo_val, 2)
+        ricarico_pct = round(((pl_val - costo_val) / costo_val * 100), 1) if costo_val > 0 else 0.0
+
+        comm_author = (r.author.full_name or r.author.username) if r.author else "Commerciale"
+        art_author = (a.author.full_name or a.author.username) if a.author else comm_author
+        listino_author = (r.listino_inserted_by.full_name or r.listino_inserted_by.username) if getattr(r, "listino_inserted_by", None) else None
+        data_ins = _to_utc_iso(a.created_at) or ""
+        data_listino = _to_utc_iso(r.listino_inserted_at) if getattr(r, "listino_inserted_at", None) else None
+
+        if q and q.strip():
+            term = q.strip().lower()
+            search_str = f"{a.titolo or ''} {a.descrizione or ''} {r.cliente or ''} {r.numero_offerta or ''} {r.title or ''} {art_author} {comm_author} {a.note_admin or ''}".lower()
+            if term not in search_str:
+                continue
+
+        totale_costo += costo_val
+        totale_listino += pl_val
+
+        item_dict = {
+            "id": str(a.id),
+            "richiesta_id": str(r.id),
+            "titolo": a.titolo or "",
+            "descrizione": a.descrizione or None,
+            "costo": costo_val,
+            "prezzo_listino": pl_val,
+            "margine": margine_val,
+            "ricarico_percentuale": ricarico_pct,
+            "is_standard": is_std,
+            "is_atex": is_atx,
+            "is_alimentare": is_alm,
+            "tipo_fornitura": tf,
+            "note_admin": a.note_admin or None,
+            "created_at": data_ins,
+            "inserito_da": art_author,
+            "inserito_da_id": str(a.author_id) if a.author_id else None,
+            "richiesta_titolo": r.title or "",
+            "cliente": r.cliente or "",
+            "numero_offerta": r.numero_offerta or None,
+            "commerciale": comm_author,
+            "commerciale_id": str(r.author_id) if r.author_id else None,
+            "listino_inserito_da": listino_author,
+            "listino_inserito_at": data_listino,
+        }
+        items.append(item_dict)
+
+    totale_articoli = len(items)
+    totale_margine = round(totale_listino - totale_costo, 2)
+    margine_medio_pct = round((totale_margine / totale_costo * 100), 1) if totale_costo > 0 else 0.0
+
+    stats = {
+        "totale_articoli": totale_articoli,
+        "totale_costo": round(totale_costo, 2),
+        "totale_listino": round(totale_listino, 2),
+        "totale_margine": totale_margine,
+        "margine_medio_percentuale": margine_medio_pct,
+    }
+
+    return items, stats
+
+
+def _generate_articoli_listino_excel(items: List[Dict[str, Any]], stats: Dict[str, Any]) -> io.BytesIO:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Articoli a Listino"
+
+    # Palette HiWay
+    NAVY = "1E293B"
+    LIGHT_BG = "F8FAFC"
+    BORDER_COLOR = "CBD5E1"
+
+    thin_border = Border(
+        left=Side(style="thin", color=BORDER_COLOR),
+        right=Side(style="thin", color=BORDER_COLOR),
+        top=Side(style="thin", color=BORDER_COLOR),
+        bottom=Side(style="thin", color=BORDER_COLOR),
+    )
+
+    # 1. Header Aziendale / Titolo
+    ws.merge_cells("A1:P1")
+    title_cell = ws["A1"]
+    title_cell.value = "HiWay - Archivio Articoli a Listino (Preventivazione)"
+    title_cell.font = Font(name="Calibri", size=15, bold=True, color="FFFFFF")
+    title_cell.fill = PatternFill(start_color=NAVY, end_color=NAVY, fill_type="solid")
+    title_cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[1].height = 34
+
+    # 2. Sottotitolo e Metriche Chiave
+    ws.merge_cells("A2:P2")
+    sub_cell = ws["A2"]
+    now_str = datetime.now().strftime("%d/%m/%Y alle %H:%M")
+    sub_cell.value = (
+        f"Data estrazione: {now_str} | Totale Articoli: {stats['totale_articoli']} "
+        f"| Valore Totale Listino: {stats['totale_listino']:,.2f} € "
+        f"| Costo Totale: {stats['totale_costo']:,.2f} € "
+        f"| Margine Totale: {stats['totale_margine']:,.2f} € "
+        f"| Margine Medio: {stats['margine_medio_percentuale']}%"
+    )
+    sub_cell.font = Font(name="Calibri", size=9, italic=True, color="475569")
+    sub_cell.fill = PatternFill(start_color=LIGHT_BG, end_color=LIGHT_BG, fill_type="solid")
+    sub_cell.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    ws.row_dimensions[2].height = 20
+
+    ws.row_dimensions[3].height = 10
+
+    # 3. Colonne Intestazione Tabella
+    headers = [
+        "Articolo",
+        "Descrizione",
+        "Cliente",
+        "N. Offerta",
+        "Richiesta Commerciale",
+        "Tipologia",
+        "Tipo Fornitura",
+        "Costo (€)",
+        "Prezzo Listino (€)",
+        "Margine (€)",
+        "Ricarico (%)",
+        "Inserito Da",
+        "Data Inserimento",
+        "Listino Inserito Da",
+        "Data Listino",
+        "Note Admin",
+    ]
+
+    header_row = 4
+    ws.row_dimensions[header_row].height = 26
+
+    header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="334155", end_color="334155", fill_type="solid")
+
+    for col_num, h_text in enumerate(headers, 1):
+        cell = ws.cell(row=header_row, column=col_num)
+        cell.value = h_text
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
+
+    # 4. Righe Dati
+    FORNITURA_LABELS = {
+        "materie_prime": "Materie Prime",
+        "mp_lavorazione": "MP + Lavorazione",
+        "compravendita": "Compravendita",
+    }
+
+    current_row = 5
+    for idx, item in enumerate(items):
+        ws.row_dimensions[current_row].height = 22
+
+        tips = []
+        if item.get("is_standard"): tips.append("Standard")
+        if item.get("is_atex"): tips.append("ATEX")
+        if item.get("is_alimentare"): tips.append("Alimentare")
+        tipologia_str = ", ".join(tips) if tips else "Standard"
+
+        tf_code = item.get("tipo_fornitura")
+        fornitura_str = FORNITURA_LABELS.get(tf_code, tf_code or "-")
+
+        d_ins = ""
+        if item.get("created_at"):
+            try:
+                dt = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
+                d_ins = dt.strftime("%d/%m/%Y")
+            except Exception:
+                d_ins = item["created_at"][:10]
+
+        d_lis = ""
+        if item.get("listino_inserito_at"):
+            try:
+                dt = datetime.fromisoformat(item["listino_inserito_at"].replace("Z", "+00:00"))
+                d_lis = dt.strftime("%d/%m/%Y")
+            except Exception:
+                d_lis = item["listino_inserito_at"][:10]
+
+        row_data = [
+            item.get("titolo") or "-",
+            item.get("descrizione") or "-",
+            item.get("cliente") or "-",
+            item.get("numero_offerta") or "-",
+            item.get("richiesta_titolo") or "-",
+            tipologia_str,
+            fornitura_str,
+            item.get("costo", 0.0),
+            item.get("prezzo_listino", 0.0),
+            item.get("margine", 0.0),
+            item.get("ricarico_percentuale", 0.0) / 100.0,
+            item.get("inserito_da") or "-",
+            d_ins,
+            item.get("listino_inserito_da") or "-",
+            d_lis,
+            item.get("note_admin") or "-",
+        ]
+
+        row_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid") if idx % 2 == 1 else PatternFill(fill_type=None)
+
+        for col_num, val in enumerate(row_data, 1):
+            cell = ws.cell(row=current_row, column=col_num)
+            cell.value = val
+            cell.font = Font(name="Calibri", size=9.5)
+            cell.border = thin_border
+            if row_fill.fill_type:
+                cell.fill = row_fill
+
+            if col_num in (8, 9, 10):
+                cell.number_format = "#,##0.00 €"
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            elif col_num == 11:
+                cell.number_format = "0.0%"
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            elif col_num in (13, 15):
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            elif col_num in (6, 7):
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+
+        current_row += 1
+
+    # 5. Riga Totali a fondo tabella
+    ws.row_dimensions[current_row].height = 24
+    total_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+    total_font = Font(name="Calibri", size=10, bold=True, color="0F172A")
+
+    for col in range(1, len(headers) + 1):
+        c = ws.cell(row=current_row, column=col)
+        c.fill = total_fill
+        c.font = total_font
+        c.border = thin_border
+        if col == 1:
+            c.value = "TOTALI COMPLESSIVI"
+            c.alignment = Alignment(horizontal="left", vertical="center")
+        elif col == 8:
+            c.value = stats["totale_costo"]
+            c.number_format = "#,##0.00 €"
+            c.alignment = Alignment(horizontal="right", vertical="center")
+        elif col == 9:
+            c.value = stats["totale_listino"]
+            c.number_format = "#,##0.00 €"
+            c.alignment = Alignment(horizontal="right", vertical="center")
+        elif col == 10:
+            c.value = stats["totale_margine"]
+            c.number_format = "#,##0.00 €"
+            c.alignment = Alignment(horizontal="right", vertical="center")
+        elif col == 11:
+            c.value = stats["margine_medio_percentuale"] / 100.0
+            c.number_format = "0.0%"
+            c.alignment = Alignment(horizontal="right", vertical="center")
+
+    for col in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            if cell.row in (1, 2):
+                continue
+            if cell.value:
+                val_str = str(cell.value)
+                max_len = max(max_len, len(val_str))
+        ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+    ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width, 24)
+    ws.column_dimensions["B"].width = max(ws.column_dimensions["B"].width, 28)
+    ws.column_dimensions["C"].width = max(ws.column_dimensions["C"].width, 18)
+    ws.column_dimensions["E"].width = max(ws.column_dimensions["E"].width, 22)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+@router.get("/articoli-listino", response_model=ArticoliListinoResponse)
+async def get_articoli_listino(
+    q: Optional[str] = Query(None, description="Filtro ricerca testuale"),
+    tipologia: Optional[str] = Query(None, description="Filtro tipologia: standard, atex, alimentare"),
+    tipo_fornitura: Optional[str] = Query(None, description="Filtro fornitura"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Restituisce tutti gli articoli completati con prezzo di listino.
+    Riservato agli amministratori.
+    """
+    await _require_role(db, current_user, ["admin"])
+    items, stats = await _fetch_articoli_listino_data(db, q=q, tipologia=tipologia, tipo_fornitura=tipo_fornitura)
+    return ArticoliListinoResponse(articoli=items, stats=stats)
+
+
+@router.get("/articoli-listino/export/excel")
+async def export_articoli_listino_excel(
+    q: Optional[str] = Query(None, description="Filtro ricerca testuale"),
+    tipologia: Optional[str] = Query(None, description="Filtro tipologia: standard, atex, alimentare"),
+    tipo_fornitura: Optional[str] = Query(None, description="Filtro fornitura"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Esporta l'archivio degli articoli a listino in formato Excel (.xlsx).
+    Riservato agli amministratori.
+    """
+    await _require_role(db, current_user, ["admin"])
+    items, stats = await _fetch_articoli_listino_data(db, q=q, tipologia=tipologia, tipo_fornitura=tipo_fornitura)
+    buffer = _generate_articoli_listino_excel(items, stats)
+
+    now_tag = datetime.now().strftime("%Y%m%d_%H%M")
+    filename = f"articoli_listino_{now_tag}.xlsx"
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
 
 
 @router.get("/{richiesta_id}")

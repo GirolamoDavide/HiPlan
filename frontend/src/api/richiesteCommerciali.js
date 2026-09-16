@@ -119,6 +119,19 @@ export async function completaRichiesta(id, articoli, descrizione = null) {
   return res.data;
 }
 
+export async function getArticoliListino(params = {}) {
+  const res = await api.get(`${BASE}/articoli-listino`, { params: { ...params, _t: Date.now() } });
+  return res.data;
+}
+
+export async function exportArticoliListinoExcel(params = {}) {
+  const res = await api.get(`${BASE}/articoli-listino/export/excel`, {
+    params,
+    responseType: 'blob',
+  });
+  return res;
+}
+
 // ── Settings RC ──────────────────────────────────────────────────────────────
 
 export async function getRCUsers(group) {

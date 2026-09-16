@@ -27,6 +27,8 @@ import {
   getMyRole,
   getRCUsers,
 } from '../api/richiesteCommerciali';
+import { FileSpreadsheet } from 'lucide-react';
+import ArticoliListinoModal from '../components/richieste-commerciali/ArticoliListinoModal';
 import './RichiesteCommercialiPage.css';
 
 // ─── Costanti ─────────────────────────────────────────────────────────────────
@@ -3517,6 +3519,7 @@ export default function RichiesteCommercialiPage() {
   const [showNuovaModal, setShowNuovaModal] = useState(false);
   const [selectedRichiestaId, setSelectedRichiestaId] = useState(null);
   const [showTrashModal, setShowTrashModal] = useState(false);
+  const [showArticoliListinoModal, setShowArticoliListinoModal] = useState(false);
   const [trashCount, setTrashCount] = useState(0);
   const [viewMode, setViewMode] = useState(() => {
     try {
@@ -3703,19 +3706,31 @@ export default function RichiesteCommercialiPage() {
 
           <div className="rc-command-bar__actions">
             {userRole === 'admin' && (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowTrashModal(true)}
-                style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, height: 36 }}
-                title="Cestino Preventivazione (conservazione per 90 giorni)"
-              >
-                <AppIcon name="trash" size={15} />
-                <span>Cestino</span>
-                {trashCount > 0 && (
-                  <span className="trash-badge-count">{trashCount}</span>
-                )}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowArticoliListinoModal(true)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36 }}
+                  title="Archivio ed esportazione Excel di tutti gli articoli con prezzo di listino"
+                >
+                  <FileSpreadsheet size={15} style={{ color: '#10b981' }} />
+                  <span>Listino Articoli</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowTrashModal(true)}
+                  style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, height: 36 }}
+                  title="Cestino Preventivazione (conservazione per 90 giorni)"
+                >
+                  <AppIcon name="trash" size={15} />
+                  <span>Cestino</span>
+                  {trashCount > 0 && (
+                    <span className="trash-badge-count">{trashCount}</span>
+                  )}
+                </button>
+              </>
             )}
 
             {(userRole === 'commerciale' || userRole === 'admin') && (
@@ -4064,6 +4079,17 @@ export default function RichiesteCommercialiPage() {
             }
             await loadTrashCount();
             await loadRichieste();
+          }}
+        />
+      )}
+
+      {showArticoliListinoModal && (
+        <ArticoliListinoModal
+          isOpen={showArticoliListinoModal}
+          onClose={() => setShowArticoliListinoModal(false)}
+          onOpenRichiesta={(id) => {
+            setShowArticoliListinoModal(false);
+            setSelectedRichiestaId(id);
           }}
         />
       )}

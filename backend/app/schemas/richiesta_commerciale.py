@@ -211,3 +211,45 @@ class CompletaRichiestaIn(BaseModel):
     articoli: List[CompletaArticoloIn]
     descrizione: Optional[str] = None
 
+
+# ─── Schemi Articoli a Listino (Archivio Admin) ──────────────────────────────
+
+class ArticoloListinoItemOut(BaseModel):
+    id: str
+    richiesta_id: str
+    titolo: str
+    descrizione: Optional[str] = None
+    costo: float
+    prezzo_listino: float
+    margine: float
+    ricarico_percentuale: float
+    is_standard: bool = False
+    is_atex: bool = False
+    is_alimentare: bool = False
+    tipo_fornitura: Optional[str] = None
+    note_admin: Optional[str] = None
+    created_at: str
+    inserito_da: Optional[str] = None
+    inserito_da_id: Optional[str] = None
+    richiesta_titolo: str
+    cliente: str
+    numero_offerta: Optional[str] = None
+    commerciale: Optional[str] = None
+    commerciale_id: Optional[str] = None
+    listino_inserito_da: Optional[str] = None
+    listino_inserito_at: Optional[str] = None
+
+
+class ArticoliListinoStatsOut(BaseModel):
+    totale_articoli: int
+    totale_costo: float
+    totale_listino: float
+    totale_margine: float
+    margine_medio_percentuale: float
+
+
+class ArticoliListinoResponse(BaseModel):
+    articoli: List[ArticoloListinoItemOut]
+    stats: ArticoliListinoStatsOut
+
+
