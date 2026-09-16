@@ -16,11 +16,11 @@ import io
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
 # pyrefly: ignore [missing-import]
-from openpyxl import Workbook
+from openpyxl import Workbook  # type: ignore
 # pyrefly: ignore [missing-import]
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side  # type: ignore
 # pyrefly: ignore [missing-import]
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter  # type: ignore
 # pyrefly: ignore [missing-import]
 from sqlalchemy.ext.asyncio import AsyncSession
 # pyrefly: ignore [missing-import]
@@ -1101,7 +1101,7 @@ async def _fetch_articoli_listino_data(
 
 def _generate_articoli_listino_excel(items: List[Dict[str, Any]], stats: Dict[str, Any]) -> io.BytesIO:
     wb = Workbook()
-    ws = wb.active
+    ws: Any = wb.active
     ws.title = "Articoli a Listino"
 
     # Palette HiWay
@@ -1118,7 +1118,7 @@ def _generate_articoli_listino_excel(items: List[Dict[str, Any]], stats: Dict[st
 
     # 1. Header Aziendale / Titolo
     ws.merge_cells("A1:P1")
-    title_cell = ws["A1"]
+    title_cell: Any = ws["A1"]
     title_cell.value = "HiWay - Archivio Articoli a Listino (Preventivazione)"
     title_cell.font = Font(name="Calibri", size=15, bold=True, color="FFFFFF")
     title_cell.fill = PatternFill(start_color=NAVY, end_color=NAVY, fill_type="solid")
@@ -1127,7 +1127,7 @@ def _generate_articoli_listino_excel(items: List[Dict[str, Any]], stats: Dict[st
 
     # 2. Sottotitolo e Metriche Chiave
     ws.merge_cells("A2:P2")
-    sub_cell = ws["A2"]
+    sub_cell: Any = ws["A2"]
     now_str = datetime.now().strftime("%d/%m/%Y alle %H:%M")
     sub_cell.value = (
         f"Data estrazione: {now_str} | Totale Articoli: {stats['totale_articoli']} "

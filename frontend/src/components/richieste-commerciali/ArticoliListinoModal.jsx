@@ -8,13 +8,12 @@ import {
   ArrowUpDown,
   Filter,
   ExternalLink,
-  Coins,
-  TrendingUp,
   Package,
   Calendar,
   User,
   ShieldCheck,
   RefreshCw,
+  ChevronDown,
 } from 'lucide-react';
 import { getArticoliListino, exportArticoliListinoExcel } from '../../api/richiesteCommerciali';
 import { useToast } from '../../context/ToastContext';
@@ -217,52 +216,6 @@ export default function ArticoliListinoModal({ isOpen, onClose, onOpenRichiesta 
           </div>
         </div>
 
-        {/* KPI Cards di Sintesi Economica */}
-        <div className="art-listino-kpi-grid">
-          <div className="art-kpi-card">
-            <div className="art-kpi-icon art-kpi-icon--items">
-              <Package size={20} />
-            </div>
-            <div className="art-kpi-content">
-              <span className="art-kpi-label">Articoli Completati</span>
-              <strong className="art-kpi-val">{stats.totale_articoli}</strong>
-            </div>
-          </div>
-
-          <div className="art-kpi-card">
-            <div className="art-kpi-icon art-kpi-icon--listino">
-              <Coins size={20} />
-            </div>
-            <div className="art-kpi-content">
-              <span className="art-kpi-label">Totale Prezzo Listino</span>
-              <strong className="art-kpi-val text-primary-val">{formatCurrency(stats.totale_listino)}</strong>
-            </div>
-          </div>
-
-          <div className="art-kpi-card">
-            <div className="art-kpi-icon art-kpi-icon--costo">
-              <Coins size={20} />
-            </div>
-            <div className="art-kpi-content">
-              <span className="art-kpi-label">Totale Costo Acquisti</span>
-              <strong className="art-kpi-val text-secondary-val">{formatCurrency(stats.totale_costo)}</strong>
-            </div>
-          </div>
-
-          <div className="art-kpi-card">
-            <div className="art-kpi-icon art-kpi-icon--margin">
-              <TrendingUp size={20} />
-            </div>
-            <div className="art-kpi-content">
-              <span className="art-kpi-label">Margine Totale (Medio)</span>
-              <div className="art-kpi-margin-row">
-                <strong className="art-kpi-val text-success-val">{formatCurrency(stats.totale_margine)}</strong>
-                <span className="art-kpi-pill">+{stats.margine_medio_percentuale}%</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Command Bar: Ricerca, Filtri Tipologia/Fornitura e Ordinamento */}
         <div className="art-listino-controls">
           <div className="art-search-wrapper">
@@ -292,7 +245,7 @@ export default function ArticoliListinoModal({ isOpen, onClose, onOpenRichiesta 
               <select
                 value={filterTipologia}
                 onChange={(e) => setFilterTipologia(e.target.value)}
-                className="art-select"
+                className={`art-select ${filterTipologia ? 'art-select--active' : ''}`}
                 title="Filtra per tipologia prodotto"
               >
                 {TIPOLOGIA_OPTIONS.map((opt) => (
@@ -301,6 +254,7 @@ export default function ArticoliListinoModal({ isOpen, onClose, onOpenRichiesta 
                   </option>
                 ))}
               </select>
+              <ChevronDown size={13} className="art-select-arrow" />
             </div>
 
             <div className="art-select-group">
@@ -308,7 +262,7 @@ export default function ArticoliListinoModal({ isOpen, onClose, onOpenRichiesta 
               <select
                 value={filterFornitura}
                 onChange={(e) => setFilterFornitura(e.target.value)}
-                className="art-select"
+                className={`art-select ${filterFornitura ? 'art-select--active' : ''}`}
                 title="Filtra per tipo di fornitura"
               >
                 {FORNITURA_OPTIONS.map((opt) => (
@@ -317,6 +271,7 @@ export default function ArticoliListinoModal({ isOpen, onClose, onOpenRichiesta 
                   </option>
                 ))}
               </select>
+              <ChevronDown size={13} className="art-select-arrow" />
             </div>
 
             <div className="art-select-group">
@@ -324,7 +279,7 @@ export default function ArticoliListinoModal({ isOpen, onClose, onOpenRichiesta 
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="art-select"
+                className={`art-select ${sortBy !== 'date_desc' ? 'art-select--active' : ''}`}
                 title="Ordina tabella"
               >
                 <option value="date_desc">Più recenti</option>
@@ -335,6 +290,7 @@ export default function ArticoliListinoModal({ isOpen, onClose, onOpenRichiesta 
                 <option value="costo_asc">Costo più basso</option>
                 <option value="margine_desc">Margine più alto</option>
               </select>
+              <ChevronDown size={13} className="art-select-arrow" />
             </div>
 
             <button
