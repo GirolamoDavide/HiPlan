@@ -319,7 +319,127 @@ export default function NotesPage() {
     }, 1000);
   }
 
-  // Supporto interattivo per toggle delle checkbox nella checklist
+  // ─── Supporto e Gestione Avanzata Checklist ──────────────────────────────
+
+  function getSelectionClosest(selector) {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    let node = sel.anchorNode;
+    if (!node) return null;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    return (node && node.closest) ? node.closest(selector) : null;
+  }
+
+  function selectionIsInside(selector) {
+    return !!getSelectionClosest(selector);
+  }
+
+  function getSelectedChecklistItems() {
+    if (!editorRef.current) return [];
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return [];
+    const range = sel.getRangeAt(0);
+
+    const allItems = Array.from(editorRef.current.querySelectorAll('.note-checklist-item'));
+    if (allItems.length === 0) return [];
+
+    const matched = allItems.filter(item => {
+      if (item.contains(range.startContainer) || item.contains(range.endContainer)) {
+        return true;
+      }
+      try {
+        return range.intersectsNode(item);
+      } catch {
+        return false;
+      }
+    });
+
+    if (matched.length > 0) return matched;
+
+    let aNode = sel.anchorNode;
+    if (aNode && aNode.nodeType === Node.TEXT_NODE) aNode = aNode.parentElement;
+    const aItem = aNode ? aNode.closest('.note-checklist-item') : null;
+    if (aItem && editorRef.current.contains(aItem)) return [aItem];
+
+    let fNode = sel.focusNode;
+    if (fNode && fNode.nodeType === Node.TEXT_NODE) fNode = fNode.parentElement;
+    const fItem = fNode ? fNode.closest('.note-checklist-item') : null;
+    if (fItem && editorRef.current.contains(fItem)) return [fItem];
+
+    return [];
+  }
+
+  function placeCaretAt(node, atEnd = false) {
+    if (!node) return;
+    const sel = window.getSelection();
+    if (!sel) return;
+    const range = document.createRange();
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      const offset = atEnd ? node.textContent.length : 0;
+      range.setStart(node, offset);
+    } else {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
+      let targetTextNode = null;
+      let textNode = null;
+      while ((textNode = walker.nextNode())) {
+        if (!targetTextNode || atEnd) {
+          targetTextNode = textNode;
+        }
+      }
+      if (targetTextNode) {
+        const offset = atEnd ? targetTextNode.textContent.length : 0;
+        range.setStart(targetTextNode, offset);
+      } else {
+        range.setStart(node, atEnd ? node.childNodes.length : 0);
+      }
+    }
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  function createChecklistElement(text = '') {
+    const item = document.createElement('div');
+    item.className = 'note-checklist-item';
+    item.setAttribute('contenteditable', 'false');
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'note-checkbox';
+
+    const span = document.createElement('span');
+    span.className = 'checklist-text';
+    span.setAttribute('contenteditable', 'true');
+    if (text) {
+      span.textContent = text;
+    } else {
+      span.innerHTML = '<br>';
+    }
+
+    item.appendChild(checkbox);
+    item.appendChild(document.createTextNode(' '));
+    item.appendChild(span);
+    return item;
+  }
+
+  function unwrapChecklistItem(item) {
+    const textEl = item.querySelector('.checklist-text');
+    const text = textEl ? textEl.textContent : item.textContent;
+    const p = document.createElement('p');
+    if (text && text.trim()) {
+      p.textContent = text;
+    } else {
+      p.innerHTML = '<br>';
+    }
+    if (item.parentNode) {
+      item.parentNode.replaceChild(p, item);
+    }
+    placeCaretAt(p, true);
+    handleEditorInput();
+  }
+
+  // Supporto interattivo per click sulle checkbox e sul blocco checklist
   function handleEditorClick(e) {
     if (e.target && e.target.classList.contains('note-checkbox')) {
       if (e.target.checked) {
@@ -328,13 +448,208 @@ export default function NotesPage() {
         e.target.removeAttribute('checked');
       }
       handleEditorInput();
+      return;
+    }
+    if (e.target && e.target.classList.contains('note-checklist-item')) {
+      const span = e.target.querySelector('.checklist-text');
+      if (span) {
+        placeCaretAt(span, true);
+      }
     }
   }
 
-  // Supporto scorciatoie da tastiera
+  // Supporto da tastiera per checklist (Invio, Doppio Invio, Backspace, Delete, Markdown)
   function handleEditorKeyDown(e) {
-    if (e.key === 'Enter') {
-      // Per consentire comportamento naturale di nuova riga
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+
+    let node = sel.anchorNode;
+    if (!node) return;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    const checklistItem = node ? node.closest('.note-checklist-item') : null;
+
+    if (checklistItem) {
+      const textEl = checklistItem.querySelector('.checklist-text');
+      if (!textEl) return;
+
+      const fullText = (textEl.textContent || '').replace(/\u200B/g, '');
+      const range = sel.getRangeAt(0);
+
+      // --- INVIO (Enter) ---
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+
+        // 1. Doppio Invio: elemento checklist vuoto -> torna a formattazione normale
+        if (fullText.trim() === '') {
+          const p = document.createElement('p');
+          p.innerHTML = '<br>';
+          if (checklistItem.parentNode) {
+            checklistItem.parentNode.replaceChild(p, checklistItem);
+          }
+          placeCaretAt(p, false);
+          handleEditorInput();
+          return;
+        }
+
+        // 2. Creazione nuovo elemento checklist successivo
+        const preRange = document.createRange();
+        preRange.selectNodeContents(textEl);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        const textBefore = preRange.toString();
+
+        const postRange = document.createRange();
+        postRange.selectNodeContents(textEl);
+        postRange.setStart(range.endContainer, range.endOffset);
+        const textAfter = postRange.toString();
+
+        // Aggiorna l'elemento corrente con la parte prima del cursore
+        if (textBefore) {
+          textEl.textContent = textBefore;
+        } else {
+          textEl.innerHTML = '<br>';
+        }
+
+        // Crea il nuovo elemento con l'eventuale parte residua
+        const newItem = createChecklistElement(textAfter);
+
+        if (checklistItem.nextSibling) {
+          checklistItem.parentNode.insertBefore(newItem, checklistItem.nextSibling);
+        } else {
+          checklistItem.parentNode.appendChild(newItem);
+        }
+
+        const newSpan = newItem.querySelector('.checklist-text');
+        placeCaretAt(newSpan, false);
+        handleEditorInput();
+        return;
+      }
+
+      // --- BACKSPACE (Eliminazione) ---
+      if (e.key === 'Backspace' && range.collapsed) {
+        const preRange = document.createRange();
+        preRange.selectNodeContents(textEl);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        const isAtStart = preRange.toString().length === 0;
+
+        // Se l'elemento è completamente vuoto
+        if (fullText.trim() === '') {
+          e.preventDefault();
+          const prev = checklistItem.previousElementSibling;
+          const next = checklistItem.nextElementSibling;
+          checklistItem.remove();
+
+          if (prev) {
+            if (prev.classList.contains('note-checklist-item')) {
+              const prevText = prev.querySelector('.checklist-text');
+              placeCaretAt(prevText, true);
+            } else {
+              placeCaretAt(prev, true);
+            }
+          } else if (next) {
+            if (next.classList.contains('note-checklist-item')) {
+              const nextText = next.querySelector('.checklist-text');
+              placeCaretAt(nextText, false);
+            } else {
+              placeCaretAt(next, false);
+            }
+          } else if (editorRef.current) {
+            const p = document.createElement('p');
+            p.innerHTML = '<br>';
+            editorRef.current.appendChild(p);
+            placeCaretAt(p, false);
+          }
+          handleEditorInput();
+          return;
+        }
+
+        // Se il cursore è all'inizio del testo di questo elemento
+        if (isAtStart) {
+          e.preventDefault();
+          const prev = checklistItem.previousElementSibling;
+          if (prev && prev.classList.contains('note-checklist-item')) {
+            const prevTextEl = prev.querySelector('.checklist-text');
+            if (prevTextEl) {
+              const prevLen = (prevTextEl.textContent || '').length;
+              prevTextEl.textContent = (prevTextEl.textContent || '') + fullText;
+              checklistItem.remove();
+              if (prevTextEl.firstChild) {
+                const newRange = document.createRange();
+                newRange.setStart(prevTextEl.firstChild, Math.min(prevLen, prevTextEl.firstChild.textContent.length));
+                newRange.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(newRange);
+              } else {
+                placeCaretAt(prevTextEl, true);
+              }
+            }
+          } else {
+            // Nessun elemento checklist precedente: converti questo in paragrafo normale
+            const p = document.createElement('p');
+            p.textContent = fullText;
+            if (checklistItem.parentNode) {
+              checklistItem.parentNode.replaceChild(p, checklistItem);
+            }
+            placeCaretAt(p.firstChild || p, false);
+          }
+          handleEditorInput();
+          return;
+        }
+      }
+
+      // --- DELETE / CANC (Eliminazione in avanti) ---
+      if (e.key === 'Delete' && range.collapsed) {
+        const postRange = document.createRange();
+        postRange.selectNodeContents(textEl);
+        postRange.setStart(range.endContainer, range.endOffset);
+        const isAtEnd = postRange.toString().length === 0;
+
+        if (isAtEnd) {
+          const next = checklistItem.nextElementSibling;
+          if (next && next.classList.contains('note-checklist-item')) {
+            e.preventDefault();
+            const nextTextEl = next.querySelector('.checklist-text');
+            const nextText = (nextTextEl?.textContent || '').replace(/\u200B/g, '');
+            if (nextText.trim() === '') {
+              next.remove();
+            } else {
+              textEl.textContent = fullText + nextText;
+              next.remove();
+              if (textEl.firstChild) {
+                const newRange = document.createRange();
+                newRange.setStart(textEl.firstChild, fullText.length);
+                newRange.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(newRange);
+              }
+            }
+            handleEditorInput();
+            return;
+          }
+        }
+      }
+    }
+
+    // --- SHORTCUT MARKDOWN: digitando "[]" o "[ ]" o "- [ ]" seguito da spazio ---
+    if (e.key === ' ' && !checklistItem) {
+      let n = sel.anchorNode;
+      if (n && n.nodeType === Node.TEXT_NODE) {
+        const text = n.textContent;
+        const offset = sel.anchorOffset;
+        const textBefore = text.slice(0, offset);
+        if (textBefore === '[]' || textBefore === '[ ]' || textBefore === '- [ ]' || textBefore === '- []') {
+          e.preventDefault();
+          const block = n.parentElement?.closest('p, div, h1, h2, h3, li');
+          if (block && editorRef.current?.contains(block)) {
+            const rest = text.slice(offset);
+            const newItem = createChecklistElement(rest);
+            block.parentNode.replaceChild(newItem, block);
+            const newSpan = newItem.querySelector('.checklist-text');
+            placeCaretAt(newSpan, false);
+            handleEditorInput();
+            return;
+          }
+        }
+      }
     }
   }
 
@@ -487,38 +802,55 @@ export default function NotesPage() {
     }
   }
 
-  function getSelectionClosest(selector) {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return null;
-    let node = sel.anchorNode;
-    if (!node) return null;
-    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-    return (node && node.closest) ? node.closest(selector) : null;
-  }
-
-  function selectionIsInside(selector) {
-    return !!getSelectionClosest(selector);
-  }
-
-  function unwrapChecklistItem(item) {
-    const textEl = item.querySelector('.checklist-text');
-    const text = textEl ? textEl.textContent : item.textContent;
-    const p = document.createElement('p');
-    p.textContent = text;
-    if (item.parentNode) item.parentNode.replaceChild(p, item);
-  }
-
   function applyFormatting(formatType) {
     if (!editorRef.current) return;
-    editorRef.current.focus();
+    if (!editorRef.current.contains(document.activeElement)) {
+      editorRef.current.focus();
+    }
 
     switch (formatType) {
-      case 'h1':
+      case 'h1': {
+        const selectedChecklist = getSelectedChecklistItems();
+        if (selectedChecklist.length > 0) {
+          let lastH = null;
+          selectedChecklist.forEach(item => {
+            const text = item.querySelector('.checklist-text')?.textContent || item.textContent;
+            const h = document.createElement('h1');
+            h.className = 'note-h1';
+            h.textContent = text.trim() || '';
+            if (!text.trim()) h.innerHTML = '<br>';
+            if (item.parentNode) {
+              item.parentNode.replaceChild(h, item);
+              lastH = h;
+            }
+          });
+          if (lastH) placeCaretAt(lastH, true);
+          break;
+        }
         document.execCommand('formatBlock', false, getCurrentBlock() === 'h1' ? '<p>' : '<h1>');
         break;
-      case 'h2':
+      }
+      case 'h2': {
+        const selectedChecklist = getSelectedChecklistItems();
+        if (selectedChecklist.length > 0) {
+          let lastH = null;
+          selectedChecklist.forEach(item => {
+            const text = item.querySelector('.checklist-text')?.textContent || item.textContent;
+            const h = document.createElement('h2');
+            h.className = 'note-h2';
+            h.textContent = text.trim() || '';
+            if (!text.trim()) h.innerHTML = '<br>';
+            if (item.parentNode) {
+              item.parentNode.replaceChild(h, item);
+              lastH = h;
+            }
+          });
+          if (lastH) placeCaretAt(lastH, true);
+          break;
+        }
         document.execCommand('formatBlock', false, getCurrentBlock() === 'h2' ? '<p>' : '<h2>');
         break;
+      }
       case 'bold':
         document.execCommand('bold', false, null);
         break;
@@ -529,22 +861,78 @@ export default function NotesPage() {
         document.execCommand('insertUnorderedList', false, null);
         break;
       case 'todo': {
-        // Se la selezione è già una check-list, la rimuove (toggle off) anziché annidarla
-        const existing = getSelectionClosest('.note-checklist-item');
-        if (existing) {
-          unwrapChecklistItem(existing);
+        // Se la selezione interseca una o più check-list, le rimuove tutte (toggle off a paragrafo normale)
+        const selectedItems = getSelectedChecklistItems();
+        if (selectedItems.length > 0) {
+          let lastP = null;
+          selectedItems.forEach(item => {
+            const textEl = item.querySelector('.checklist-text');
+            const text = textEl ? textEl.textContent : item.textContent;
+            const p = document.createElement('p');
+            if (text && text.trim()) {
+              p.textContent = text;
+            } else {
+              p.innerHTML = '<br>';
+            }
+            if (item.parentNode) {
+              item.parentNode.replaceChild(p, item);
+              lastP = p;
+            }
+          });
+          if (lastP) {
+            placeCaretAt(lastP, true);
+          }
           break;
         }
+
+        // Altrimenti trasforma i blocchi/paragrafi selezionati in checklist
         const sel = window.getSelection();
-        const text = sel && sel.toString().trim() ? sel.toString() : 'Attività da fare';
-        document.execCommand('insertHTML', false, `<div class="note-checklist-item" contenteditable="false"><input type="checkbox" class="note-checkbox" /> <span contenteditable="true" class="checklist-text">${escapeHtmlText(text)}</span></div><p><br></p>`);
+        let blocks = [];
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          const allBlocks = Array.from(editorRef.current.querySelectorAll('p, h1, h2, h3, blockquote'));
+          blocks = allBlocks.filter(b => {
+            if (b.contains(range.startContainer) || b.contains(range.endContainer)) return true;
+            try { return range.intersectsNode(b); } catch { return false; }
+          });
+          if (blocks.length === 0 && range.startContainer) {
+            let n = range.startContainer;
+            if (n.nodeType === Node.TEXT_NODE) n = n.parentElement;
+            const singleBlock = n ? n.closest('p, h1, h2, h3, blockquote') : null;
+            if (singleBlock && editorRef.current.contains(singleBlock)) {
+              blocks = [singleBlock];
+            }
+          }
+        }
+
+        if (blocks.length > 0) {
+          let lastItem = null;
+          blocks.forEach(block => {
+            const text = block.textContent.trim();
+            const newItem = createChecklistElement(text);
+            block.parentNode.replaceChild(newItem, block);
+            lastItem = newItem;
+          });
+          if (lastItem) {
+            const span = lastItem.querySelector('.checklist-text');
+            placeCaretAt(span, true);
+          }
+        } else {
+          const text = sel && sel.toString().trim() ? sel.toString() : '';
+          const newItem = createChecklistElement(text);
+          document.execCommand('insertHTML', false, newItem.outerHTML);
+          const inserted = editorRef.current.querySelector('.note-checklist-item:last-of-type') || getSelectionClosest('.note-checklist-item');
+          if (inserted) {
+            const s = inserted.querySelector('.checklist-text');
+            placeCaretAt(s, false);
+          }
+        }
         break;
       }
       case 'quote':
         document.execCommand('formatBlock', false, getCurrentBlock() === 'blockquote' ? '<p>' : 'blockquote');
         break;
       case 'code':
-        // Non applicare se la selezione è già dentro un blocco codice (evita annidamenti)
         if (selectionIsInside('.note-code-block')) return;
         {
           const sel = window.getSelection();
@@ -553,9 +941,28 @@ export default function NotesPage() {
         }
         break;
       case 'normal': {
-        // Se siamo dentro una checklist, la rimuoviamo
-        const checklistItem = getSelectionClosest('.note-checklist-item');
-        if (checklistItem) unwrapChecklistItem(checklistItem);
+        // Se la selezione interseca una o più checklist, le rimuove tutte convertendole in <p>
+        const selectedChecklist = getSelectedChecklistItems();
+        if (selectedChecklist.length > 0) {
+          let lastP = null;
+          selectedChecklist.forEach(item => {
+            const textEl = item.querySelector('.checklist-text');
+            const text = textEl ? textEl.textContent : item.textContent;
+            const p = document.createElement('p');
+            if (text && text.trim()) {
+              p.textContent = text;
+            } else {
+              p.innerHTML = '<br>';
+            }
+            if (item.parentNode) {
+              item.parentNode.replaceChild(p, item);
+              lastP = p;
+            }
+          });
+          if (lastP) {
+            placeCaretAt(lastP, true);
+          }
+        }
 
         // Se siamo dentro un blocco di codice, lo rimuoviamo
         const codeBlock = getSelectionClosest('.note-code-block');
@@ -563,11 +970,10 @@ export default function NotesPage() {
           const p = document.createElement('p');
           p.textContent = codeBlock.textContent;
           if (codeBlock.parentNode) codeBlock.parentNode.replaceChild(p, codeBlock);
+          placeCaretAt(p, true);
         }
 
-        // Se l'utente non ha selezionato testo ma è solo in un paragrafo, 
-        // rimuovere il grassetto/corsivo potrebbe richiedere di selezionare tutto il nodo.
-        // Eseguiamo il reset standard fornito dal browser:
+        // Reset standard formattazione
         document.execCommand('formatBlock', false, '<p>');
         document.execCommand('removeFormat', false, null);
         if (document.queryCommandState('insertUnorderedList')) document.execCommand('insertUnorderedList');

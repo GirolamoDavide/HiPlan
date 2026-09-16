@@ -554,9 +554,19 @@
   font-size: 0.75rem;
   font-weight: 800;
 }
-.note-checklist-item input[type="checkbox"]:checked + .checklist-text {
+.note-checklist-item input[type="checkbox"]:checked ~ .checklist-text {
   text-decoration: line-through;
   color: var(--text-muted);
+}
+
+.checklist-text {
+  flex: 1;
+  min-height: 24px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  outline: none;
+  cursor: text;
+  word-break: break-word;
 }
 
 /* Stato vuoto quando nessuna nota è selezionata */
