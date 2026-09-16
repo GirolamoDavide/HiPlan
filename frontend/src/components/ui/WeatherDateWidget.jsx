@@ -17,7 +17,10 @@ import {
   RefreshCw,
   Calendar,
   Compass,
-  Check
+  Check,
+  Clock,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import './WeatherDateWidget.css';
 
@@ -110,7 +113,7 @@ export function useWeather() {
     setWeatherError(null);
 
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${targetCity.latitude}&longitude=${targetCity.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&timezone=auto`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${targetCity.latitude}&longitude=${targetCity.longitude}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m&hourly=temperature_2m,apparent_temperature,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&timezone=auto`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Errore HTTP ${res.status}`);
       const data = await res.json();
@@ -228,6 +231,8 @@ export function useWeather() {
     };
   }, [weatherData]);
 
+  const [selectedForecastDay, setSelectedForecastDay] = useState(null);
+
   // Previsioni 7 giorni
   const dailyForecast = useMemo(() => {
     if (!weatherData?.daily?.time) return [];
@@ -253,6 +258,79 @@ export function useWeather() {
     });
   }, [weatherData]);
 
+  // Previsioni orarie
+  const hourlyForecast = useMemo(() => {
+    if (!weatherData?.hourly?.time) return [];
+    const { time, temperature_2m, weather_code, precipitation_probability, wind_speed_10m } = weatherData.hourly;
+
+    const todayDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const currentHourStr = `${String(now.getHours()).padStart(2, '0')}:00`;
+    const nowIsoPrefix = `${todayDateStr}T${currentHourStr}`;
+
+    // Se l'utente ha cliccato su un giorno specifico dai 7 giorni
+    if (selectedForecastDay) {
+      const dayHours = [];
+      for (let i = 0; i < time.length; i++) {
+        const t = time[i];
+        if (t.startsWith(selectedForecastDay)) {
+          const hourStr = t.split('T')[1] || '';
+          const info = getWeatherInfo(weather_code ? weather_code[i] : 0);
+          dayHours.push({
+            timeStr: t,
+            hourLabel: hourStr,
+            dayShort: null,
+            temp: Math.round(temperature_2m[i]),
+            precipProb: precipitation_probability ? (precipitation_probability[i] || 0) : 0,
+            wind: wind_speed_10m ? Math.round(wind_speed_10m[i] || 0) : 0,
+            isNow: t.startsWith(nowIsoPrefix),
+            ...info
+          });
+        }
+      }
+      return dayHours;
+    }
+
+    // Default: Prossime 24 ore a partire dall'ora attuale
+    let startIdx = time.findIndex(t => t >= nowIsoPrefix);
+    if (startIdx === -1) {
+      startIdx = Math.max(0, time.length - 24);
+    }
+
+    const nextHours = [];
+    const endIdx = Math.min(time.length, startIdx + 24);
+    for (let i = startIdx; i < endIdx; i++) {
+      const t = time[i];
+      const datePart = t.split('T')[0];
+      const hourStr = t.split('T')[1] || '';
+      const isNow = (i === startIdx);
+      const isTomorrow = datePart !== todayDateStr;
+
+      let dayShort = null;
+      if (isTomorrow) {
+        try {
+          const d = new Date(datePart + 'T00:00:00');
+          dayShort = d.toLocaleDateString('it-IT', { weekday: 'short' });
+        } catch {
+          dayShort = 'Dom';
+        }
+      }
+
+      const info = getWeatherInfo(weather_code ? weather_code[i] : 0);
+      nextHours.push({
+        timeStr: t,
+        hourLabel: isNow ? 'Adesso' : hourStr,
+        fullHour: hourStr,
+        dayShort,
+        temp: Math.round(temperature_2m[i]),
+        precipProb: precipitation_probability ? (precipitation_probability[i] || 0) : 0,
+        wind: wind_speed_10m ? Math.round(wind_speed_10m[i] || 0) : 0,
+        isNow,
+        ...info
+      });
+    }
+    return nextHours;
+  }, [weatherData, selectedForecastDay, now]);
+
   return {
     now,
     city,
@@ -276,6 +354,9 @@ export function useWeather() {
     timeLabel,
     currentInfo,
     dailyForecast,
+    hourlyForecast,
+    selectedForecastDay,
+    setSelectedForecastDay,
   };
 }
 
@@ -288,6 +369,9 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
     weatherError,
     currentInfo,
     dailyForecast,
+    hourlyForecast,
+    selectedForecastDay,
+    setSelectedForecastDay,
     searchQuery,
     setSearchQuery,
     searchResults,
@@ -298,6 +382,15 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
     handleSelectCity,
     handleDetectLocation,
   } = weatherState;
+
+  const hourlyScrollRef = useRef(null);
+
+  const scrollHourly = (direction) => {
+    if (hourlyScrollRef.current) {
+      const scrollAmount = direction === 'left' ? -380 : 380;
+      hourlyScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
 
   const CurrentIcon = currentInfo ? currentInfo.icon : CloudSun;
 
@@ -344,7 +437,7 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
           </div>
         </div>
 
-        {/* Barra ricerca / cambio città */}
+        {/* Barra ricerca / cambio città con quick chips in linea */}
         <div className="weather-search-bar">
           <div className="weather-search-input-wrapper">
             <Search size={14} className="weather-search-icon" />
@@ -365,6 +458,29 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
                 <X size={12} />
               </button>
             )}
+
+            {/* Dropdown risultati ricerca */}
+            {showSearchDropdown && searchResults.length > 0 && (
+              <div className="weather-search-dropdown">
+                {searchResults.map((r) => (
+                  <div
+                    key={r.id}
+                    className="weather-search-item"
+                    onClick={() => handleSelectCity({
+                      name: r.name,
+                      country: r.country,
+                      admin1: r.admin1,
+                      latitude: r.latitude,
+                      longitude: r.longitude
+                    })}
+                  >
+                    <MapPin size={13} />
+                    <strong>{r.name}</strong>
+                    <span>{r.admin1 ? `${r.admin1}, ` : ''}{r.country}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Quick Picks città famose */}
@@ -381,105 +497,185 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
               </button>
             ))}
           </div>
+        </div>
 
-          {/* Dropdown risultati ricerca */}
-          {showSearchDropdown && searchResults.length > 0 && (
-            <div className="weather-search-dropdown">
-              {searchResults.map((r) => (
-                <div
-                  key={r.id}
-                  className="weather-search-item"
-                  onClick={() => handleSelectCity({
-                    name: r.name,
-                    country: r.country,
-                    admin1: r.admin1,
-                    latitude: r.latitude,
-                    longitude: r.longitude
-                  })}
-                >
-                  <MapPin size={13} />
-                  <strong>{r.name}</strong>
-                  <span>{r.admin1 ? `${r.admin1}, ` : ''}{r.country}</span>
+        {/* Griglia Superiore: Meteo Attuale + Previsioni Orarie affiancate */}
+        <div className="weather-modal-top-grid">
+          {/* Colonna Sinistra: Hero Card Condizioni Attuali */}
+          {currentInfo ? (
+            <div className={`weather-hero-card weather-theme-${currentInfo.type}`}>
+              <div className="weather-hero-badge-tag">Meteo Attuale</div>
+              <div className="weather-hero-main">
+                <div className="weather-hero-icon-wrap">
+                  <CurrentIcon size={52} className="weather-hero-icon" />
                 </div>
-              ))}
+                <div className="weather-hero-temp-block">
+                  <div className="weather-hero-temp">
+                    {currentInfo.temp}<span>°C</span>
+                  </div>
+                  <div className="weather-hero-condition">
+                    {currentInfo.label}
+                  </div>
+                  <div className="weather-hero-perceived">
+                    Percepita: {currentInfo.apparent}°C
+                  </div>
+                </div>
+              </div>
+
+              <div className="weather-hero-stats">
+                <div className="weather-stat-item">
+                  <div className="weather-stat-icon"><Thermometer size={15} /></div>
+                  <div className="weather-stat-info">
+                    <span>Min / Max</span>
+                    <strong>{dailyForecast[0]?.minTemp ?? '-'}° / {dailyForecast[0]?.maxTemp ?? '-'}°</strong>
+                  </div>
+                </div>
+
+                <div className="weather-stat-item">
+                  <div className="weather-stat-icon"><Droplets size={15} /></div>
+                  <div className="weather-stat-info">
+                    <span>Umidità</span>
+                    <strong>{currentInfo.humidity}%</strong>
+                  </div>
+                </div>
+
+                <div className="weather-stat-item">
+                  <div className="weather-stat-icon"><Wind size={15} /></div>
+                  <div className="weather-stat-info">
+                    <span>Vento</span>
+                    <strong>{currentInfo.wind} km/h</strong>
+                  </div>
+                </div>
+
+                <div className="weather-stat-item">
+                  <div className="weather-stat-icon"><CloudRain size={15} /></div>
+                  <div className="weather-stat-info">
+                    <span>Pioggia oggi</span>
+                    <strong>{dailyForecast[0]?.precipProb ?? 0}%</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : loadingWeather ? (
+            <div className="weather-hero-loading">
+              <RefreshCw size={24} className="spin" />
+              <span>Caricamento meteo...</span>
+            </div>
+          ) : weatherError ? (
+            <div className="weather-hero-error">
+              <p>{weatherError}</p>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => fetchWeather(city)}>
+                Riprova
+              </button>
+            </div>
+          ) : null}
+
+          {/* Colonna Destra: Previsioni Orarie */}
+          {hourlyForecast && hourlyForecast.length > 0 && (
+            <div className="weather-hourly-panel">
+              <div className="weather-hourly-header">
+                <div className="weather-hourly-title">
+                  <Clock size={16} className="weather-section-icon" />
+                  <span>
+                    {selectedForecastDay ? (
+                      <>
+                        Ore di <strong style={{ color: 'var(--text-primary)', textTransform: 'capitalize' }}>{new Date(selectedForecastDay + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })}</strong>
+                      </>
+                    ) : (
+                      'Previsioni Orarie (Prossime 24 Ore)'
+                    )}
+                  </span>
+                </div>
+
+                <div className="weather-hourly-actions">
+                  {selectedForecastDay && (
+                    <button
+                      type="button"
+                      className="weather-header-btn"
+                      onClick={() => setSelectedForecastDay(null)}
+                      title="Torna alle prossime 24 ore live"
+                    >
+                      <span>24h live</span>
+                    </button>
+                  )}
+                  <div className="weather-scroll-controls">
+                    <button
+                      type="button"
+                      className="weather-scroll-btn"
+                      onClick={() => scrollHourly('left')}
+                      title="Scorri ore precedenti"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="weather-scroll-btn"
+                      onClick={() => scrollHourly('right')}
+                      title="Scorri ore successive"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="weather-hourly-scroll" ref={hourlyScrollRef}>
+                {hourlyForecast.map((hour, idx) => {
+                  const HourIcon = hour.icon;
+                  return (
+                    <div
+                      key={hour.timeStr || idx}
+                      className={`weather-hour-card ${hour.isNow ? 'is-now' : ''}`}
+                    >
+                      <div className="weather-hour-time">
+                        {hour.hourLabel}
+                      </div>
+                      {hour.dayShort && (
+                        <span className="weather-hour-day">{hour.dayShort}</span>
+                      )}
+
+                      <div className="weather-hour-icon-wrap" title={hour.label}>
+                        <HourIcon size={24} className="weather-hour-icon" />
+                      </div>
+
+                      <div className="weather-hour-temp">
+                        {hour.temp}°
+                      </div>
+
+                      {hour.precipProb > 0 ? (
+                        <div className="weather-hour-rain" title="Probabilità di pioggia">
+                          <Droplets size={10} />
+                          <span>{hour.precipProb}%</span>
+                        </div>
+                      ) : (
+                        <div className="weather-hour-rain weather-hour-rain--dry" title="Asciutto">
+                          <span>0%</span>
+                        </div>
+                      )}
+
+                      {hour.wind > 0 && (
+                        <div className="weather-hour-wind" title={`Vento ${hour.wind} km/h`}>
+                          <Wind size={9} />
+                          <span>{hour.wind}k</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
-
-        {/* Condizioni Attuali Hero */}
-        {currentInfo ? (
-          <div className={`weather-hero-card weather-theme-${currentInfo.type}`}>
-            <div className="weather-hero-main">
-              <div className="weather-hero-icon-wrap">
-                <CurrentIcon size={58} className="weather-hero-icon" />
-              </div>
-              <div className="weather-hero-temp-block">
-                <div className="weather-hero-temp">
-                  {currentInfo.temp}<span>°C</span>
-                </div>
-                <div className="weather-hero-condition">
-                  {currentInfo.label}
-                </div>
-                <div className="weather-hero-perceived">
-                  Percepita: {currentInfo.apparent}°C
-                </div>
-              </div>
-            </div>
-
-            <div className="weather-hero-stats">
-              <div className="weather-stat-item">
-                <div className="weather-stat-icon"><Thermometer size={16} /></div>
-                <div className="weather-stat-info">
-                  <span>Min / Max</span>
-                  <strong>{dailyForecast[0]?.minTemp ?? '-'}° / {dailyForecast[0]?.maxTemp ?? '-'}°</strong>
-                </div>
-              </div>
-
-              <div className="weather-stat-item">
-                <div className="weather-stat-icon"><Droplets size={16} /></div>
-                <div className="weather-stat-info">
-                  <span>Umidità</span>
-                  <strong>{currentInfo.humidity}%</strong>
-                </div>
-              </div>
-
-              <div className="weather-stat-item">
-                <div className="weather-stat-icon"><Wind size={16} /></div>
-                <div className="weather-stat-info">
-                  <span>Vento</span>
-                  <strong>{currentInfo.wind} km/h</strong>
-                </div>
-              </div>
-
-              <div className="weather-stat-item">
-                <div className="weather-stat-icon"><CloudRain size={16} /></div>
-                <div className="weather-stat-info">
-                  <span>Pioggia oggi</span>
-                  <strong>{dailyForecast[0]?.precipProb ?? 0}%</strong>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : loadingWeather ? (
-          <div className="weather-hero-loading">
-            <RefreshCw size={24} className="spin" />
-            <span>Caricamento previsioni meteo...</span>
-          </div>
-        ) : weatherError ? (
-          <div className="weather-hero-error">
-            <p>{weatherError}</p>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => fetchWeather(city)}>
-              Riprova
-            </button>
-          </div>
-        ) : null}
 
         {/* Previsioni Settimanali (7 Giorni) */}
         <div className="weather-forecast-section">
           <div className="weather-forecast-header">
             <div className="weather-forecast-title">
-              <Calendar size={15} />
+              <Calendar size={15} className="weather-section-icon" />
               <span>Previsioni Prossimi 7 Giorni</span>
+              <span className="weather-forecast-hint">
+                (clicca per visualizzare le ore del giorno)
+              </span>
             </div>
             <span className="weather-source-badge">Dati meteo live Open-Meteo</span>
           </div>
@@ -487,8 +683,16 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
           <div className="weather-forecast-grid">
             {dailyForecast.map((day) => {
               const DayIcon = day.icon;
+              const isSelected = selectedForecastDay === day.dateStr;
               return (
-                <div key={day.dateStr} className={`weather-day-card ${day.isToday ? 'is-today' : ''}`}>
+                <div
+                  key={day.dateStr}
+                  className={`weather-day-card ${day.isToday ? 'is-today' : ''} ${isSelected ? 'is-selected' : ''}`}
+                  onClick={() => setSelectedForecastDay(isSelected ? null : day.dateStr)}
+                  role="button"
+                  tabIndex={0}
+                  title={`Clicca per visualizzare il dettaglio orario di ${day.dayName} ${day.dayFormatted}`}
+                >
                   <div className="weather-day-header">
                     <strong>{day.dayName}</strong>
                     <span>{day.dayFormatted}</span>
