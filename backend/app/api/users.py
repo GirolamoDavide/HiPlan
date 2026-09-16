@@ -218,6 +218,45 @@ async def get_my_tasks_today(
             
     return my_tasks
 
+
+@router.get("/me/unlogged-hours")
+async def get_my_unlogged_hours(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Calcola le ore non consuntivate per l'utente loggato.
+    Verifica le giornate lavorative trascorse delle fasi assegnate in cui
+    l'addetto non ha inserito ore (e non era in ferie).
+    """
+    from app.services.replanning_service import get_zero_hours_alerts
+    alerts = await get_zero_hours_alerts(db, current_user)
+    
+    user_names = {current_user.username.strip().lower()}
+    if current_user.full_name:
+        user_names.add(current_user.full_name.strip().lower())
+    user_id_str = str(current_user.id)
+
+    users_res = await db.execute(select(User))
+    all_users = users_res.scalars().all()
+    fullname_to_id = {u.full_name: str(u.id) for u in all_users if u.full_name}
+    username_to_id = {u.username: str(u.id) for u in all_users if u.username}
+
+    my_alerts = []
+    for a in alerts:
+        w = (a.get("worker") or "").strip()
+        uid = fullname_to_id.get(w) or username_to_id.get(w)
+        if uid == user_id_str or w.lower() in user_names or w.lower().startswith(current_user.username.lower()):
+            my_alerts.append(a)
+
+    total_hours = sum(float(a.get("planned_daily_hours") or 0) for a in my_alerts)
+    return {
+        "unlogged_hours": round(total_hours, 1),
+        "count": len(my_alerts),
+        "alerts": my_alerts
+    }
+
+
 @router.get("/conflicts")
 async def get_worker_conflicts(
     db: AsyncSession = Depends(get_db),

@@ -333,6 +333,80 @@
   text-overflow: ellipsis;
 }
 
+/* ── Reminder ore non consuntivate affiancato al valore ── */
+.stat-value-row {
+  order: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.stat-value-row .stat-value {
+  order: unset;
+  margin: 0;
+}
+
+.stat-unlogged-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.stat-unlogged-chip:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #ef4444;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15);
+}
+
+.stat-unlogged-chip .unlogged-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+  display: inline-block;
+  flex-shrink: 0;
+  animation: pulse-dot 2s infinite ease-in-out;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.stat-unlogged-chip strong {
+  font-weight: 800;
+  color: #ef4444;
+}
+
+.stat-unlogged-chip .unlogged-chip-arrow {
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #ef4444;
+  transition: transform var(--transition-fast);
+  margin-left: -2px;
+}
+
+.stat-unlogged-chip:hover .unlogged-chip-arrow {
+  transform: translateX(2px);
+}
+
 
 
 .dashboard-section {

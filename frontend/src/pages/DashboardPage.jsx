@@ -39,6 +39,8 @@ export default function DashboardPage() {
   );
   const [globalBanners, setGlobalBanners] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [unloggedHoursData, setUnloggedHoursData] = useState({ unlogged_hours: 0, count: 0, alerts: [] });
+  const [showUnloggedModal, setShowUnloggedModal] = useState(false);
 
   const MONTH_NAMES_IT = [
     'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
@@ -71,11 +73,29 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadData();
+
+    const handleFocus = () => {
+      loadData();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadData();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   async function loadData() {
     try {
-      const [projRes, todosRes, tasksRes, vacRes, recoveryRes, bannerRes, ticketsRes, rcRes, notesRes] = await Promise.all([
+      const [projRes, todosRes, tasksRes, vacRes, recoveryRes, bannerRes, ticketsRes, rcRes, notesRes, unloggedRes] = await Promise.all([
         api.get('/projects'),
         api.get('/todos'),
         api.get('/users/me/tasks/today'),
@@ -85,11 +105,13 @@ export default function DashboardPage() {
         api.get('/tickets').catch(() => ({ data: [] })),
         listRichieste().catch(() => []),
         api.get('/notes').catch(() => ({ data: [] })),
+        api.get('/users/me/unlogged-hours').catch(() => ({ data: { unlogged_hours: 0, count: 0, alerts: [] } })),
       ]);
       setProjects(projRes.data || []);
       if (Array.isArray(bannerRes.data)) {
         setGlobalBanners(bannerRes.data);
       }
+      setUnloggedHoursData(unloggedRes?.data || { unlogged_hours: 0, count: 0, alerts: [] });
       const todosData = todosRes.data || [];
       const openAssigned = todosData.filter(t => !t.is_completed && t.assignees?.includes(user?.id));
       setAssignedTodos(openAssigned);
@@ -363,8 +385,23 @@ export default function DashboardPage() {
       };
     }
 
-    return { box3, box4 };
-  }, [user, tickets, richiesteCommerciali, myTasksToday, assignedTodos, stats, avgProgress, vacations, navigate]);
+    let finalBox4 = box4;
+    const unloggedHours = unloggedHoursData?.unlogged_hours || 0;
+    const unloggedAlerts = unloggedHoursData?.alerts || [];
+    if (unloggedHours > 0) {
+      finalBox4 = {
+        label: 'Ore da consuntivare',
+        value: `${unloggedHours}h`,
+        subtitle: `${unloggedAlerts.length} ${unloggedAlerts.length === 1 ? 'giornata / fase da registrare' : 'giornate / fasi da registrare'}`,
+        detail: 'Clicca per visualizzare le ore mancanti per giorno e fase ↗',
+        icon: 'clock',
+        themeClass: 'stat-custom-rose',
+        onClick: () => setShowUnloggedModal(true),
+      };
+    }
+
+    return { box3, box4: finalBox4 };
+  }, [user, tickets, richiesteCommerciali, myTasksToday, assignedTodos, stats, avgProgress, vacations, navigate, unloggedHoursData]);
 
   // Default dei tab per i due pannelli inferiori in base a mansione e reparto
   const defaultLeftTab = useMemo(() => {
@@ -385,6 +422,7 @@ export default function DashboardPage() {
   const activeRightTab = panel2Tab || defaultRightTab;
 
   const WeatherIcon = currentInfo ? currentInfo.icon : Sun;
+  const unloggedHours = unloggedHoursData?.unlogged_hours || 0;
 
   if (loading) {
     return <div className="loading-screen"><div className="spinner" /></div>;
@@ -1041,6 +1079,159 @@ export default function DashboardPage() {
         onClose={() => setIsModalOpen(false)}
         weatherState={weatherState}
       />
+
+      {/* Modal Popup Dettaglio Ore Non Consuntivate */}
+      {showUnloggedModal && (
+        <div className="modal-overlay animate-fadeIn" onClick={() => setShowUnloggedModal(false)}>
+          <div
+            className="modal"
+            style={{ maxWidth: 1040, width: '94%', padding: '28px 32px', maxHeight: '88vh' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div
+                  style={{
+                    width: 46,
+                    height: 46,
+                    fontSize: '1rem',
+                    background: 'linear-gradient(135deg, #f43f5e, #e11d48)',
+                    color: '#fff',
+                    borderRadius: 14,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 14px rgba(244, 63, 94, 0.28)'
+                  }}
+                >
+                  <AppIcon name="clock" size={24} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 750, color: 'var(--text-primary)' }}>
+                    Ore non consuntivate
+                  </h3>
+                  <p style={{ margin: '3px 0 0', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    Mancano all'appello <strong>{unloggedHoursData?.unlogged_hours || 0}h</strong> complessive suddivise su {unloggedHoursData?.alerts?.length || 0} {(unloggedHoursData?.alerts?.length || 0) === 1 ? 'giornata di lavoro' : 'giornate di lavoro'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowUnloggedModal(false)}
+                style={{ padding: '6px 12px', borderRadius: 8, fontSize: '0.9rem' }}
+                title="Chiudi"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginTop: 20 }}>
+              {(unloggedHoursData?.alerts || []).length === 0 ? (
+                <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  <div style={{ fontSize: '2.2rem', marginBottom: 10 }}>✅</div>
+                  <div style={{ fontWeight: 650, fontSize: '1.1rem', color: 'var(--text-primary)' }}>Tutte le ore risultano consuntivate!</div>
+                  <div style={{ fontSize: '0.85rem', marginTop: 6, color: 'var(--text-secondary)' }}>Non ci sono giornate con mancata consuntivazione sulle tue fasi attive.</div>
+                </div>
+              ) : (
+                <div className="table-wrapper" style={{ maxHeight: 460, overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: 10 }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 120 }}>Giorno</th>
+                        <th style={{ minWidth: 240 }}>Fase</th>
+                        <th style={{ minWidth: 280 }}>Commessa</th>
+                        <th style={{ textAlign: 'center', width: 100 }}>Ore previste</th>
+                        <th style={{ textAlign: 'right', width: 150 }}>Azione</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(unloggedHoursData?.alerts || []).map((alert) => (
+                        <tr key={alert.id}>
+                          <td>
+                            <div style={{ fontWeight: 650, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                              {alert.formatted_date || alert.date}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                              {alert.task_name}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {alert.project_code && (
+                                <span className="badge" style={{ alignSelf: 'flex-start', fontSize: '0.7rem', padding: '1px 6px', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+                                  {alert.project_code}
+                                </span>
+                              )}
+                              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                {alert.project_name}
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span
+                              className="badge"
+                              style={{
+                                backgroundColor: 'rgba(244, 63, 94, 0.12)',
+                                color: '#f43f5e',
+                                fontWeight: 750,
+                                fontSize: '0.82rem',
+                                padding: '4px 10px',
+                                borderRadius: 999
+                              }}
+                            >
+                              {alert.planned_daily_hours ? `${alert.planned_daily_hours}h` : '-'}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              className="btn btn-sm btn-secondary"
+                              onClick={() => {
+                                setShowUnloggedModal(false);
+                                navigate(`/projects/${alert.project_id}`);
+                              }}
+                              title="Vai al Gantt della commessa"
+                              style={{ fontSize: '0.8125rem', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                            >
+                              <span>Vai alla commessa</span>
+                              <AppIcon name="chevronRight" size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, paddingTop: 18, borderTop: '1px solid var(--border-subtle)', flexWrap: 'wrap', gap: 12 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setShowUnloggedModal(false);
+                  navigate('/personal-calendar');
+                }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontSize: '0.875rem' }}
+              >
+                <AppIcon name="calendar" size={16} />
+                <span>Apri calendario personale per consuntivare</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowUnloggedModal(false)}
+                style={{ padding: '8px 16px', fontSize: '0.875rem' }}
+              >
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

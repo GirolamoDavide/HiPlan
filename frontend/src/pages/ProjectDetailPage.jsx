@@ -657,11 +657,11 @@ export default function ProjectDetailPage() {
     if (!isCompleted && (!task.workers || task.workers.length === 0) && task.type !== 'milestone') {
       return 'orfana';
     }
-    if (plannedH > 0 && totEff === plannedH) {
+    if (isCompleted || (plannedH > 0 && totEff >= plannedH)) {
       return 'ok';
     }
     if (!task.start_date) return 'ok';
-    if (isCompleted) return 'ok';
+
     const startStr = formatDateOnly(task.start_date);
     const endStr = task.end_date ? formatDateOnly(task.end_date) : startStr;
     if (!startStr) return 'ok';
@@ -671,6 +671,9 @@ export default function ProjectDetailPage() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Se non ancora iniziata
+    if (today < start) return 'ok';
+
     let workDays = 0;
     let cur = new Date(start);
     while (cur <= end) {
@@ -679,43 +682,48 @@ export default function ProjectDetailPage() {
       cur.setDate(cur.getDate() + 1);
     }
     if (workDays <= 0) workDays = 1;
-    const oreGg = (Number(task.planned_hours) || 8.0) / workDays;
+    const oreGg = plannedH / workDays;
 
-    let hasRitardo = false;
-    let hasAttenzione = false;
-    let hasZeroHours = false;
+    // Se la fase è scaduta (today > end)
+    if (today > end) {
+      if (totEff === 0) return 'mancata_consuntivazione';
+      if (totEff < plannedH * 0.5) return 'ritardo';
+      if (totEff < plannedH) return 'attenzione';
+      return 'ok';
+    }
 
+    // Giorni lavorativi trascorsi prima di oggi
+    let workDaysPast = 0;
     cur = new Date(start);
-    while (cur <= end && cur <= today) {
+    while (cur < today) {
       const dayOfWeek = cur.getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-        const y = cur.getFullYear();
-        const m = String(cur.getMonth() + 1).padStart(2, '0');
-        const d = String(cur.getDate()).padStart(2, '0');
-        const dateStr = `${y}-${m}-${d}`;
-
-        let totDayEff = 0;
-        if (task.actual_hours && typeof task.actual_hours === 'object') {
-          Object.values(task.actual_hours).forEach(dayMap => {
-            if (dayMap && dayMap[dateStr]) totDayEff += Number(dayMap[dateStr]) || 0;
-          });
-        }
-
-        if (totDayEff > 0 && totDayEff < oreGg * 0.5) {
-          hasRitardo = true;
-        } else if (totDayEff > 0 && totDayEff < oreGg) {
-          hasAttenzione = true;
-        } else if (totDayEff === 0 && oreGg > 0) {
-          hasZeroHours = true;
-        }
-      }
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) workDaysPast++;
       cur.setDate(cur.getDate() + 1);
     }
 
-    if (hasRitardo) return 'ritardo';
-    if (hasAttenzione) return 'attenzione';
-    if (hasZeroHours) return 'mancata_consuntivazione';
-    return 'ok';
+    // Se siamo al primo giorno lavorativo della fase (nessun giorno passato concluso)
+    if (workDaysPast === 0) {
+      return 'ok';
+    }
+
+    const expectedPast = oreGg * workDaysPast;
+
+    // Se le ore complessivamente consuntivate coprono o superano quanto atteso finora
+    if (totEff >= expectedPast) {
+      return 'ok';
+    }
+
+    // Se non è stata consuntivata alcuna ora
+    if (totEff === 0) {
+      return 'mancata_consuntivazione';
+    }
+
+    // Se le ore consuntivate sono inferiori al 50% di quelle attese finora
+    if (totEff < expectedPast * 0.5) {
+      return 'ritardo';
+    }
+
+    return 'attenzione';
   }
 
   // Helper giorni lavorativi tra due date per tabella ore

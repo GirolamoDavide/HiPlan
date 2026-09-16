@@ -236,86 +236,26 @@ async def get_replanning_suggestions(db: AsyncSession, current_user=None):
                 "date": str(task.end_date),
                 "reason": f"La fase ha superato le ore previste ({round(tot_eff, 1)}h consuntivate su {planned_h}h previste)."
             })
-        else:
-            # 2. Ritardo Giornaliero
-            working_days = get_working_days_count(task.start_date, task.end_date)
-            ore_gg = planned_h / working_days
-            
-            cur_d = task.start_date
-            has_critical_delay = False
-            has_warning_delay = False
-            first_delayed_date = None
-            
-            while cur_d <= task.end_date and cur_d <= today:
-                if not is_weekend_or_holiday(cur_d):
-                    date_str = cur_d.strftime("%Y-%m-%d")
-                    tot_day_eff = 0
-                    for day_map in actual_h_map.values():
-                        if isinstance(day_map, dict) and date_str in day_map:
-                            try:
-                                tot_day_eff += float(day_map[date_str])
-                            except:
-                                pass
-                                
-
-                    if tot_day_eff > 0 and tot_day_eff < (ore_gg * 0.5):
-                        has_critical_delay = True
-                        if not first_delayed_date:
-                            first_delayed_date = cur_d
-                        break
-                    elif tot_day_eff > 0 and tot_day_eff < ore_gg:
-                        has_warning_delay = True
-                        if not first_delayed_date:
-                            first_delayed_date = cur_d
-                cur_d += timedelta(days=1)
-                
-            if has_critical_delay or has_warning_delay:
-                tot_expected_so_far = 0
-                tot_actual_so_far = 0
-                c_d = task.start_date
-                while c_d <= today and c_d <= task.end_date:
-                    if not is_weekend_or_holiday(c_d):
-                        tot_expected_so_far += ore_gg
-                        date_str = c_d.strftime("%Y-%m-%d")
-                        for day_map in actual_h_map.values():
-                            if isinstance(day_map, dict) and date_str in day_map:
-                                try:
-                                    tot_actual_so_far += float(day_map[date_str])
-                                except:
-                                    pass
-                    c_d += timedelta(days=1)
-                lost_hours = tot_expected_so_far - tot_actual_so_far
-                days_to_add = math.ceil(lost_hours / ore_gg) if (ore_gg > 0 and lost_hours > 0) else 1
-                if days_to_add <= 0: days_to_add = 1
-
-                date_str_val = first_delayed_date.strftime('%Y%m%d') if first_delayed_date else 'unknown'
-                
-                if has_critical_delay:
-                    sugg_id = f"delay_{task.id}_{date_str_val}_critico"
-                    reason_msg = f"Ritardo critico: mancano all'appello circa {round(lost_hours, 1)}h rispetto al piano."
-                else:
-                    sugg_id = f"delay_{task.id}_{date_str_val}_attenzione"
-                    reason_msg = f"Attenzione: la consuntivazione è sotto le attese (mancano circa {round(lost_hours, 1)}h)."
-                    
-                suggestions.append({
-                    "id": sugg_id,
-                    "type": "delay_conflict",
-                    "task_id": str(task.id),
-                    "task_name": task.text,
-                    "project_id": str(task.project_id),
-                    "project_name": task.project.name if task.project else "-",
-                    "project_code": (task.project.code if task.project.code else "") if task.project else "",
-                    "project_color": task.project.color if getattr(task, 'project', None) and getattr(task.project, 'color', None) else None,
-                    "department": getattr(task, "department", None),
-                    "worker": None,
-                    "date": str(first_delayed_date),
-                    "reason": reason_msg
-                })
-            elif task.end_date < today:
-                # Fallback: scaduta e non in sforamento / ritardo critico specifico
+        elif (getattr(task, 'completed', 0) == 1) or (float(getattr(task, 'progress', 0) or 0) >= 1.0) or (planned_h > 0 and tot_eff >= planned_h):
+            # Fase completata o ore previste già interamente consuntivate -> nessun ritardo
+            pass
+        elif task.start_date > today:
+            # Fase futura non ancora iniziata -> nessun ritardo
+            pass
+        elif task.end_date < today:
+            # Fase scaduta e non completata
+            lost_hours = planned_h - tot_eff
+            if lost_hours > 0:
+                is_crit = tot_eff < (planned_h * 0.5)
                 days_to_add = get_working_days_count(task.end_date, today)
-                if days_to_add <= 0: days_to_add = 1
-                sugg_id = f"delay_{task.id}_{task.end_date.strftime('%Y%m%d')}_scaduta"
+                if days_to_add <= 0:
+                    days_to_add = 1
+                sugg_id = f"delay_{task.id}_{task.end_date.strftime('%Y%m%d')}_{'critico' if is_crit else 'scaduta'}"
+                reason_msg = (
+                    f"Ritardo critico: la fase è scaduta il {task.end_date.strftime('%d/%m/%Y')} con solo {round(tot_eff, 1)}h consuntivate su {planned_h}h (mancano {round(lost_hours, 1)}h)."
+                    if is_crit
+                    else f"La fase è scaduta il {task.end_date.strftime('%d/%m/%Y')} ma non risulta completata (mancano circa {round(lost_hours, 1)}h)."
+                )
                 suggestions.append({
                     "id": sugg_id,
                     "type": "delay_conflict",
@@ -328,8 +268,44 @@ async def get_replanning_suggestions(db: AsyncSession, current_user=None):
                     "department": getattr(task, "department", None),
                     "worker": None,
                     "date": str(task.end_date),
-                    "reason": f"La fase è scaduta il {task.end_date.strftime('%d/%m/%Y')} ma non risulta completata."
+                    "reason": reason_msg
                 })
+        else:
+            # Fase in corso (task.start_date <= today <= task.end_date)
+            working_days = get_working_days_count(task.start_date, task.end_date)
+            ore_gg = (planned_h / working_days) if working_days > 0 else planned_h
+            workdays_past = get_working_days_count(task.start_date, today - timedelta(days=1))
+            
+            if workdays_past > 0:
+                expected_past = ore_gg * workdays_past
+                # Se tot_eff >= expected_past, le ore consuntivate finora coprono i giorni passati
+                if tot_eff < expected_past:
+                    lost_hours = expected_past - tot_eff
+                    is_crit = tot_eff < (expected_past * 0.5)
+                    days_to_add = math.ceil(lost_hours / ore_gg) if ore_gg > 0 else 1
+                    if days_to_add <= 0:
+                        days_to_add = 1
+                    
+                    sugg_id = f"delay_{task.id}_{today.strftime('%Y%m%d')}_{'critico' if is_crit else 'attenzione'}"
+                    reason_msg = (
+                        f"Ritardo critico: consuntivate {round(tot_eff, 1)}h rispetto a {round(expected_past, 1)}h attese (mancano all'appello circa {round(lost_hours, 1)}h)."
+                        if is_crit
+                        else f"Attenzione: la consuntivazione è sotto le attese (consuntivate {round(tot_eff, 1)}h su {round(expected_past, 1)}h attese, mancano circa {round(lost_hours, 1)}h)."
+                    )
+                    suggestions.append({
+                        "id": sugg_id,
+                        "type": "delay_conflict",
+                        "task_id": str(task.id),
+                        "task_name": task.text,
+                        "project_id": str(task.project_id),
+                        "project_name": task.project.name if task.project else "-",
+                        "project_code": (task.project.code if task.project.code else "") if task.project else "",
+                        "project_color": task.project.color if getattr(task, 'project', None) and getattr(task.project, 'color', None) else None,
+                        "department": getattr(task, "department", None),
+                        "worker": None,
+                        "date": str(today),
+                        "reason": reason_msg
+                    })
 
         try:
             workers = json.loads(task.workers) if task.workers else []
@@ -514,51 +490,112 @@ async def get_zero_hours_alerts(db: AsyncSession, current_user: Optional[User] =
             actual_h_map = {}
 
         planned_h = float(task.planned_hours or 8.0)
+        tot_eff = 0.0
+        for day_map in actual_h_map.values():
+            if isinstance(day_map, dict):
+                for h in day_map.values():
+                    try:
+                        tot_eff += float(h)
+                    except Exception:
+                        pass
+
+        # Se la fase è già completata o le ore previste sono state interamente consuntivate
+        if getattr(task, 'completed', 0) == 1 or (float(getattr(task, 'progress', 0) or 0) >= 1.0) or (planned_h > 0 and tot_eff >= planned_h):
+            continue
+
         working_days = get_working_days_count(task.start_date, task.end_date)
         if working_days <= 0 or planned_h <= 0:
             continue
 
-        ore_gg = planned_h / working_days
-        if ore_gg <= 0:
+        # Consideriamo solo le giornate lavorative concluse strettamente prima di oggi
+        yesterday = today - timedelta(days=1)
+        if yesterday < task.start_date:
             continue
 
-        cur_d = task.start_date
-        while cur_d <= task.end_date and cur_d <= today:
-            if not is_weekend_or_holiday(cur_d):
-                date_str = cur_d.strftime("%Y-%m-%d")
-                for w in workers_list:
-                    uid = get_user_id(w)
+        past_end_date = min(task.end_date, yesterday)
+        workdays_past = get_working_days_count(task.start_date, past_end_date)
+        if workdays_past <= 0:
+            continue
+
+        worker_hours_map = {}
+        if getattr(task, 'worker_hours', None):
+            try:
+                worker_hours_map = json.loads(task.worker_hours) if isinstance(task.worker_hours, str) else task.worker_hours
+            except Exception:
+                worker_hours_map = {}
+
+        for w in workers_list:
+            uid = get_user_id(w)
+
+            # Ore previste per questo lavoratore
+            w_allocated = worker_hours_map.get(w)
+            if w_allocated is not None:
+                try:
+                    w_planned = float(w_allocated)
+                except Exception:
+                    w_planned = planned_h / len(workers_list)
+            else:
+                w_planned = planned_h / len(workers_list)
+
+            if w_planned <= 0:
+                continue
+
+            # Ore totali già consuntivate da questo lavoratore su questa fase
+            w_tot_eff = 0.0
+            if w in actual_h_map and isinstance(actual_h_map[w], dict):
+                for h_val in actual_h_map[w].values():
+                    try:
+                        w_tot_eff += float(h_val)
+                    except Exception:
+                        pass
+
+            # Se il lavoratore ha già consuntivato tutte le ore previste per lui
+            if w_tot_eff >= w_planned:
+                continue
+
+            w_ore_gg = w_planned / working_days
+            w_expected_past = w_ore_gg * workdays_past
+
+            # Se le ore consuntivate complessivamente coprono o superano l'atteso dei giorni trascorsi
+            if w_tot_eff >= w_expected_past:
+                continue
+
+            # Altrimenti l'addetto è in debito per i giorni trascorsi
+            cur_d = task.start_date
+            while cur_d <= past_end_date:
+                if not is_weekend_or_holiday(cur_d):
                     if uid and cur_d in vacation_dates_by_uid.get(uid, set()):
-                        continue  # In ferie autorizzate, non consideriamo mancata consuntivazione
+                        pass  # In ferie autorizzate
+                    else:
+                        date_str = cur_d.strftime("%Y-%m-%d")
+                        w_day_eff = 0.0
+                        if w in actual_h_map and isinstance(actual_h_map[w], dict) and date_str in actual_h_map[w]:
+                            try:
+                                w_day_eff = float(actual_h_map[w][date_str])
+                            except Exception:
+                                pass
 
-                    w_eff = 0
-                    if w in actual_h_map and isinstance(actual_h_map[w], dict) and date_str in actual_h_map[w]:
-                        try:
-                            w_eff = float(actual_h_map[w][date_str])
-                        except Exception:
-                            pass
-
-                    if w_eff == 0:
-                        alert_id = f"zero_hours_{task.id}_{w}_{date_str.replace('-', '')}"
-                        if alert_id not in seen_ids:
-                            seen_ids.add(alert_id)
-                            alerts.append({
-                                "id": alert_id,
-                                "type": "zero_hours",
-                                "task_id": str(task.id),
-                                "task_name": task.text,
-                                "project_id": str(task.project_id),
-                                "project_name": task.project.name if task.project else "-",
-                                "project_code": (task.project.code if task.project.code else "") if task.project else "",
-                                "project_color": task.project.color if getattr(task, 'project', None) and getattr(task.project, 'color', None) else None,
-                                "department": getattr(task, "department", None),
-                                "worker": w,
-                                "date": str(cur_d),
-                                "formatted_date": cur_d.strftime('%d/%m/%Y'),
-                                "planned_daily_hours": round(ore_gg, 1),
-                                "reason": f"L'addetto {w} il {cur_d.strftime('%d/%m/%Y')} non ha consuntivato ore per questa fase."
-                            })
-            cur_d += timedelta(days=1)
+                        if w_day_eff == 0:
+                            alert_id = f"zero_hours_{task.id}_{w}_{date_str.replace('-', '')}"
+                            if alert_id not in seen_ids:
+                                seen_ids.add(alert_id)
+                                alerts.append({
+                                    "id": alert_id,
+                                    "type": "zero_hours",
+                                    "task_id": str(task.id),
+                                    "task_name": task.text,
+                                    "project_id": str(task.project_id),
+                                    "project_name": task.project.name if task.project else "-",
+                                    "project_code": (task.project.code if task.project.code else "") if task.project else "",
+                                    "project_color": task.project.color if getattr(task, 'project', None) and getattr(task.project, 'color', None) else None,
+                                    "department": getattr(task, "department", None),
+                                    "worker": w,
+                                    "date": str(cur_d),
+                                    "formatted_date": cur_d.strftime('%d/%m/%Y'),
+                                    "planned_daily_hours": round(w_ore_gg, 1),
+                                    "reason": f"L'addetto {w} il {cur_d.strftime('%d/%m/%Y')} non ha consuntivato ore per questa fase."
+                                })
+                cur_d += timedelta(days=1)
 
     alerts.sort(key=lambda x: x["date"], reverse=True)
     return alerts
