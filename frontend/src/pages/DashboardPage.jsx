@@ -2,17 +2,24 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
 import api from '../api/client';
+import { listRichieste } from '../api/richiesteCommerciali';
 import { useAuth } from '../context/AuthContext';
 import TimelineView from '../components/calendar/TimelineView';
 import AppIcon from '../components/ui/AppIcon';
-import WeatherDateWidget from '../components/ui/WeatherDateWidget';
+import { useWeather, WeatherModal } from '../components/ui/WeatherDateWidget';
+import { Sun } from 'lucide-react';
 import './DashboardPage.css';
 import { STATUS_LABELS_IT } from '../utils/statusLabels';
+
+
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const weatherState = useWeather();
+  const { currentInfo, city, isModalOpen, setIsModalOpen, loadingWeather, now } = weatherState;
+
   const [timelineYear, setTimelineYear] = useState(() => new Date().getFullYear());
   const [timelineMonth, setTimelineMonth] = useState(() => new Date().getMonth());
   const [projects, setProjects] = useState([]);
@@ -22,6 +29,11 @@ export default function DashboardPage() {
   const [quickLogHours, setQuickLogHours] = useState({});
   const [vacations, setVacations] = useState([]);
   const [recoveryItems, setRecoveryItems] = useState([]);
+  const [tickets, setTickets] = useState([]);
+  const [richiesteCommerciali, setRichiesteCommerciali] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [panel1Tab, setPanel1Tab] = useState(null);
+  const [panel2Tab, setPanel2Tab] = useState(null);
   const [dismissedKeys, setDismissedKeys] = useState(
     () => new Set(JSON.parse(localStorage.getItem('recovery_dismissed') || '[]'))
   );
@@ -52,9 +64,9 @@ export default function DashboardPage() {
   }
 
   function goToToday() {
-    const now = new Date();
-    setTimelineYear(now.getFullYear());
-    setTimelineMonth(now.getMonth());
+    const today = new Date();
+    setTimelineYear(today.getFullYear());
+    setTimelineMonth(today.getMonth());
   }
 
   useEffect(() => {
@@ -63,34 +75,40 @@ export default function DashboardPage() {
 
   async function loadData() {
     try {
-      const [projRes, todosRes, tasksRes, vacRes, recoveryRes, bannerRes] = await Promise.all([
+      const [projRes, todosRes, tasksRes, vacRes, recoveryRes, bannerRes, ticketsRes, rcRes, notesRes] = await Promise.all([
         api.get('/projects'),
         api.get('/todos'),
         api.get('/users/me/tasks/today'),
         api.get('/vacations/me').catch(() => ({ data: [] })),
         api.get('/vacations/me/recovery').catch(() => ({ data: [] })),
         api.get('/settings/global-banner').catch(() => ({ data: [] })),
+        api.get('/tickets').catch(() => ({ data: [] })),
+        listRichieste().catch(() => []),
+        api.get('/notes').catch(() => ({ data: [] })),
       ]);
-      setProjects(projRes.data);
+      setProjects(projRes.data || []);
       if (Array.isArray(bannerRes.data)) {
         setGlobalBanners(bannerRes.data);
       }
       const todosData = todosRes.data || [];
       const openAssigned = todosData.filter(t => !t.is_completed && t.assignees?.includes(user?.id));
       setAssignedTodos(openAssigned);
-      setMyTasksToday(tasksRes.data);
-      
+      setMyTasksToday(tasksRes.data || []);
+
       const initHours = {};
-      tasksRes.data.forEach(t => {
+      (tasksRes.data || []).forEach(t => {
         initHours[t.id] = t.actual_hours_today || t.expected_hours_today || '';
       });
       setQuickLogHours(initHours);
 
       setVacations(vacRes.data || []);
       setRecoveryItems(recoveryRes.data || []);
+      setTickets(Array.isArray(ticketsRes.data) ? ticketsRes.data : []);
+      setRichiesteCommerciali(Array.isArray(rcRes) ? rcRes : []);
+      setNotes(Array.isArray(notesRes.data) ? notesRes.data : []);
 
       Promise.all(
-        projRes.data.map(async (p) => {
+        (projRes.data || []).map(async (p) => {
           try {
             const { data: gData } = await api.get(`/projects/${p.id}/gantt`);
             return { ...p, tasks: Array.isArray(gData.tasks) ? gData.tasks : [] };
@@ -165,6 +183,209 @@ export default function DashboardPage() {
     });
   }, [projectsWithTasks, user?.username]);
 
+  // Formattazione data e ora per Box 1
+  const todayFullDate = useMemo(() => {
+    return now.toLocaleDateString('it-IT', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    });
+  }, [now]);
+
+  const timeFormatted = useMemo(() => {
+    return now.toLocaleTimeString('it-IT', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }, [now]);
+
+  // Box 3 e Box 4 personalizzati a seconda del reparto e ruolo
+  const departmentBoxes = useMemo(() => {
+    const role = user?.role || 'viewer';
+    const dept = user?.department || (role === 'admin' ? 'admin' : 'ufficio_tecnico');
+
+    const openTickets = tickets.filter(t => t.status !== 'Completato');
+    const ticketsDaGestire = tickets.filter(t => t.status === 'Da gestire');
+
+    const richiesteAperte = richiesteCommerciali.filter(r => r.stato === 'aperta');
+    const richiesteInLavorazione = richiesteCommerciali.filter(r => r.stato === 'in_lavorazione');
+    const richiesteMancaListino = richiesteCommerciali.filter(r => r.stato === 'manca_listino');
+    const richiesteCompletate = richiesteCommerciali.filter(r => r.stato === 'completata');
+    const richiesteInCorso = richiesteCommerciali.filter(r => r.stato !== 'completata');
+
+    // Default boxes (Fallback / Generic / Ufficio Tecnico)
+    let box3 = {
+      label: 'Fasi operative oggi',
+      value: myTasksToday.length,
+      subtitle: `${myTasksToday.length === 1 ? '1 attività in carico' : `${myTasksToday.length} attività in carico`}`,
+      detail: 'Apri calendario personale ↗',
+      icon: 'gantt',
+      themeClass: 'stat-custom-cyan',
+      onClick: () => navigate('/personal-calendar'),
+    };
+
+    let box4 = {
+      label: 'To-Do aperti',
+      value: assignedTodos.length,
+      subtitle: `${assignedTodos.length === 1 ? '1 checklist assegnata' : `${assignedTodos.length} checklist assegnate`}`,
+      detail: 'Vai alle tue to-do ↗',
+      icon: 'todo',
+      themeClass: 'stat-custom-indigo',
+      onClick: () => navigate('/todo'),
+    };
+
+    if (dept === 'commerciale') {
+      box3 = {
+        label: 'Richieste per preventivi',
+        value: richiesteInCorso.length,
+        subtitle: `${richiesteAperte.length} aperte · ${richiesteInLavorazione.length} in corso`,
+        detail: 'Gestisci preventivi ↗',
+        icon: 'tag',
+        themeClass: 'stat-custom-orange',
+        onClick: () => navigate('/richieste-commerciali'),
+      };
+
+      if (role === 'viewer') {
+        box4 = {
+          label: 'Commesse',
+          value: stats.total,
+          subtitle: `${stats.active} commesse attive`,
+          detail: 'Consulta commesse ↗',
+          icon: 'projects',
+          themeClass: 'stat-custom-blue',
+          onClick: () => navigate('/projects'),
+        };
+      } else {
+        box4 = {
+          label: 'Offerte pronte',
+          value: richiesteCompletate.length,
+          subtitle: `${richiesteMancaListino.length} in attesa listino prezzi`,
+          detail: 'Visualizza preventivi completati ↗',
+          icon: 'fileText',
+          themeClass: 'stat-custom-green',
+          onClick: () => navigate('/richieste-commerciali'),
+        };
+      }
+    } else if (dept === 'acquisti') {
+      box3 = {
+        label: 'Richieste listini & prezzi',
+        value: richiesteMancaListino.length,
+        subtitle: `${richiesteInCorso.length} preventivi commerciali totali`,
+        detail: 'Aggiorna quotazioni fornitori ↗',
+        icon: 'briefcase',
+        themeClass: 'stat-custom-amber',
+        onClick: () => navigate('/richieste-commerciali'),
+      };
+      box4 = {
+        label: 'To-Do & ordini acquisti',
+        value: assignedTodos.length,
+        subtitle: `${assignedTodos.length} task assegnati da completare`,
+        detail: 'Gestisci le tue checklist ↗',
+        icon: 'todo',
+        themeClass: 'stat-custom-purple',
+        onClick: () => navigate('/todo'),
+      };
+    } else if (dept === 'produzione') {
+      box3 = {
+        label: 'Lavorazioni oggi',
+        value: myTasksToday.length,
+        subtitle: `${myTasksToday.length} fasi in lavorazione oggi`,
+        detail: 'Visualizza e consuntiva ore ↗',
+        icon: 'active_projects',
+        themeClass: 'stat-custom-emerald',
+        onClick: () => navigate('/personal-calendar'),
+      };
+      box4 = {
+        label: 'Segnalazioni & ticket',
+        value: openTickets.length,
+        subtitle: `${ticketsDaGestire.length} da gestire su ${openTickets.length} aperte`,
+        detail: 'Apri registro segnalazioni ↗',
+        icon: 'ticket',
+        themeClass: 'stat-custom-rose',
+        onClick: () => navigate('/tickets'),
+      };
+    } else if (dept === 'amministrazione') {
+      box3 = {
+        label: 'Commesse in corso',
+        value: stats.active,
+        subtitle: `Progresso medio aziendale: ${avgProgress}%`,
+        detail: 'Monitora avanzamento commesse ↗',
+        icon: 'projects',
+        themeClass: 'stat-custom-blue',
+        onClick: () => navigate('/projects'),
+      };
+      box4 = {
+        label: 'Ferie & assenze',
+        value: vacations.length,
+        subtitle: `${vacations.length} richieste registrate a calendario`,
+        detail: 'Apri calendario presenze ↗',
+        icon: 'vacations',
+        themeClass: 'stat-custom-purple',
+        onClick: () => navigate('/personal-calendar'),
+      };
+    } else if (dept === 'ufficio_tecnico') {
+      box3 = {
+        label: 'Fasi operative oggi',
+        value: myTasksToday.length,
+        subtitle: `${myTasksToday.length} in programma oggi`,
+        detail: 'Dettaglio agenda operativa ↗',
+        icon: 'gantt',
+        themeClass: 'stat-custom-cyan',
+        onClick: () => navigate('/personal-calendar'),
+      };
+      box4 = {
+        label: 'Checklist & To-Do',
+        value: assignedTodos.length,
+        subtitle: `${assignedTodos.length} to-do aperti assegnati`,
+        detail: 'Vai alle tue checklist ↗',
+        icon: 'todo',
+        themeClass: 'stat-custom-indigo',
+        onClick: () => navigate('/todo'),
+      };
+    } else if (role === 'admin') {
+      box3 = {
+        label: 'Ticket da gestire',
+        value: ticketsDaGestire.length,
+        subtitle: `${openTickets.length} ticket aperti totali`,
+        detail: 'Apri centro assistenza & ticket ↗',
+        icon: 'ticket',
+        themeClass: 'stat-custom-rose',
+        onClick: () => navigate('/tickets'),
+      };
+      box4 = {
+        label: 'Commesse attive',
+        value: stats.active,
+        subtitle: `Progresso medio: ${avgProgress}% (${stats.total} totali)`,
+        detail: 'Supervisiona tutte le commesse ↗',
+        icon: 'active_projects',
+        themeClass: 'stat-custom-teal',
+        onClick: () => navigate('/projects'),
+      };
+    }
+
+    return { box3, box4 };
+  }, [user, tickets, richiesteCommerciali, myTasksToday, assignedTodos, stats, avgProgress, vacations, navigate]);
+
+  // Default dei tab per i due pannelli inferiori in base a mansione e reparto
+  const defaultLeftTab = useMemo(() => {
+    const dept = user?.department;
+    if (dept === 'commerciale' || dept === 'acquisti') return 'preventivi';
+    return 'commesse';
+  }, [user?.department]);
+
+  const defaultRightTab = useMemo(() => {
+    const dept = user?.department;
+    const role = user?.role;
+    if (dept === 'produzione' || role === 'admin') return 'tickets';
+    if (dept === 'commerciale' || dept === 'amministrazione') return 'note';
+    return 'todos';
+  }, [user?.department, user?.role]);
+
+  const activeLeftTab = panel1Tab || defaultLeftTab;
+  const activeRightTab = panel2Tab || defaultRightTab;
+
+  const WeatherIcon = currentInfo ? currentInfo.icon : Sun;
+
   if (loading) {
     return <div className="loading-screen"><div className="spinner" /></div>;
   }
@@ -187,44 +408,87 @@ export default function DashboardPage() {
           <h1>Bentornato, {user?.full_name || user?.username}</h1>
           <p>Attività, scadenze e avanzamento in un unico colpo d'occhio.</p>
         </div>
-        <WeatherDateWidget />
       </div>
 
+      {/* Griglia Statistiche Personalizzata */}
       <div className="stats-grid">
-        <div className="stat-card stat-total">
+        {/* Box 1: Data e Ora (cliccando rimanda al calendario personale) */}
+        <div
+          className="stat-card stat-clock is-clickable"
+          onClick={() => navigate('/personal-calendar')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate('/personal-calendar'); }}
+          title="Clicca per aprire il calendario personale"
+        >
           <div className="stat-icon" aria-hidden="true">
-            <AppIcon name="projects" size={13} />
+            <AppIcon name="calendar" size={18} />
           </div>
           <div className="stat-info">
-            <span className="stat-label">Totale commesse</span>
-            <span className="stat-value">{stats.total}</span>
+            <span className="stat-label">Data e ora</span>
+            <span className="stat-value stat-value--time">{timeFormatted}</span>
+            <span className="stat-subtitle">{todayFullDate}</span>
           </div>
         </div>
-        <div className="stat-card stat-active">
+
+        {/* Box 2: Meteo e Previsioni (cliccando apre il popup previsioni) */}
+        <div
+          className="stat-card stat-weather is-clickable"
+          onClick={() => setIsModalOpen(true)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsModalOpen(true); }}
+          title="Clicca per visualizzare le previsioni meteo della settimana"
+        >
           <div className="stat-icon" aria-hidden="true">
-            <AppIcon name="active_projects" size={13} />
+            <WeatherIcon size={20} />
           </div>
           <div className="stat-info">
-            <span className="stat-label">Commesse attive</span>
-            <span className="stat-value">{stats.active}</span>
+            <span className="stat-label">Meteo · {city?.name || 'Milano'}</span>
+            <span className="stat-value">
+              {currentInfo ? `${currentInfo.temp}°C` : (loadingWeather ? '...' : 'N.D.')}
+            </span>
+            <span className="stat-subtitle">
+              {currentInfo ? `${currentInfo.label}` : 'Dati meteo in aggiornamento'}
+            </span>
           </div>
         </div>
-        <div className="stat-card stat-completed">
+
+        {/* Box 3: Personalizzato per reparto e ruolo */}
+        <div
+          className={`stat-card ${departmentBoxes.box3.themeClass} is-clickable`}
+          onClick={departmentBoxes.box3.onClick}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') departmentBoxes.box3.onClick(); }}
+          title={departmentBoxes.box3.detail}
+        >
           <div className="stat-icon" aria-hidden="true">
-            <AppIcon name="todo" size={13} />
+            <AppIcon name={departmentBoxes.box3.icon} size={18} />
           </div>
           <div className="stat-info">
-            <span className="stat-label">Completate</span>
-            <span className="stat-value">{stats.completed}</span>
+            <span className="stat-label">{departmentBoxes.box3.label}</span>
+            <span className="stat-value">{departmentBoxes.box3.value}</span>
+            <span className="stat-subtitle">{departmentBoxes.box3.subtitle}</span>
           </div>
         </div>
-        <div className="stat-card stat-progress">
+
+        {/* Box 4: Personalizzato per reparto e ruolo */}
+        <div
+          className={`stat-card ${departmentBoxes.box4.themeClass} is-clickable`}
+          onClick={departmentBoxes.box4.onClick}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') departmentBoxes.box4.onClick(); }}
+          title={departmentBoxes.box4.detail}
+        >
           <div className="stat-icon" aria-hidden="true">
-            <AppIcon name="gantt" size={13} />
+            <AppIcon name={departmentBoxes.box4.icon} size={18} />
           </div>
           <div className="stat-info">
-            <span className="stat-label">Progresso medio</span>
-            <span className="stat-value">{avgProgress}%</span>
+            <span className="stat-label">{departmentBoxes.box4.label}</span>
+            <span className="stat-value">{departmentBoxes.box4.value}</span>
+            <span className="stat-subtitle">{departmentBoxes.box4.subtitle}</span>
           </div>
         </div>
       </div>
@@ -320,7 +584,7 @@ export default function DashboardPage() {
                       )}
                     </div>
                   </div>
-                  
+
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: 'auto', marginBottom: '8px' }}>
                     <input
                       type="number"
@@ -343,7 +607,7 @@ export default function DashboardPage() {
                       {task.actual_hours_today ? 'Aggiorna' : 'Conferma'}
                     </button>
                   </div>
-                  
+
                   <div className="progress-bar">
                     <div
                       className="progress-bar-fill"
@@ -356,122 +620,357 @@ export default function DashboardPage() {
           )}
         </section>
 
+        {/* Pannello Sinistro: Commesse o Preventivazione */}
         <section className="card dashboard-section dashboard-list-panel">
           <div className="dashboard-panel-header">
             <div className="dashboard-panel-title">
-              <span className="dashboard-panel-icon project-icon" aria-hidden="true">
-                <AppIcon name="projects" size={13} />
+              <span className={`dashboard-panel-icon ${activeLeftTab === 'commesse' ? 'project-icon' : 'rc-icon'}`} aria-hidden="true">
+                <AppIcon name={activeLeftTab === 'commesse' ? 'projects' : 'fileText'} size={14} />
               </span>
               <div>
-                <h2>Commesse recenti</h2>
-                <p>Ultimi progetti aggiornati</p>
+                <h2>
+                  {activeLeftTab === 'commesse'
+                    ? 'Commesse recenti'
+                    : (user?.department === 'acquisti' ? 'Richieste listini & costi' : 'Preventivazione commerciale')}
+                </h2>
+                <p>
+                  {activeLeftTab === 'commesse'
+                    ? `${stats.active} attive su ${stats.total} totali`
+                    : `${richiesteCommerciali.filter(r => r.stato !== 'completata').length} in lavorazione · ${richiesteCommerciali.filter(r => r.stato === 'completata').length} pronte`}
+                </p>
               </div>
             </div>
-            <button type="button" className="dashboard-link-btn" onClick={() => navigate('/projects')}>
-              Vedi tutte <span aria-hidden="true">→</span>
-            </button>
-          </div>
-          {relevantProjects.length === 0 ? (
-            <div className="empty-state dashboard-empty-state">
-              <div className="empty-state-icon">P</div>
-              <h3>Nessuna commessa</h3>
-              <p>Crea la prima commessa per iniziare a pianificare.</p>
-              <button className="btn btn-primary" onClick={() => navigate('/projects')}>
-                Apri commesse
-              </button>
-            </div>
-          ) : (
-            <div className="recent-projects dashboard-scroll-list">
-              {relevantProjects.filter(p => p.status !== 'archived').slice(0, 5).map((project) => (
+
+            <div className="dashboard-panel-header-actions">
+              <div className="dashboard-panel-tabs" role="tablist">
                 <button
                   type="button"
-                  key={project.id}
-                  className="recent-project-item"
-                  onClick={() => navigate(`/projects/${project.id}`)}
+                  role="tab"
+                  aria-selected={activeLeftTab === 'commesse'}
+                  className={`dashboard-panel-tab ${activeLeftTab === 'commesse' ? 'is-active' : ''}`}
+                  onClick={() => setPanel1Tab('commesse')}
                 >
-                  <div className="recent-project-info">
-                    <span className="recent-project-name">
-                      {project.code && <small>{project.code}</small>}
-                      {project.name}
-                    </span>
-                    <span className={`badge badge-${project.status}`}>{STATUS_LABELS_IT[project.status] || project.status}</span>
-                  </div>
-                  <div className="progress-bar">
-                    <div
-                      className="progress-bar-fill"
-                      style={{ width: `${(project.progress || 0) * 100}%` }}
-                    />
-                  </div>
-                  <div className="recent-project-meta">
-                    <span>{project.task_count} task</span>
-                    <span>{project.member_count} membri</span>
-                    <span>{Math.round((project.progress || 0) * 100)}%</span>
-                  </div>
+                  Commesse
                 </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="card dashboard-section dashboard-list-panel">
-          <div className="dashboard-panel-header">
-            <div className="dashboard-panel-title">
-              <span className="dashboard-panel-icon todo-icon" aria-hidden="true">
-                <AppIcon name="todo" size={13} />
-              </span>
-              <div>
-                <h2>TODO assegnati</h2>
-                <p>{assignedTodos.length} ancora da completare</p>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeLeftTab === 'preventivi'}
+                  className={`dashboard-panel-tab ${activeLeftTab === 'preventivi' ? 'is-active' : ''}`}
+                  onClick={() => setPanel1Tab('preventivi')}
+                >
+                  Preventivi
+                </button>
               </div>
+              <button
+                type="button"
+                className="dashboard-link-btn"
+                onClick={() => navigate(activeLeftTab === 'commesse' ? '/projects' : '/richieste-commerciali')}
+              >
+                Vedi tutte <span aria-hidden="true">→</span>
+              </button>
             </div>
-            <button type="button" className="dashboard-link-btn" onClick={() => navigate('/todo')}>
-              Vedi tutti <span aria-hidden="true">→</span>
-            </button>
           </div>
-          {assignedTodos.length === 0 ? (
-            <div className="empty-state dashboard-empty-state">
-              <div className="empty-state-icon">✓</div>
-              <h3>Nessun TODO in sospeso</h3>
-              <p>Hai completato tutte le attività assegnate.</p>
-            </div>
-          ) : (
-            <div className="notifications-list dashboard-scroll-list">
-              {assignedTodos.slice(0, 8).map((todo) => {
-                const due = todo.due_date ? (todo.due_date.includes('T') ? new Date(todo.due_date) : new Date(todo.due_date + 'T00:00:00')) : null;
-                const dueReference = new Date(); dueReference.setHours(0, 0, 0, 0);
-                const dueDay = due ? new Date(due) : null;
-                if (dueDay) dueDay.setHours(0, 0, 0, 0);
-                const daysLeft = dueDay ? Math.ceil((dueDay - dueReference) / 86400000) : null;
-                const isOverdue = daysLeft !== null && daysLeft < 0;
 
-                return (
+          {activeLeftTab === 'commesse' ? (
+            relevantProjects.length === 0 ? (
+              <div className="empty-state dashboard-empty-state">
+                <div className="empty-state-icon">P</div>
+                <h3>Nessuna commessa</h3>
+                <p>Crea la prima commessa per iniziare a pianificare.</p>
+                <button className="btn btn-primary" onClick={() => navigate('/projects')}>
+                  Apri commesse
+                </button>
+              </div>
+            ) : (
+              <div className="recent-projects dashboard-scroll-list">
+                {relevantProjects.filter(p => p.status !== 'archived').slice(0, 5).map((project) => (
                   <button
                     type="button"
-                    key={todo.id}
-                    className={`notification-item dashboard-todo-item ${isOverdue ? 'is-overdue' : ''}`}
-                    onClick={() => navigate('/todo')}
+                    key={project.id}
+                    className="recent-project-item"
+                    onClick={() => navigate(`/projects/${project.id}`)}
                   >
-                    <span className="todo-status-dot" aria-hidden="true">
-                      {isOverdue ? '!' : '•'}
+                    <div className="recent-project-info">
+                      <span className="recent-project-name">
+                        {project.code && <small>{project.code}</small>}
+                        {project.name}
+                      </span>
+                      <span className={`badge badge-${project.status}`}>{STATUS_LABELS_IT[project.status] || project.status}</span>
+                    </div>
+                    <div className="progress-bar">
+                      <div
+                        className="progress-bar-fill"
+                        style={{ width: `${(project.progress || 0) * 100}%` }}
+                      />
+                    </div>
+                    <div className="recent-project-meta">
+                      <span>{project.task_count} task</span>
+                      <span>{project.member_count} membri</span>
+                      <span>{Math.round((project.progress || 0) * 100)}%</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
+          ) : (
+            richiesteCommerciali.length === 0 ? (
+              <div className="empty-state dashboard-empty-state">
+                <div className="empty-state-icon">📋</div>
+                <h3>Nessuna richiesta commerciale</h3>
+                <p>Nessun preventivo registrato al momento.</p>
+                <button className="btn btn-primary" onClick={() => navigate('/richieste-commerciali')}>
+                  Apri Preventivi
+                </button>
+              </div>
+            ) : (
+              <div className="notifications-list dashboard-scroll-list">
+                {richiesteCommerciali.slice(0, 5).map((rc) => (
+                  <button
+                    type="button"
+                    key={rc.id}
+                    className="notification-item dashboard-rc-item"
+                    onClick={() => navigate('/richieste-commerciali')}
+                  >
+                    <span className={`dashboard-rc-status ${rc.stato || 'aperta'}`}>
+                      {rc.stato === 'in_lavorazione' ? 'In corso' : rc.stato === 'manca_listino' ? 'Manca listino' : rc.stato === 'completata' ? 'Completata' : 'Aperta'}
                     </span>
                     <div className="notification-content">
                       <div className="todo-item-heading">
-                        <span className="notification-title">{todo.title}</span>
-                        {due && (
-                          <span className="todo-due-date">
-                            {isOverdue ? 'Scaduto · ' : ''}
-                            {due.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })}
+                        <span className="notification-title">
+                          {rc.codice ? `${rc.codice} · ` : ''}{rc.cliente || rc.oggetto || 'Richiesta commerciale'}
+                        </span>
+                        {rc.tipo_fornitura && (
+                          <span className="dashboard-rc-tipo">
+                            {rc.tipo_fornitura === 'materie_prime' ? 'MP' : rc.tipo_fornitura === 'mp_lavorazione' ? 'MP + Lav.' : 'Compravendita'}
                           </span>
                         )}
                       </div>
                       <div className="notification-message">
-                        {todo.content || 'Nessuna descrizione'}
+                        {rc.oggetto || (rc.articoli ? `${rc.articoli.length} articoli in elenco` : 'Dettaglio preventivo')}
+                      </div>
+                      <div className="recent-project-meta" style={{ marginTop: '3px' }}>
+                        <span>Richiedente: {rc.richiedente_name || rc.created_by_username || 'Commerciale'}</span>
+                        {rc.created_at && (
+                          <span>{new Date(rc.created_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })}</span>
+                        )}
                       </div>
                     </div>
                   </button>
-                );
-              })}
+                ))}
+              </div>
+            )
+          )}
+        </section>
+
+        {/* Pannello Destro: TODO, Ticket o Note */}
+        <section className="card dashboard-section dashboard-list-panel">
+          <div className="dashboard-panel-header">
+            <div className="dashboard-panel-title">
+              <span
+                className={`dashboard-panel-icon ${activeRightTab === 'todos'
+                    ? 'todo-icon'
+                    : activeRightTab === 'tickets'
+                      ? 'ticket-icon'
+                      : 'notes-icon'
+                  }`}
+                aria-hidden="true"
+              >
+                <AppIcon
+                  name={activeRightTab === 'todos' ? 'todo' : activeRightTab === 'tickets' ? 'ticket' : 'notes'}
+                  size={14}
+                />
+              </span>
+              <div>
+                <h2>
+                  {activeRightTab === 'todos'
+                    ? 'TODO assegnati'
+                    : activeRightTab === 'tickets'
+                      ? 'Ticket & Segnalazioni'
+                      : 'Note recenti'}
+                </h2>
+                <p>
+                  {activeRightTab === 'todos'
+                    ? `${assignedTodos.length} ancora da completare`
+                    : activeRightTab === 'tickets'
+                      ? `${tickets.filter(t => t.status === 'Da gestire').length} da gestire · ${tickets.filter(t => t.status !== 'Completato').length} aperti`
+                      : `${notes.length} note registrate`}
+                </p>
+              </div>
             </div>
+
+            <div className="dashboard-panel-header-actions">
+              <div className="dashboard-panel-tabs" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeRightTab === 'todos'}
+                  className={`dashboard-panel-tab ${activeRightTab === 'todos' ? 'is-active' : ''}`}
+                  onClick={() => setPanel2Tab('todos')}
+                >
+                  TODO
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeRightTab === 'tickets'}
+                  className={`dashboard-panel-tab ${activeRightTab === 'tickets' ? 'is-active' : ''}`}
+                  onClick={() => setPanel2Tab('tickets')}
+                >
+                  Ticket
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeRightTab === 'note'}
+                  className={`dashboard-panel-tab ${activeRightTab === 'note' ? 'is-active' : ''}`}
+                  onClick={() => setPanel2Tab('note')}
+                >
+                  Note
+                </button>
+              </div>
+              <button
+                type="button"
+                className="dashboard-link-btn"
+                onClick={() => navigate(activeRightTab === 'todos' ? '/todo' : activeRightTab === 'tickets' ? '/tickets' : '/notes')}
+              >
+                Vedi tutti <span aria-hidden="true">→</span>
+              </button>
+            </div>
+          </div>
+
+          {activeRightTab === 'todos' ? (
+            assignedTodos.length === 0 ? (
+              <div className="empty-state dashboard-empty-state">
+                <div className="empty-state-icon">✓</div>
+                <h3>Nessun TODO in sospeso</h3>
+                <p>Hai completato tutte le attività assegnate.</p>
+              </div>
+            ) : (
+              <div className="notifications-list dashboard-scroll-list">
+                {assignedTodos.slice(0, 8).map((todo) => {
+                  const due = todo.due_date ? (todo.due_date.includes('T') ? new Date(todo.due_date) : new Date(todo.due_date + 'T00:00:00')) : null;
+                  const dueReference = new Date(); dueReference.setHours(0, 0, 0, 0);
+                  const dueDay = due ? new Date(due) : null;
+                  if (dueDay) dueDay.setHours(0, 0, 0, 0);
+                  const daysLeft = dueDay ? Math.ceil((dueDay - dueReference) / 86400000) : null;
+                  const isOverdue = daysLeft !== null && daysLeft < 0;
+
+                  return (
+                    <button
+                      type="button"
+                      key={todo.id}
+                      className={`notification-item dashboard-todo-item ${isOverdue ? 'is-overdue' : ''}`}
+                      onClick={() => navigate('/todo')}
+                    >
+                      <span className="todo-status-dot" aria-hidden="true">
+                        {isOverdue ? '!' : '•'}
+                      </span>
+                      <div className="notification-content">
+                        <div className="todo-item-heading">
+                          <span className="notification-title">{todo.title}</span>
+                          {due && (
+                            <span className="todo-due-date">
+                              {isOverdue ? 'Scaduto · ' : ''}
+                              {due.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })}
+                            </span>
+                          )}
+                        </div>
+                        <div className="notification-message">
+                          {todo.content || 'Nessuna descrizione'}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          ) : activeRightTab === 'tickets' ? (
+            tickets.filter(t => t.status !== 'Completato').length === 0 ? (
+              <div className="empty-state dashboard-empty-state">
+                <div className="empty-state-icon">🎫</div>
+                <h3>Nessun ticket aperto</h3>
+                <p>Non ci sono segnalazioni o ticket da gestire al momento.</p>
+                <button className="btn btn-primary" onClick={() => navigate('/tickets')}>
+                  Apri Ticket
+                </button>
+              </div>
+            ) : (
+              <div className="notifications-list dashboard-scroll-list">
+                {tickets.filter(t => t.status !== 'Completato').slice(0, 6).map((ticket) => (
+                  <button
+                    type="button"
+                    key={ticket.id}
+                    className="notification-item dashboard-ticket-item"
+                    onClick={() => navigate('/tickets')}
+                  >
+                    <span className={`dashboard-ticket-badge ${ticket.status === 'Da gestire' ? 'da-gestire' : ticket.status === 'In attesa del cliente' ? 'in-attesa' : 'completato'}`}>
+                      {ticket.status}
+                    </span>
+                    <div className="notification-content">
+                      <div className="todo-item-heading">
+                        <span className="notification-title">{ticket.title}</span>
+                        <span className={`dashboard-priority-chip ${ticket.priority || 'medium'}`}>
+                          {ticket.priority === 'high' ? 'Alta priorità' : ticket.priority === 'low' ? 'Bassa' : 'Media'}
+                        </span>
+                      </div>
+                      <div className="notification-message">
+                        {ticket.commessa_name || ticket.description || 'Nessuna nota aggiuntiva'}
+                      </div>
+                      <div className="recent-project-meta" style={{ marginTop: '3px' }}>
+                        <span>Da: {ticket.author_name || ticket.author_username || 'Utente'}</span>
+                        {ticket.created_at && (
+                          <span>{new Date(ticket.created_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })}</span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
+          ) : (
+            notes.length === 0 ? (
+              <div className="empty-state dashboard-empty-state">
+                <div className="empty-state-icon">📝</div>
+                <h3>Nessuna nota</h3>
+                <p>Crea la tua prima nota per appunti e checklist.</p>
+                <button className="btn btn-primary" onClick={() => navigate('/notes')}>
+                  Crea nota
+                </button>
+              </div>
+            ) : (
+              <div className="notifications-list dashboard-scroll-list">
+                {notes.slice(0, 6).map((note) => (
+                  <button
+                    type="button"
+                    key={note.id}
+                    className="notification-item dashboard-note-item"
+                    onClick={() => navigate('/notes')}
+                  >
+                    <span className="dashboard-note-icon-wrap" aria-hidden="true">
+                      <AppIcon name="notes" size={14} />
+                    </span>
+                    <div className="notification-content">
+                      <div className="todo-item-heading">
+                        <span className="notification-title">{note.title || 'Nota senza titolo'}</span>
+                        <span className="dashboard-note-visibility">
+                          {note.visibility === 'public' ? 'Pubblica' : note.visibility === 'shared' ? 'Condivisa' : 'Personale'}
+                        </span>
+                      </div>
+                      <div className="notification-message">
+                        {note.content ? note.content.replace(/<[^>]+>/g, '').slice(0, 80) : 'Nessun contenuto'}
+                      </div>
+                      <div className="recent-project-meta" style={{ marginTop: '3px' }}>
+                        <span>{note.owner?.full_name || note.owner?.username ? `${note.owner.full_name || note.owner.username}` : 'Personale'}</span>
+                        {note.updated_at && (
+                          <span>Aggiornata il {new Date(note.updated_at).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })}</span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )
           )}
         </section>
 
@@ -535,6 +1034,13 @@ export default function DashboardPage() {
           </section>
         )}
       </div>
+
+      {/* Modal Popup Previsioni Meteo */}
+      <WeatherModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        weatherState={weatherState}
+      />
     </div>
   );
 }

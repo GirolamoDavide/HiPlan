@@ -74,7 +74,7 @@ const POPULAR_CITIES = [
   { name: 'Napoli', latitude: 40.8518, longitude: 14.2681, admin1: 'Campania' },
 ];
 
-export default function WeatherDateWidget() {
+export function useWeather() {
   const [now, setNow] = useState(new Date());
   const [city, setCity] = useState(() => {
     try {
@@ -151,7 +151,6 @@ export default function WeatherDateWidget() {
       async (pos) => {
         const { latitude, longitude } = pos.coords;
         try {
-          // Geocoding inverso approssimato o ricerca punto
           const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=it`);
           const data = await res.json();
           const detectedCity = {
@@ -254,11 +253,304 @@ export default function WeatherDateWidget() {
     });
   }, [weatherData]);
 
+  return {
+    now,
+    city,
+    setCity,
+    weatherData,
+    loadingWeather,
+    weatherError,
+    isModalOpen,
+    setIsModalOpen,
+    searchQuery,
+    setSearchQuery,
+    searchResults,
+    isSearching,
+    showSearchDropdown,
+    setShowSearchDropdown,
+    searchInputRef,
+    fetchWeather,
+    handleSelectCity,
+    handleDetectLocation,
+    todayLabel,
+    timeLabel,
+    currentInfo,
+    dailyForecast,
+  };
+}
+
+export function WeatherModal({ isOpen, onClose, weatherState }) {
+  if (!isOpen || !weatherState) return null;
+
+  const {
+    city,
+    loadingWeather,
+    weatherError,
+    currentInfo,
+    dailyForecast,
+    searchQuery,
+    setSearchQuery,
+    searchResults,
+    showSearchDropdown,
+    setShowSearchDropdown,
+    searchInputRef,
+    fetchWeather,
+    handleSelectCity,
+    handleDetectLocation,
+  } = weatherState;
+
+  const CurrentIcon = currentInfo ? currentInfo.icon : CloudSun;
+
+  return (
+    <div className="weather-modal-overlay" onClick={onClose}>
+      <div className="weather-modal-card" onClick={(e) => e.stopPropagation()}>
+        {/* Header del Modal */}
+        <div className="weather-modal-header">
+          <div className="weather-modal-location">
+            <MapPin size={18} className="weather-location-pin" />
+            <div className="weather-location-text">
+              <h3>{city?.name}</h3>
+              {city?.admin1 && <span>{city.admin1}, {city?.country || 'Italia'}</span>}
+            </div>
+          </div>
+
+          <div className="weather-modal-header-actions">
+            <button
+              type="button"
+              className="weather-header-btn"
+              onClick={handleDetectLocation}
+              title="Usa la tua posizione attuale (GPS)"
+            >
+              <Compass size={15} />
+              <span>GPS</span>
+            </button>
+            <button
+              type="button"
+              className="weather-header-btn"
+              onClick={() => fetchWeather(city)}
+              disabled={loadingWeather}
+              title="Aggiorna dati meteo"
+            >
+              <RefreshCw size={15} className={loadingWeather ? 'spin' : ''} />
+            </button>
+            <button
+              type="button"
+              className="weather-modal-close"
+              onClick={onClose}
+              title="Chiudi"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Barra ricerca / cambio città */}
+        <div className="weather-search-bar">
+          <div className="weather-search-input-wrapper">
+            <Search size={14} className="weather-search-icon" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Cerca un'altra città (es. Roma, Bologna, Torino)..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => { if (searchResults.length > 0) setShowSearchDropdown(true); }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="weather-search-clear"
+                onClick={() => { setSearchQuery(''); }}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Quick Picks città famose */}
+          <div className="weather-quick-cities">
+            {POPULAR_CITIES.map((c) => (
+              <button
+                key={c.name}
+                type="button"
+                className={`weather-quick-city-chip ${city?.name === c.name ? 'is-active' : ''}`}
+                onClick={() => handleSelectCity(c)}
+              >
+                {city?.name === c.name && <Check size={11} />}
+                {c.name}
+              </button>
+            ))}
+          </div>
+
+          {/* Dropdown risultati ricerca */}
+          {showSearchDropdown && searchResults.length > 0 && (
+            <div className="weather-search-dropdown">
+              {searchResults.map((r) => (
+                <div
+                  key={r.id}
+                  className="weather-search-item"
+                  onClick={() => handleSelectCity({
+                    name: r.name,
+                    country: r.country,
+                    admin1: r.admin1,
+                    latitude: r.latitude,
+                    longitude: r.longitude
+                  })}
+                >
+                  <MapPin size={13} />
+                  <strong>{r.name}</strong>
+                  <span>{r.admin1 ? `${r.admin1}, ` : ''}{r.country}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Condizioni Attuali Hero */}
+        {currentInfo ? (
+          <div className={`weather-hero-card weather-theme-${currentInfo.type}`}>
+            <div className="weather-hero-main">
+              <div className="weather-hero-icon-wrap">
+                <CurrentIcon size={58} className="weather-hero-icon" />
+              </div>
+              <div className="weather-hero-temp-block">
+                <div className="weather-hero-temp">
+                  {currentInfo.temp}<span>°C</span>
+                </div>
+                <div className="weather-hero-condition">
+                  {currentInfo.label}
+                </div>
+                <div className="weather-hero-perceived">
+                  Percepita: {currentInfo.apparent}°C
+                </div>
+              </div>
+            </div>
+
+            <div className="weather-hero-stats">
+              <div className="weather-stat-item">
+                <div className="weather-stat-icon"><Thermometer size={16} /></div>
+                <div className="weather-stat-info">
+                  <span>Min / Max</span>
+                  <strong>{dailyForecast[0]?.minTemp ?? '-'}° / {dailyForecast[0]?.maxTemp ?? '-'}°</strong>
+                </div>
+              </div>
+
+              <div className="weather-stat-item">
+                <div className="weather-stat-icon"><Droplets size={16} /></div>
+                <div className="weather-stat-info">
+                  <span>Umidità</span>
+                  <strong>{currentInfo.humidity}%</strong>
+                </div>
+              </div>
+
+              <div className="weather-stat-item">
+                <div className="weather-stat-icon"><Wind size={16} /></div>
+                <div className="weather-stat-info">
+                  <span>Vento</span>
+                  <strong>{currentInfo.wind} km/h</strong>
+                </div>
+              </div>
+
+              <div className="weather-stat-item">
+                <div className="weather-stat-icon"><CloudRain size={16} /></div>
+                <div className="weather-stat-info">
+                  <span>Pioggia oggi</span>
+                  <strong>{dailyForecast[0]?.precipProb ?? 0}%</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : loadingWeather ? (
+          <div className="weather-hero-loading">
+            <RefreshCw size={24} className="spin" />
+            <span>Caricamento previsioni meteo...</span>
+          </div>
+        ) : weatherError ? (
+          <div className="weather-hero-error">
+            <p>{weatherError}</p>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => fetchWeather(city)}>
+              Riprova
+            </button>
+          </div>
+        ) : null}
+
+        {/* Previsioni Settimanali (7 Giorni) */}
+        <div className="weather-forecast-section">
+          <div className="weather-forecast-header">
+            <div className="weather-forecast-title">
+              <Calendar size={15} />
+              <span>Previsioni Prossimi 7 Giorni</span>
+            </div>
+            <span className="weather-source-badge">Dati meteo live Open-Meteo</span>
+          </div>
+
+          <div className="weather-forecast-grid">
+            {dailyForecast.map((day) => {
+              const DayIcon = day.icon;
+              return (
+                <div key={day.dateStr} className={`weather-day-card ${day.isToday ? 'is-today' : ''}`}>
+                  <div className="weather-day-header">
+                    <strong>{day.dayName}</strong>
+                    <span>{day.dayFormatted}</span>
+                  </div>
+
+                  <div className="weather-day-icon-wrap" title={day.label}>
+                    <DayIcon size={26} className="weather-day-icon" />
+                  </div>
+
+                  <div className="weather-day-condition" title={day.label}>
+                    {day.label}
+                  </div>
+
+                  <div className="weather-day-temps">
+                    <span className="temp-max">{day.maxTemp}°</span>
+                    <div className="temp-bar-wrap">
+                      <div className="temp-bar" />
+                    </div>
+                    <span className="temp-min">{day.minTemp}°</span>
+                  </div>
+
+                  {day.precipProb > 0 ? (
+                    <div className="weather-day-rain" title="Probabilità di precipitazioni">
+                      <Droplets size={10} />
+                      <span>{day.precipProb}%</span>
+                    </div>
+                  ) : (
+                    <div className="weather-day-rain weather-day-rain--dry">
+                      <span>0%</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="weather-modal-footer">
+          <span className="weather-disclaimer">
+            📍 Le previsioni vengono aggiornate automaticamente in base alla città selezionata.
+          </span>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={onClose}
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function WeatherDateWidget() {
+  const weatherState = useWeather();
+  const { todayLabel, timeLabel, currentInfo, city, loadingWeather, isModalOpen, setIsModalOpen } = weatherState;
   const CurrentIcon = currentInfo ? currentInfo.icon : CloudSun;
 
   return (
     <>
-      {/* Pill Box Cliccabile */}
       <div
         className="weather-date-pill"
         onClick={() => setIsModalOpen(true)}
@@ -287,248 +579,11 @@ export default function WeatherDateWidget() {
         ) : null}
       </div>
 
-      {/* Modal / Popup Previsioni Settimana */}
-      {isModalOpen && (
-        <div className="weather-modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="weather-modal-card" onClick={(e) => e.stopPropagation()}>
-            {/* Header del Modal */}
-            <div className="weather-modal-header">
-              <div className="weather-modal-location">
-                <MapPin size={18} className="weather-location-pin" />
-                <div className="weather-location-text">
-                  <h3>{city?.name}</h3>
-                  {city?.admin1 && <span>{city.admin1}, {city?.country || 'Italia'}</span>}
-                </div>
-              </div>
-
-              <div className="weather-modal-header-actions">
-                <button
-                  type="button"
-                  className="weather-header-btn"
-                  onClick={handleDetectLocation}
-                  title="Usa la tua posizione attuale (GPS)"
-                >
-                  <Compass size={15} />
-                  <span>GPS</span>
-                </button>
-                <button
-                  type="button"
-                  className="weather-header-btn"
-                  onClick={() => fetchWeather(city)}
-                  disabled={loadingWeather}
-                  title="Aggiorna dati meteo"
-                >
-                  <RefreshCw size={15} className={loadingWeather ? 'spin' : ''} />
-                </button>
-                <button
-                  type="button"
-                  className="weather-modal-close"
-                  onClick={() => setIsModalOpen(false)}
-                  title="Chiudi"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            </div>
-
-            {/* Barra ricerca / cambio città */}
-            <div className="weather-search-bar">
-              <div className="weather-search-input-wrapper">
-                <Search size={14} className="weather-search-icon" />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  placeholder="Cerca un'altra città (es. Roma, Bologna, Torino)..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onFocus={() => { if (searchResults.length > 0) setShowSearchDropdown(true); }}
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    className="weather-search-clear"
-                    onClick={() => { setSearchQuery(''); setSearchResults([]); }}
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-
-              {/* Quick Picks città famose */}
-              <div className="weather-quick-cities">
-                {POPULAR_CITIES.map((c) => (
-                  <button
-                    key={c.name}
-                    type="button"
-                    className={`weather-quick-city-chip ${city?.name === c.name ? 'is-active' : ''}`}
-                    onClick={() => handleSelectCity(c)}
-                  >
-                    {city?.name === c.name && <Check size={11} />}
-                    {c.name}
-                  </button>
-                ))}
-              </div>
-
-              {/* Dropdown risultati ricerca */}
-              {showSearchDropdown && searchResults.length > 0 && (
-                <div className="weather-search-dropdown">
-                  {searchResults.map((r) => (
-                    <div
-                      key={r.id}
-                      className="weather-search-item"
-                      onClick={() => handleSelectCity({
-                        name: r.name,
-                        country: r.country,
-                        admin1: r.admin1,
-                        latitude: r.latitude,
-                        longitude: r.longitude
-                      })}
-                    >
-                      <MapPin size={13} />
-                      <strong>{r.name}</strong>
-                      <span>{r.admin1 ? `${r.admin1}, ` : ''}{r.country}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Condizioni Attuali Hero */}
-            {currentInfo ? (
-              <div className={`weather-hero-card weather-theme-${currentInfo.type}`}>
-                <div className="weather-hero-main">
-                  <div className="weather-hero-icon-wrap">
-                    <CurrentIcon size={58} className="weather-hero-icon" />
-                  </div>
-                  <div className="weather-hero-temp-block">
-                    <div className="weather-hero-temp">
-                      {currentInfo.temp}<span>°C</span>
-                    </div>
-                    <div className="weather-hero-condition">
-                      {currentInfo.label}
-                    </div>
-                    <div className="weather-hero-perceived">
-                      Percepita: {currentInfo.apparent}°C
-                    </div>
-                  </div>
-                </div>
-
-                <div className="weather-hero-stats">
-                  <div className="weather-stat-item">
-                    <div className="weather-stat-icon"><Thermometer size={16} /></div>
-                    <div className="weather-stat-info">
-                      <span>Min / Max</span>
-                      <strong>{dailyForecast[0]?.minTemp ?? '-'}° / {dailyForecast[0]?.maxTemp ?? '-'}°</strong>
-                    </div>
-                  </div>
-
-                  <div className="weather-stat-item">
-                    <div className="weather-stat-icon"><Droplets size={16} /></div>
-                    <div className="weather-stat-info">
-                      <span>Umidità</span>
-                      <strong>{currentInfo.humidity}%</strong>
-                    </div>
-                  </div>
-
-                  <div className="weather-stat-item">
-                    <div className="weather-stat-icon"><Wind size={16} /></div>
-                    <div className="weather-stat-info">
-                      <span>Vento</span>
-                      <strong>{currentInfo.wind} km/h</strong>
-                    </div>
-                  </div>
-
-                  <div className="weather-stat-item">
-                    <div className="weather-stat-icon"><CloudRain size={16} /></div>
-                    <div className="weather-stat-info">
-                      <span>Pioggia oggi</span>
-                      <strong>{dailyForecast[0]?.precipProb ?? 0}%</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : loadingWeather ? (
-              <div className="weather-hero-loading">
-                <RefreshCw size={24} className="spin" />
-                <span>Caricamento previsioni meteo...</span>
-              </div>
-            ) : weatherError ? (
-              <div className="weather-hero-error">
-                <p>{weatherError}</p>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => fetchWeather(city)}>
-                  Riprova
-                </button>
-              </div>
-            ) : null}
-
-            {/* Previsioni Settimanali (7 Giorni) */}
-            <div className="weather-forecast-section">
-              <div className="weather-forecast-header">
-                <div className="weather-forecast-title">
-                  <Calendar size={15} />
-                  <span>Previsioni Prossimi 7 Giorni</span>
-                </div>
-                <span className="weather-source-badge">Dati meteo live Open-Meteo</span>
-              </div>
-
-              <div className="weather-forecast-grid">
-                {dailyForecast.map((day) => {
-                  const DayIcon = day.icon;
-                  return (
-                    <div key={day.dateStr} className={`weather-day-card ${day.isToday ? 'is-today' : ''}`}>
-                      <div className="weather-day-header">
-                        <strong>{day.dayName}</strong>
-                        <span>{day.dayFormatted}</span>
-                      </div>
-
-                      <div className="weather-day-icon-wrap" title={day.label}>
-                        <DayIcon size={26} className="weather-day-icon" />
-                      </div>
-
-                      <div className="weather-day-condition" title={day.label}>
-                        {day.label}
-                      </div>
-
-                      <div className="weather-day-temps">
-                        <span className="temp-max">{day.maxTemp}°</span>
-                        <div className="temp-bar-wrap">
-                          <div className="temp-bar" />
-                        </div>
-                        <span className="temp-min">{day.minTemp}°</span>
-                      </div>
-
-                      {day.precipProb > 0 ? (
-                        <div className="weather-day-rain" title="Probabilità di precipitazioni">
-                          <Droplets size={10} />
-                          <span>{day.precipProb}%</span>
-                        </div>
-                      ) : (
-                        <div className="weather-day-rain weather-day-rain--dry">
-                          <span>0%</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="weather-modal-footer">
-              <span className="weather-disclaimer">
-                📍 Le previsioni vengono aggiornate automaticamente in base alla città selezionata.
-              </span>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setIsModalOpen(false)}
-              >
-                Chiudi
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <WeatherModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        weatherState={weatherState}
+      />
     </>
   );
 }
