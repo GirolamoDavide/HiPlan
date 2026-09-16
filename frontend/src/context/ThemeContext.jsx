@@ -22,6 +22,21 @@ export function ThemeProvider({ children }) {
   const applyTheme = useCallback((resolved) => {
     document.documentElement.setAttribute('data-theme', resolved);
     document.documentElement.style.colorScheme = resolved;
+
+    // Sincronizza dinamicamente il colore della barra di Safari (macOS/iOS) e Chrome
+    const themeColor = resolved === 'dark' ? '#07111d' : '#f3f6fa';
+    const metaTags = document.querySelectorAll('meta[name="theme-color"]');
+    if (metaTags.length > 0) {
+      metaTags.forEach(meta => {
+        meta.removeAttribute('media');
+        meta.setAttribute('content', themeColor);
+      });
+    } else {
+      const meta = document.createElement('meta');
+      meta.setAttribute('name', 'theme-color');
+      meta.setAttribute('content', themeColor);
+      document.head.appendChild(meta);
+    }
   }, []);
 
   // Apply theme on mount and changes

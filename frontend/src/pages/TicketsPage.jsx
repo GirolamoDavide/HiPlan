@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import AppIcon from '../components/ui/AppIcon';
 import SearchableCombobox from '../components/ui/SearchableCombobox';
+import { Ticket, ChevronDown, CloudUpload } from 'lucide-react';
 import './TicketsPage.css';
 
 const BACKEND_URL = import.meta.env.VITE_API_URL
@@ -302,33 +303,54 @@ function NewTicketModal({ onClose, onCreated, projects, users, currentUser }) {
     <div className="tickets-modal-overlay">
       <div className="tickets-modal">
         <div className="tickets-modal-header">
-          <h2 className="tickets-modal-title">Nuovo Ticket</h2>
-          <button className="tickets-modal-close" onClick={onClose} aria-label="Chiudi">
-            <AppIcon name="close" />
+          <div className="tickets-modal-header-left">
+            <div className="tickets-modal-icon-badge">
+              <Ticket size={22} />
+            </div>
+            <div>
+              <h2 className="tickets-modal-title">Nuovo Ticket</h2>
+              <div className="tickets-modal-subtitle">Compila i dati per aprire e assegnare una nuova richiesta</div>
+            </div>
+          </div>
+          <button type="button" className="tickets-modal-close" onClick={onClose} aria-label="Chiudi">
+            <AppIcon name="close" size={16} />
           </button>
         </div>
         <form className="tickets-modal-body" onSubmit={handleSubmit}>
           <div className="tkt-field">
-            <label>Titolo *</label>
+            <label className="tkt-label">
+              <span>Titolo</span>
+              <span className="tkt-required">*</span>
+            </label>
             <input
               type="text"
+              className="tkt-input"
               placeholder="Descrivi brevemente il problema o l'evento..."
               value={form.title}
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               autoFocus
             />
           </div>
+
           <div className="tkt-field">
-            <label>Descrizione</label>
+            <label className="tkt-label">
+              <span>Descrizione</span>
+              <span className="tkt-optional">(opzionale)</span>
+            </label>
             <textarea
-              placeholder="Dettagli aggiuntivi, passi per riprodurre il problema, ecc."
+              className="tkt-textarea"
+              placeholder="Dettagli aggiuntivi, passi per riprodurre il problema, contesto utile..."
               value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
             />
           </div>
+
           <div className="tkt-field-row">
             <div className="tkt-field">
-              <label>Commessa (opzionale)</label>
+              <label className="tkt-label">
+                <span>Commessa</span>
+                <span className="tkt-optional">(opzionale)</span>
+              </label>
               <SearchableCombobox
                 value={form.project_id || form.custom_project_code || ''}
                 onChange={(val, opt) => {
@@ -341,40 +363,78 @@ function NewTicketModal({ onClose, onCreated, projects, users, currentUser }) {
               />
             </div>
             <div className="tkt-field">
-              <label>Priorità</label>
-              <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
-                <option value="low">Bassa</option>
-                <option value="medium">Media</option>
-                <option value="high">Alta</option>
-              </select>
+              <label className="tkt-label">Priorità</label>
+              <div className="tkt-select-wrap">
+                <select
+                  className="tkt-select"
+                  value={form.priority}
+                  onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
+                >
+                  <option value="low">🟢 Bassa</option>
+                  <option value="medium">🟡 Media</option>
+                  <option value="high">🔴 Alta</option>
+                </select>
+                <ChevronDown size={14} className="tkt-select-arrow" />
+              </div>
             </div>
           </div>
+
           <div className="tkt-field-row">
             <div className="tkt-field">
-              <label>Referente</label>
-              <select value={form.responsible_id} onChange={e => setForm(f => ({ ...f, responsible_id: e.target.value }))}>
-                <option value="">— Nessuno —</option>
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
-                ))}
-              </select>
+              <label className="tkt-label">Referente</label>
+              <div className="tkt-select-wrap">
+                <select
+                  className="tkt-select"
+                  value={form.responsible_id}
+                  onChange={e => setForm(f => ({ ...f, responsible_id: e.target.value }))}
+                >
+                  <option value="">— Nessuno —</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="tkt-select-arrow" />
+              </div>
+            </div>
+            <div className="tkt-field">
+              <label className="tkt-label">Addetti</label>
+              <AssigneeInput
+                selected={form.assigned_to}
+                onChange={v => setForm(f => ({ ...f, assigned_to: v }))}
+                users={users}
+                placeholder="Nessuno o cerca utente..."
+              />
             </div>
           </div>
+
           <div className="tkt-field">
-            <label>Addetti</label>
-            <AssigneeInput selected={form.assigned_to} onChange={v => setForm(f => ({ ...f, assigned_to: v }))} users={users} />
-          </div>
-          <div className="tkt-field">
-            <label>Allegati</label>
+            <label className="tkt-label">
+              <span>Allegati</span>
+              <span className="tkt-optional">(documenti, immagini o log)</span>
+            </label>
             <div
               className={`ticket-dropzone ${dragActive ? 'active' : ''}`}
-              onDragEnter={handleDrag} onDragOver={handleDrag} onDragLeave={handleDrag} onDrop={handleDrop}
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+              onClick={() => fileRef.current?.click()}
             >
-              Trascina qui i file o
-              <label className="ticket-upload-label" style={{ marginLeft: 8 }}>
-                <AppIcon name="paperclip" size={14} />
-                Scegli file
-                <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={e => {
+              <div className="ticket-dropzone-icon">
+                <CloudUpload size={22} />
+              </div>
+              <div className="ticket-dropzone-content">
+                <span className="ticket-dropzone-title">
+                  Trascina qui i file oppure <strong className="ticket-dropzone-link">sfoglia dal computer</strong>
+                </span>
+                <span className="ticket-dropzone-hint">Supporta qualsiasi formato (immagini, PDF, archivi ZIP, log)</span>
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                onChange={e => {
                   const selected = Array.from(e.target.files || []);
                   setFiles(prev => {
                     const seen = new Set(prev.map(f => `${f.name}_${f.size}`));
@@ -382,26 +442,38 @@ function NewTicketModal({ onClose, onCreated, projects, users, currentUser }) {
                     return [...prev, ...toAdd];
                   });
                   e.target.value = '';
-                }} />
-              </label>
+                }}
+              />
             </div>
             {files.length > 0 && (
               <div className="ticket-pending-files">
                 {files.map((f, i) => (
                   <span key={i} className="ticket-pending-chip">
-                    <AppIcon name="paperclip" size={12} />{f.name}
-                    <button type="button" onClick={() => setFiles(p => p.filter((_, j) => j !== i))} aria-label="Rimuovi file">
-                      <AppIcon name="close" size={11} />
+                    <AppIcon name="paperclip" size={13} />
+                    <span className="ticket-pending-chip-name" title={f.name}>{f.name}</span>
+                    <span className="ticket-pending-chip-size">({Math.round(f.size / 1024)} KB)</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFiles(p => p.filter((_, j) => j !== i));
+                      }}
+                      aria-label="Rimuovi file"
+                    >
+                      <AppIcon name="close" size={12} />
                     </button>
                   </span>
                 ))}
               </div>
             )}
           </div>
+
           <div className="tkt-modal-footer">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>Annulla</button>
-            <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
-              {saving ? 'Creazione...' : '+ Crea Ticket'}
+            <button type="button" className="btn btn-ghost btn-md" onClick={onClose}>
+              Annulla
+            </button>
+            <button type="submit" className="btn btn-primary btn-md" disabled={saving} style={{ minWidth: 140 }}>
+              {saving ? 'Creazione in corso...' : '+ Crea Ticket'}
             </button>
           </div>
         </form>
@@ -552,23 +624,50 @@ function EditTicketModal({ ticket, onClose, onUpdated, projects, users, currentU
     <div className="tickets-modal-overlay">
       <div className="tickets-modal">
         <div className="tickets-modal-header">
-          <h2 className="tickets-modal-title">Modifica Ticket</h2>
-          <button className="tickets-modal-close" onClick={onClose} aria-label="Chiudi">
-            <AppIcon name="close" />
+          <div className="tickets-modal-header-left">
+            <div className="tickets-modal-icon-badge">
+              <Ticket size={22} />
+            </div>
+            <div>
+              <h2 className="tickets-modal-title">Modifica Ticket</h2>
+              <div className="tickets-modal-subtitle">Aggiorna le informazioni, lo stato o gli assegnatari del ticket</div>
+            </div>
+          </div>
+          <button type="button" className="tickets-modal-close" onClick={onClose} aria-label="Chiudi">
+            <AppIcon name="close" size={16} />
           </button>
         </div>
         <form className="tickets-modal-body" onSubmit={handleSubmit}>
           <div className="tkt-field">
-            <label>Titolo *</label>
-            <input type="text" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} autoFocus />
+            <label className="tkt-label">
+              <span>Titolo</span>
+              <span className="tkt-required">*</span>
+            </label>
+            <input
+              type="text"
+              className="tkt-input"
+              value={form.title}
+              onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+              autoFocus
+            />
           </div>
           <div className="tkt-field">
-            <label>Descrizione</label>
-            <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+            <label className="tkt-label">
+              <span>Descrizione</span>
+              <span className="tkt-optional">(opzionale)</span>
+            </label>
+            <textarea
+              className="tkt-textarea"
+              value={form.description}
+              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            />
           </div>
           <div className="tkt-field-row">
             <div className="tkt-field">
-              <label>Commessa (opzionale)</label>
+              <label className="tkt-label">
+                <span>Commessa</span>
+                <span className="tkt-optional">(opzionale)</span>
+              </label>
               <SearchableCombobox
                 value={form.project_id || form.custom_project_code || ''}
                 onChange={(val, opt) => {
@@ -581,46 +680,71 @@ function EditTicketModal({ ticket, onClose, onUpdated, projects, users, currentU
               />
             </div>
             <div className="tkt-field">
-              <label>Priorità</label>
-              <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
-                <option value="low">Bassa</option>
-                <option value="medium">Media</option>
-                <option value="high">Alta</option>
-              </select>
+              <label className="tkt-label">Priorità</label>
+              <div className="tkt-select-wrap">
+                <select
+                  className="tkt-select"
+                  value={form.priority}
+                  onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
+                >
+                  <option value="low">🟢 Bassa</option>
+                  <option value="medium">🟡 Media</option>
+                  <option value="high">🔴 Alta</option>
+                </select>
+                <ChevronDown size={14} className="tkt-select-arrow" />
+              </div>
             </div>
           </div>
           <div className="tkt-field-row">
             <div className="tkt-field">
-              <label>Referente</label>
-              <select value={form.responsible_id} onChange={e => setForm(f => ({ ...f, responsible_id: e.target.value }))}>
-                <option value="">— Nessuno —</option>
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
-                ))}
-              </select>
+              <label className="tkt-label">Referente</label>
+              <div className="tkt-select-wrap">
+                <select
+                  className="tkt-select"
+                  value={form.responsible_id}
+                  onChange={e => setForm(f => ({ ...f, responsible_id: e.target.value }))}
+                >
+                  <option value="">— Nessuno —</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="tkt-select-arrow" />
+              </div>
+            </div>
+            <div className="tkt-field">
+              <label className="tkt-label">Stato</label>
+              <div className="tkt-select-wrap">
+                <select
+                  className="tkt-select"
+                  value={form.status}
+                  onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+                  disabled={ticket.status === 'Completato' && currentUser?.role !== 'admin'}
+                >
+                  <option value="Da gestire">Da gestire</option>
+                  <option value="In attesa del cliente">In attesa del cliente</option>
+                  <option value="Completato">Completato</option>
+                </select>
+                <ChevronDown size={14} className="tkt-select-arrow" />
+              </div>
             </div>
           </div>
           <div className="tkt-field">
-            <label>Addetti di riferimento</label>
-            <AssigneeInput selected={form.assigned_to} onChange={v => setForm(f => ({ ...f, assigned_to: v }))} users={users} />
-          </div>
-          <div className="tkt-field">
-            <label>Stato</label>
-            <select
-              value={form.status}
-              onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
-              disabled={ticket.status === 'Completato' && currentUser?.role !== 'admin'}
-            >
-              <option value="Da gestire">Da gestire</option>
-              <option value="In attesa del cliente">In attesa del cliente</option>
-              <option value="Completato">Completato</option>
-            </select>
+            <label className="tkt-label">Addetti di riferimento</label>
+            <AssigneeInput
+              selected={form.assigned_to}
+              onChange={v => setForm(f => ({ ...f, assigned_to: v }))}
+              users={users}
+              placeholder="Cerca operatore..."
+            />
           </div>
           <div className="tkt-modal-footer">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>Annulla</button>
-            <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>
+            <button type="button" className="btn btn-ghost btn-md" onClick={onClose}>
+              Annulla
+            </button>
+            <button type="submit" className="btn btn-primary btn-md" disabled={saving} style={{ minWidth: 130 }}>
               {!saving && <AppIcon name="save" size={15} />}
-              {saving ? 'Salvataggio…' : 'Salva'}
+              {saving ? 'Salvataggio…' : 'Salva Modifiche'}
             </button>
           </div>
         </form>

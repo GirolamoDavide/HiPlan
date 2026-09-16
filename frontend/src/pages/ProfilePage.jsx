@@ -1,9 +1,69 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import AppIcon from '../components/ui/AppIcon';
+import {
+  User,
+  Mail,
+  Shield,
+  Building2,
+  Calendar,
+  CalendarPlus,
+  Clock,
+  Trash2,
+  Edit3,
+  Check,
+  AlertCircle,
+  ArrowRight,
+  X,
+  Plus,
+  Tag,
+  Palmtree,
+  CalendarDays,
+  FolderKanban
+} from 'lucide-react';
 import './ProfilePage.css';
+
+const DEPARTMENT_LABELS = {
+  ufficio_tecnico: 'Ufficio Tecnico',
+  produzione: 'Produzione',
+  amministrazione: 'Amministrazione',
+  acquisti: 'Acquisti',
+  commerciale: 'Commerciale',
+  admin: 'Admin',
+};
+
+function getVacationDays(startDateStr, endDateStr) {
+  if (!startDateStr || !endDateStr) return 0;
+  const cleanStart = startDateStr.split('T')[0].split(' ')[0];
+  const cleanEnd = endDateStr.split('T')[0].split(' ')[0];
+  const [sY, sM, sD] = cleanStart.split('-').map(Number);
+  const [eY, eM, eD] = cleanEnd.split('-').map(Number);
+  const start = new Date(sY, sM - 1, sD);
+  const end = new Date(eY, eM - 1, eD);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return 0;
+
+  // Calcolo giorni lavorativi (lunedì - venerdì)
+  let workdays = 0;
+  let current = new Date(start);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      workdays++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Se cade interamente in giorni non feriali (es. weekend o singola festa), si contano i giorni effettivi (almeno 1)
+  if (workdays === 0) {
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const calendarDays = Math.round((end.getTime() - start.getTime()) / msPerDay) + 1;
+    return Math.max(1, calendarDays);
+  }
+
+  return workdays;
+}
 
 export default function ProfilePage() {
   const { user, fetchUser } = useAuth();
@@ -16,6 +76,7 @@ export default function ProfilePage() {
   const [form, setForm] = useState({ start_date: '', end_date: '', reason: '' });
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: '', username: '', email: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   function openEditModal() {
     setEditForm({ full_name: user?.full_name || '', username: user?.username || '', email: user?.email || '' });
@@ -43,7 +104,6 @@ export default function ProfilePage() {
   }
 
   useEffect(() => {
-    console.log('🔄 ProfilePage mounted, loading vacations...');
     loadVacations();
     loadRecovery();
   }, []);
@@ -51,7 +111,6 @@ export default function ProfilePage() {
   async function loadVacations() {
     try {
       const { data } = await api.get('/vacations/me');
-      console.log('✓ Vacations loaded:', data);
       setVacations(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Errore caricamento ferie:', e);
@@ -85,7 +144,6 @@ export default function ProfilePage() {
   async function handleCreate(e) {
     e.preventDefault();
 
-    // Validazione date
     if (!form.start_date || !form.end_date) {
       toast.error('Inserisci sia la data di inizio che di fine');
       return;
@@ -100,9 +158,9 @@ export default function ProfilePage() {
     }
 
     try {
+      setIsSubmitting(true);
       const response = await api.post('/vacations/me', form);
-      console.log('✓ Vacation created:', response.data);
-      toast.success('Ferie create');
+      toast.success('Ferie registrate con successo!');
       if (response.data.recovery_items?.length > 0) {
         toast.warning(`⚠️ ${response.data.recovery_items.length} fase/i con ore da recuperare rilevate.`);
       }
@@ -113,6 +171,8 @@ export default function ProfilePage() {
     } catch (err) {
       console.error('Errore creazione ferie:', err.response?.data);
       toast.error(err.response?.data?.detail || 'Errore creazione ferie');
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -129,225 +189,382 @@ export default function ProfilePage() {
     }
   }
 
-  const totalVacationDays = vacations.reduce((acc, v) => {
-    if (v.start_date && v.end_date) {
-      const start = new Date(v.start_date);
-      const end = new Date(v.end_date);
-      let count = 0;
-      let current = new Date(start);
-      while (current <= end) {
-        if (current.getDay() !== 0 && current.getDay() !== 6) count++;
-        current.setDate(current.getDate() + 1);
-      }
-      return acc + count;
-    }
-    return acc;
-  }, 0);
+  const totalVacationDays = useMemo(() => {
+    return vacations.reduce((acc, v) => {
+      return acc + getVacationDays(v.start_date, v.end_date);
+    }, 0);
+  }, [vacations]);
+
+  const previewDays = useMemo(() => {
+    if (!form.start_date || !form.end_date) return null;
+    return getVacationDays(form.start_date, form.end_date);
+  }, [form.start_date, form.end_date]);
+
+  const departmentText = DEPARTMENT_LABELS[user?.department] || user?.department || 'Nessuno';
+
+  const pendingRecoveryItems = recoveryItems.filter(
+    item => !dismissedKeys.has(getRecoveryKey(item))
+  );
 
   return (
     <div className="profile-page">
-      <div className="page-action-bar">
-        <span className="page-context-note">Dati personali e disponibilità</span>
-        <button className="btn btn-secondary" onClick={openEditModal}>
-          <AppIcon name="edit" />
-          Modifica profilo
+      {/* Action Bar */}
+      <div className="profile-action-bar">
+        <div className="profile-context-badge">
+          <span className="profile-context-dot" />
+          <span>Dati personali, autorizzazioni e disponibilità ferie</span>
+        </div>
+        <button type="button" className="btn-profile-edit" onClick={openEditModal}>
+          <Edit3 size={15} />
+          <span>Modifica profilo</span>
         </button>
       </div>
 
-      {/* Card statistiche utente */}
+      {/* Profile Stat Cards Grid */}
       <div className="profile-stats-grid">
-        <div className="stat-card">
-          <div className="stat-icon"><AppIcon name="user" /></div>
-          <div className="stat-content">
-            <div className="stat-value" style={{ fontSize: 14 }}>{user?.full_name || user?.username}</div>
-            <div className="stat-label">Nome Utente</div>
+        <div className="profile-stat-card stat-user">
+          <div className="stat-icon-wrap">
+            <User size={20} />
+          </div>
+          <div className="profile-stat-content">
+            <span className="profile-stat-label">Nome Utente</span>
+            <span className="profile-stat-value" title={user?.full_name || user?.username}>
+              {user?.full_name || user?.username}
+            </span>
           </div>
         </div>
-        <div className="stat-card stat-card-email">
-          <div className="stat-icon"><AppIcon name="mail" /></div>
-          <div className="stat-content">
-            <div className="stat-value stat-email-text" style={{ fontSize: 14 }}>{user?.email}</div>
-            <div className="stat-label">Email</div>
+
+        <div className="profile-stat-card stat-email">
+          <div className="stat-icon-wrap">
+            <Mail size={20} />
+          </div>
+          <div className="profile-stat-content">
+            <span className="profile-stat-label">Email Aziendale</span>
+            <span className="profile-stat-value" title={user?.email || 'N/D'}>
+              {user?.email || '—'}
+            </span>
           </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon"><AppIcon name="settings" /></div>
-          <div className="stat-content">
-            <div className="stat-value" style={{ fontSize: 14 }}>{user?.role?.toUpperCase()}</div>
-            <div className="stat-label">Ruolo</div>
+
+        <div className="profile-stat-card stat-role">
+          <div className="stat-icon-wrap">
+            <Shield size={20} />
           </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon"><AppIcon name="building" /></div>
-          <div className="stat-content">
-            <div className="stat-value" style={{ fontSize: 14 }}>
-              {user?.department === 'ufficio_tecnico' ? 'Ufficio Tecnico' :
-                user?.department === 'produzione' ? 'Produzione' :
-                  user?.department === 'amministrazione' ? 'Amministrazione' :
-                  user?.department === 'acquisti' ? 'Acquisti' :
-                    user?.department === 'admin' ? 'Admin' :
-                      (user?.department || 'Nessuno')}
+          <div className="profile-stat-content">
+            <span className="profile-stat-label">Ruolo di Sistema</span>
+            <div className="profile-stat-value">
+              <div className="stat-role-pill">
+                <Shield size={11} />
+                {user?.role?.toUpperCase() || 'USER'}
+              </div>
             </div>
-            <div className="stat-label">Reparto</div>
+          </div>
+        </div>
+
+        <div className="profile-stat-card stat-dept">
+          <div className="stat-icon-wrap">
+            <Building2 size={20} />
+          </div>
+          <div className="profile-stat-content">
+            <span className="profile-stat-label">Reparto Assegnato</span>
+            <div className="profile-stat-value">
+              <div className="stat-dept-pill">
+                <Building2 size={11} />
+                {departmentText}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="profile-stat-card stat-vacation">
+          <div className="stat-icon-wrap">
+            <Palmtree size={20} />
+          </div>
+          <div className="profile-stat-content">
+            <span className="profile-stat-label">Ferie Registrate</span>
+            <span className="profile-stat-value">
+              {totalVacationDays} {totalVacationDays === 1 ? 'giorno' : 'giorni'}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Form + Lista Ferie */}
-      <div className="profile-content-grid">
+      {/* Main Content Grid: Form + Vacation List */}
+      <div className="profile-main-grid">
+        {/* Left Column: Form Aggiungi Ferie */}
         <section className="profile-card">
-          <h3>Aggiungi ferie</h3>
-          <form onSubmit={handleCreate} className="profile-form">
-            <div className="form-group">
-              <label style={{ fontSize: '12px' }}>Inizio</label>
-              <input type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} required />
+          <div className="profile-card-header">
+            <div className="profile-card-header-left">
+              <div className="profile-card-icon-badge">
+                <CalendarPlus size={20} />
+              </div>
+              <div>
+                <h3 className="profile-card-title">Aggiungi ferie</h3>
+                <p className="profile-card-sub">Pianifica un periodo di assenza o riposo</p>
+              </div>
             </div>
-            <div className="form-group">
-              <label style={{ fontSize: '12px' }}>Fine</label>
-              <input type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} required />
-            </div>
-            <div className="form-group">
-              <label style={{ fontSize: '12px' }}>Motivo</label>
-              <input type="text" placeholder="Es. Riposo" value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} />
-            </div>
-            <button type="submit" className="btn-primary">✓ Aggiungi ferie</button>
-          </form>
+          </div>
+
+          <div className="profile-card-body">
+            <form onSubmit={handleCreate} className="profile-form">
+              {/* Riga Date: Inizio e Fine affiancate */}
+              <div className="profile-form-dates-row">
+                <div className="profile-form-group">
+                  <label className="profile-form-label">
+                    Inizio <span className="profile-required-mark">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    className="profile-input"
+                    value={form.start_date}
+                    onChange={e => setForm({ ...form, start_date: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="profile-form-group">
+                  <label className="profile-form-label">
+                    Fine <span className="profile-required-mark">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    className="profile-input"
+                    value={form.end_date}
+                    onChange={e => setForm({ ...form, end_date: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Banner anteprima durata se date valide */}
+              {previewDays !== null && previewDays > 0 && (
+                <div className="profile-preview-banner">
+                  <Clock size={15} />
+                  <span>
+                    Durata calcolata: <strong>{previewDays} {previewDays === 1 ? 'giorno' : 'giorni'}</strong>
+                  </span>
+                </div>
+              )}
+
+              {/* Motivo */}
+              <div className="profile-form-group">
+                <label className="profile-form-label">Motivo (opzionale)</label>
+                <input
+                  type="text"
+                  className="profile-input"
+                  placeholder="Es. Ferie estive, Riposo, Permesso..."
+                  value={form.reason}
+                  onChange={e => setForm({ ...form, reason: e.target.value })}
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn-profile-primary"
+                disabled={isSubmitting}
+              >
+                <Plus size={16} />
+                <span>{isSubmitting ? 'Registrazione...' : 'Aggiungi ferie'}</span>
+              </button>
+            </form>
+          </div>
         </section>
 
+        {/* Right Column: Le tue ferie */}
         <section className="profile-card">
-          <h3>Le tue ferie</h3>
-          <div className="vacation-list">
-            {vacations.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-icon"><span className="sidebar-link-icon"><AppIcon name="calendar" size={50} /></span></div>
-                <p>Nessuna vacanza registrata</p>
+          <div className="profile-card-header">
+            <div className="profile-card-header-left">
+              <div className="profile-card-icon-badge">
+                <Calendar size={18} />
               </div>
-            ) : (
-              vacations.map(v => {
-                const start = new Date(v.start_date);
-                const end = new Date(v.end_date);
-                // Conta solo giorni lavorativi (lunedì-venerdì)
-                let workdays = 0;
-                let current = new Date(start);
-                while (current <= end) {
-                  if (current.getDay() !== 0 && current.getDay() !== 6) workdays++;
-                  current.setDate(current.getDate() + 1);
-                }
-                return (
-                  <div key={v.id} className="vacation-item">
-                    <div className="vacation-info">
-                      <div className="vacation-dates">{v.start_date} → {v.end_date}</div>
-                      <div className="vacation-duration">{workdays} giorni</div>
-                      <div className="vacation-reason">{v.reason || 'Nessun motivo specificato'}</div>
-                    </div>
-                    <button className="btn-delete" onClick={() => handleDelete(v.id)} aria-label="Elimina ferie">
-                      <AppIcon name="trash" size={15} />
-                    </button>
-                  </div>
-                );
-              })
+              <div>
+                <h3 className="profile-card-title">Le tue ferie</h3>
+                <p className="profile-card-sub">Storico delle assenze programmate</p>
+              </div>
+            </div>
+            {vacations.length > 0 && (
+              <span className="profile-card-count-badge">
+                <Clock size={12} />
+                {vacations.length} {vacations.length === 1 ? 'periodo' : 'periodi'} ({totalVacationDays} gg)
+              </span>
             )}
           </div>
+
+          <div className="profile-card-body">
+            <div className="vacation-list-container">
+              {vacations.length === 0 ? (
+                <div className="vacation-empty-state">
+                  <div className="vacation-empty-icon-wrap">
+                    <Palmtree size={28} />
+                  </div>
+                  <h4 className="vacation-empty-title">Nessuna ferie registrata</h4>
+                  <p className="vacation-empty-desc">
+                    Usa il modulo a sinistra per aggiungere le tue prossime ferie o periodi di assenza.
+                  </p>
+                </div>
+              ) : (
+                vacations.map(v => {
+                  const days = getVacationDays(v.start_date, v.end_date);
+                  const durationLabel = days === 1 ? '1 giorno' : `${days} giorni`;
+                  const isClosure = (v.reason || '').toLowerCase().includes('chiusura');
+
+                  return (
+                    <div key={v.id} className="vacation-item-card">
+                      <div className="vacation-item-left">
+                        <div className="vacation-item-icon-wrap">
+                          <CalendarDays size={16} />
+                        </div>
+                        <div className="vacation-item-info">
+                          <div className="vacation-item-dates">
+                            <span>{v.start_date}</span>
+                            <ArrowRight size={13} className="vacation-date-arrow" />
+                            <span>{v.end_date}</span>
+                          </div>
+                          {v.reason && (
+                            <span
+                              className={`vacation-pill-reason ${isClosure ? 'closure' : ''}`}
+                              title={v.reason}
+                            >
+                              <Tag size={11} />
+                              {v.reason}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="vacation-item-right">
+                        <span className="vacation-pill-duration">
+                          <Clock size={11} />
+                          {durationLabel}
+                        </span>
+                        <button
+                          type="button"
+                          className="vacation-delete-btn"
+                          onClick={() => handleDelete(v.id)}
+                          title="Elimina questo periodo di ferie"
+                          aria-label="Elimina ferie"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </section>
       </div>
 
-      {/* Sezione Ore da Recuperare */}
-      {recoveryItems.filter(item => !dismissedKeys.has(getRecoveryKey(item))).length > 0 && (
-        <div className="profile-content-grid" >
-          <section className="conflict-card card" style={{ gridColumn: '1 / -1' }}>
-            <h3 style={{ margin: 0, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-              <AppIcon name="alert-circle" /> Ore da Recuperare per Ferie
-            </h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '16px', fontSize: '0.9rem' }}>
-              Le seguenti fasi hanno ore pianificate che cadono nei tuoi giorni di ferie. Queste ore andrebbero recuperate in accordo con il tuo referente.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {recoveryItems
-                .filter(item => !dismissedKeys.has(getRecoveryKey(item)))
-                .map((item, i) => (
-                  <div key={i} style={{
-                    background: 'white', borderRadius: '8px', padding: '12px',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    gap: '12px', flexWrap: 'wrap', borderLeft: '4px solid #f59e0b'
-                  }}>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500 }}>
-                        <span style={{ color: 'var(--secondary)', display: 'flex', alignItems: 'center' }}><AppIcon name="list" size={15} /></span>
-                        {item.task_name}
-                      </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#9ca3af' }}>
-                        <AppIcon name="projects" size={14} />
-                        Progetto: {item.project_code && item.project_code !== "—" ? `${item.project_code}${item.project_name && item.project_name !== item.project_code && item.project_name !== "—" ? ` - ${item.project_name}` : ''}` : item.project_name}
-                      </span>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                        {item.vacation_days?.length || 0} giorni lavorativi sovrapposti
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span className="badge badge-high" style={{ fontSize: '0.95rem', background: '#f59e0b', color: '#fff', border: 'none' }}>
-                        {item.hours_to_recover}h
-                      </span>
-                      <button
-                        className="btn-delete"
-                        onClick={() => dismissRecoveryItem(item)}
-                        title="Segna come recuperata e rimuovi dalla lista"
-                        aria-label="Segna recuperata"
-                      >
-                        <AppIcon name="check" size={15} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </section>
-        </div>
+      {/* Recovery Section: Ore da Recuperare */}
+      {pendingRecoveryItems.length > 0 && (
+        <section className="profile-recovery-card">
+          <div className="profile-recovery-header">
+            <AlertCircle size={20} />
+            <h3>Ore da Recuperare per Ferie</h3>
+          </div>
+          <p className="profile-recovery-desc">
+            Le seguenti fasi hanno ore pianificate che cadono nei tuoi giorni di ferie. Queste ore andrebbero recuperate in accordo con il tuo referente.
+          </p>
+          <div className="profile-recovery-list">
+            {pendingRecoveryItems.map((item, i) => (
+              <div key={i} className="profile-recovery-item">
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  <span className="profile-recovery-task">
+                    {item.task_name}
+                  </span>
+                  <span className="profile-recovery-proj">
+                    <FolderKanban size={13} />
+                    Progetto: {item.project_code && item.project_code !== "—" ? `${item.project_code}${item.project_name && item.project_name !== item.project_code && item.project_name !== "—" ? ` - ${item.project_name}` : ''}` : item.project_name}
+                  </span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: '0.78rem' }}>
+                    {item.vacation_days?.length || 0} giorni lavorativi sovrapposti
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span className="profile-recovery-badge">
+                    {item.hours_to_recover}h
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-recovery-dismiss"
+                    onClick={() => dismissRecoveryItem(item)}
+                    title="Segna come recuperata e rimuovi dalla lista"
+                    aria-label="Segna recuperata"
+                  >
+                    <Check size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
+      {/* Modal Modifica Profilo */}
       {showEditModal && (
-        <div className="modal-overlay">
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <AppIcon name="user" />
-                <div style={{ fontSize: '18px', fontWeight: '600' }}>Modifica Profilo</div>
+        <div className="profile-modal-overlay" onClick={() => setShowEditModal(false)}>
+          <div className="profile-edit-modal" onClick={e => e.stopPropagation()}>
+            <div className="profile-edit-header">
+              <div className="profile-edit-header-left">
+                <div className="profile-edit-icon-badge">
+                  <User size={20} />
+                </div>
+                <div>
+                  <h3>Modifica Profilo</h3>
+                  <p>Aggiorna le tue informazioni personali</p>
+                </div>
               </div>
-              <button className="btn-ghost btn-icon" onClick={() => setShowEditModal(false)} aria-label="Chiudi">
-                <AppIcon name="close" />
+              <button
+                type="button"
+                className="profile-modal-close"
+                onClick={() => setShowEditModal(false)}
+                aria-label="Chiudi"
+              >
+                <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleSaveProfile}>
-              <div className="input-group">
-                <label>Nome Completo</label>
+            <form onSubmit={handleSaveProfile} className="profile-edit-form">
+              <div className="profile-form-group">
+                <label className="profile-form-label">Nome Completo</label>
                 <input
-                  className="input"
+                  className="profile-input"
                   value={editForm.full_name}
                   onChange={e => setEditForm({ ...editForm, full_name: e.target.value })}
                   placeholder="Es. Mario Rossi"
                 />
               </div>
-              <div className="input-group">
-                <label>Username *</label>
+              <div className="profile-form-group">
+                <label className="profile-form-label">Username *</label>
                 <input
-                  className="input"
+                  className="profile-input"
                   required
                   value={editForm.username}
                   onChange={e => setEditForm({ ...editForm, username: e.target.value })}
                   placeholder="Es. m.rossi"
                 />
               </div>
-              <div className="input-group">
-                <label>Email *</label>
+              <div className="profile-form-group">
+                <label className="profile-form-label">Email *</label>
                 <input
-                  className="input"
+                  type="email"
+                  className="profile-input"
                   required
                   value={editForm.email}
                   onChange={e => setEditForm({ ...editForm, email: e.target.value })}
                   placeholder="Es. m.rossi@hiway.it"
                 />
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowEditModal(false)}>Annulla</button>
-                <button type="submit" className="btn btn-primary">Salva Modifiche</button>
+              <div className="profile-modal-footer">
+                <button
+                  type="button"
+                  className="btn-profile-secondary"
+                  onClick={() => setShowEditModal(false)}
+                >
+                  Annulla
+                </button>
+                <button type="submit" className="btn-profile-primary" style={{ width: 'auto', padding: '0 20px', height: '40px', marginTop: 0 }}>
+                  Salva Modifiche
+                </button>
               </div>
             </form>
           </div>

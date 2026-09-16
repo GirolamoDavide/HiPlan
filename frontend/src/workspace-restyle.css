@@ -1773,16 +1773,23 @@
   color: var(--text-secondary);
 }
 
-.todo-modal,
-.tickets-modal {
+.todo-modal {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   background: var(--bg-elevated);
   box-shadow: var(--shadow-lg);
 }
 
-.todo-modal-header,
-.tickets-modal-header {
+.tickets-modal {
+  width: 100% !important;
+  max-width: 860px !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: 18px !important;
+  background: var(--bg-card) !important;
+  box-shadow: var(--shadow-xl) !important;
+}
+
+.todo-modal-header {
   min-height: 58px;
   padding: 14px 18px;
   border-color: var(--border-subtle);
@@ -1790,7 +1797,9 @@
 }
 
 .tickets-modal-header {
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 20px 28px !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  background: var(--bg-card) !important;
 }
 
 .todo-modal-close,
@@ -1812,16 +1821,26 @@
   background: var(--bg-hover);
 }
 
-.todo-modal-body,
-.tickets-modal-body {
+.todo-modal-body {
   padding: 18px;
 }
 
-.todo-modal-footer,
-.tkt-modal-footer {
+.tickets-modal-body {
+  padding: 24px 28px 28px !important;
+  gap: 18px !important;
+}
+
+.todo-modal-footer {
   gap: 8px;
   padding: 14px 18px;
   border-top: 1px solid var(--border-subtle);
+}
+
+.tkt-modal-footer {
+  padding: 16px 28px !important;
+  gap: 12px !important;
+  border-top: 1px solid var(--border-subtle) !important;
+  background: var(--bg-card) !important;
 }
 
 .note-modal-box {
