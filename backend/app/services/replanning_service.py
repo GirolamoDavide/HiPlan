@@ -257,31 +257,6 @@ async def get_replanning_suggestions(db: AsyncSession, current_user=None):
                             except:
                                 pass
                                 
-                    for w in workers_list:
-                        w_eff = 0
-                        if w in actual_h_map and isinstance(actual_h_map[w], dict) and date_str in actual_h_map[w]:
-                            try:
-                                w_eff = float(actual_h_map[w][date_str])
-                            except:
-                                pass
-                        
-                        if w_eff == 0 and ore_gg > 0:
-                            sugg_id = f"zero_hours_{task.id}_{w}_{date_str.replace('-','')}"
-                            if not any(s["id"] == sugg_id for s in suggestions):
-                                suggestions.append({
-                                    "id": sugg_id,
-                                    "type": "zero_hours",
-                                    "task_id": str(task.id),
-                                    "task_name": task.text,
-                                    "project_id": str(task.project_id),
-                                    "project_name": task.project.name if task.project else "-",
-                                    "project_code": (task.project.code if task.project.code else "") if task.project else "",
-                                    "project_color": task.project.color if getattr(task, 'project', None) and getattr(task.project, 'color', None) else None,
-                                    "department": getattr(task, "department", None),
-                                    "worker": w,
-                                    "date": str(cur_d),
-                                    "reason": f"L'addetto {w} il {cur_d.strftime('%d/%m/%Y')} non ha consuntivato ore per questa fase."
-                                })
 
                     if tot_day_eff > 0 and tot_day_eff < (ore_gg * 0.5):
                         has_critical_delay = True
@@ -462,3 +437,128 @@ async def get_replanning_suggestions(db: AsyncSession, current_user=None):
                 })
 
     return suggestions
+
+
+async def get_zero_hours_alerts(db: AsyncSession, current_user: Optional[User] = None) -> List[Dict[str, Any]]:
+    """
+    Rileva le mancate consuntivazioni: per ciascuna fase attiva e non completata,
+    individua gli addetti assegnati che in un giorno lavorativo trascorso (start_date <= giorno <= oggi)
+    non hanno registrato alcuna ora consuntivata (e non erano in ferie).
+    """
+    today = date.today()
+    tasks_res = await db.execute(
+        select(Task)
+        .join(Project, Task.project_id == Project.id)
+        .options(selectinload(Task.project))
+        .where(Task.type != TaskType.PROJECT)
+        .where(Task.type != TaskType.MILESTONE)
+        .where(Task.completed != 1)
+        .where(Project.deleted_at.is_(None))
+        .where(Project.status.in_([ProjectStatus.PLANNING, ProjectStatus.ACTIVE, "planning", "active", "PLANNING", "ACTIVE"]))
+    )
+    all_tasks_raw = tasks_res.scalars().all()
+    all_tasks = []
+    for t in all_tasks_raw:
+        if not t.project or getattr(t.project, 'deleted_at', None) is not None:
+            continue
+        p_status = t.project.status.value if hasattr(t.project.status, 'value') else str(t.project.status)
+        p_status_clean = p_status.lower().replace("projectstatus.", "").strip()
+        if p_status_clean not in ("planning", "active"):
+            continue
+        all_tasks.append(t)
+
+    # Se l'utente non è admin, possiamo filtrare per reparto se desiderato
+    # (Per default in amministrazione mostriamo tutto o per reparto)
+    # Carichiamo ferie e utenti per escludere assenze giustificate
+    vac_res = await db.execute(select(Vacation))
+    vacations = vac_res.scalars().all()
+    users_res = await db.execute(select(User))
+    users = users_res.scalars().all()
+    fullname_to_id = {u.full_name: str(u.id) for u in users if u.full_name}
+    username_to_id = {u.username: str(u.id) for u in users if u.username}
+
+    def get_user_id(name: str):
+        return fullname_to_id.get(name) or username_to_id.get(name)
+
+    vacation_dates_by_uid = {}
+    for v in vacations:
+        uid = str(v.user_id)
+        if uid not in vacation_dates_by_uid:
+            vacation_dates_by_uid[uid] = set()
+        cur = v.start_date
+        while cur <= v.end_date:
+            vacation_dates_by_uid[uid].add(cur)
+            cur += timedelta(days=1)
+
+    alerts = []
+    seen_ids = set()
+
+    for task in all_tasks:
+        if not task.start_date or not task.end_date:
+            continue
+        if getattr(task, 'type', '') == 'milestone':
+            continue
+
+        workers_list = []
+        if task.workers:
+            try:
+                workers_list = json.loads(task.workers) if isinstance(task.workers, str) else task.workers
+            except Exception:
+                pass
+        if not workers_list:
+            continue
+
+        try:
+            actual_h_map = json.loads(task.actual_hours) if task.actual_hours else {}
+        except Exception:
+            actual_h_map = {}
+
+        planned_h = float(task.planned_hours or 8.0)
+        working_days = get_working_days_count(task.start_date, task.end_date)
+        if working_days <= 0 or planned_h <= 0:
+            continue
+
+        ore_gg = planned_h / working_days
+        if ore_gg <= 0:
+            continue
+
+        cur_d = task.start_date
+        while cur_d <= task.end_date and cur_d <= today:
+            if not is_weekend_or_holiday(cur_d):
+                date_str = cur_d.strftime("%Y-%m-%d")
+                for w in workers_list:
+                    uid = get_user_id(w)
+                    if uid and cur_d in vacation_dates_by_uid.get(uid, set()):
+                        continue  # In ferie autorizzate, non consideriamo mancata consuntivazione
+
+                    w_eff = 0
+                    if w in actual_h_map and isinstance(actual_h_map[w], dict) and date_str in actual_h_map[w]:
+                        try:
+                            w_eff = float(actual_h_map[w][date_str])
+                        except Exception:
+                            pass
+
+                    if w_eff == 0:
+                        alert_id = f"zero_hours_{task.id}_{w}_{date_str.replace('-', '')}"
+                        if alert_id not in seen_ids:
+                            seen_ids.add(alert_id)
+                            alerts.append({
+                                "id": alert_id,
+                                "type": "zero_hours",
+                                "task_id": str(task.id),
+                                "task_name": task.text,
+                                "project_id": str(task.project_id),
+                                "project_name": task.project.name if task.project else "-",
+                                "project_code": (task.project.code if task.project.code else "") if task.project else "",
+                                "project_color": task.project.color if getattr(task, 'project', None) and getattr(task.project, 'color', None) else None,
+                                "department": getattr(task, "department", None),
+                                "worker": w,
+                                "date": str(cur_d),
+                                "formatted_date": cur_d.strftime('%d/%m/%Y'),
+                                "planned_daily_hours": round(ore_gg, 1),
+                                "reason": f"L'addetto {w} il {cur_d.strftime('%d/%m/%Y')} non ha consuntivato ore per questa fase."
+                            })
+            cur_d += timedelta(days=1)
+
+    alerts.sort(key=lambda x: x["date"], reverse=True)
+    return alerts

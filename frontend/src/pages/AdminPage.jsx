@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../api/client';
@@ -35,8 +36,14 @@ const BUDGET_MODE_SHORT_LABELS = {
 };
 
 export default function AdminPage() {
+  const navigate = useNavigate();
   const toast = useToast();
   const [users, setUsers] = useState([]);
+  const [zeroHoursAlerts, setZeroHoursAlerts] = useState([]);
+  const [loadingZeroHours, setLoadingZeroHours] = useState(false);
+  const [zeroHoursSearch, setZeroHoursSearch] = useState('');
+  const [zeroHoursDeptFilter, setZeroHoursDeptFilter] = useState('all');
+  const [zeroHoursPage, setZeroHoursPage] = useState(1);
   const [phaseTemplates, setPhaseTemplates] = useState([]);
   const [filterDept, setFilterDept] = useState('all');
   const [showAddTemplateModal, setShowAddTemplateModal] = useState(false);
@@ -119,6 +126,7 @@ export default function AdminPage() {
     aiReport: true, // Di default compresso mostrando solo i KPI come in Immagine 2
     annunci: true,
     users: true,
+    zeroHours: true,
     templates: true,
     ticketPhases: true,
     todoEmail: true,
@@ -213,11 +221,41 @@ export default function AdminPage() {
   async function loadData() {
     setLoading(true);
     try {
-      await Promise.all([loadUsers(), loadPhaseTemplates(), loadGlobalBanners(), loadTicketPhases(), loadLastBackup(), loadEmailLogs(), loadTodoEmailSettings()]);
+      await Promise.all([loadUsers(), loadZeroHoursAlerts(), loadPhaseTemplates(), loadGlobalBanners(), loadTicketPhases(), loadLastBackup(), loadEmailLogs(), loadTodoEmailSettings()]);
     } finally {
       setLoading(false);
     }
   }
+
+  async function loadZeroHoursAlerts() {
+    setLoadingZeroHours(true);
+    try {
+      const { data } = await api.get('/replanning/zero-hours');
+      setZeroHoursAlerts(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Errore caricamento mancata consuntivazione:', err);
+    } finally {
+      setLoadingZeroHours(false);
+    }
+  }
+
+  const filteredZeroHours = zeroHoursAlerts.filter(item => {
+    if (zeroHoursDeptFilter !== 'all' && item.department !== zeroHoursDeptFilter) return false;
+    if (zeroHoursSearch.trim()) {
+      const q = zeroHoursSearch.toLowerCase();
+      const matchWorker = (item.worker || '').toLowerCase().includes(q);
+      const matchProject = (item.project_name || '').toLowerCase().includes(q) || (item.project_code || '').toLowerCase().includes(q);
+      const matchTask = (item.task_name || '').toLowerCase().includes(q);
+      const matchDate = (item.formatted_date || item.date || '').toLowerCase().includes(q);
+      if (!matchWorker && !matchProject && !matchTask && !matchDate) return false;
+    }
+    return true;
+  });
+
+  const zeroHoursPerPage = 10;
+  const totalZeroHoursPages = Math.ceil(filteredZeroHours.length / zeroHoursPerPage) || 1;
+  const currentZeroHoursPage = Math.min(zeroHoursPage, totalZeroHoursPages);
+  const paginatedZeroHours = filteredZeroHours.slice((currentZeroHoursPage - 1) * zeroHoursPerPage, currentZeroHoursPage * zeroHoursPerPage);
 
   async function loadTodoEmailSettings() {
     try {
@@ -1024,6 +1062,215 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* SEZIONE: MANCATA CONSUNTIVAZIONE ORE */}
+      <div className={`admin-section-card ${collapsedSections.zeroHours ? 'is-collapsed' : ''}`} style={{ marginTop: 32 }}>
+        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+          <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => toggleSection('zeroHours')}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <h2><AppIcon name="clock" /> Mancata consuntivazione ore</h2>
+              {zeroHoursAlerts.length > 0 && (
+                <span className="badge" style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', fontWeight: 600, fontSize: '0.75rem', padding: '2px 8px', borderRadius: 999 }}>
+                  {zeroHoursAlerts.length}
+                </span>
+              )}
+            </div>
+            <p className="admin-section-desc">
+              Rilevamento addetti che non hanno consuntivato ore nelle date lavorative previste ({zeroHoursAlerts.length} segnalazioni)
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
+            {!collapsedSections.zeroHours && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={loadZeroHoursAlerts}
+                disabled={loadingZeroHours}
+                title="Ricarica allerte"
+              >
+                <AppIcon name="refresh" />
+                Aggiorna
+              </button>
+            )}
+            <div style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => toggleSection('zeroHours')}>
+              <AppIcon name={collapsedSections.zeroHours ? 'chevronDown' : 'chevronUp'} size={18} />
+            </div>
+          </div>
+        </div>
+
+        {!collapsedSections.zeroHours && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', flex: 1 }}>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="Cerca addetto, commessa o fase..."
+                  value={zeroHoursSearch}
+                  onChange={(e) => { setZeroHoursSearch(e.target.value); setZeroHoursPage(1); }}
+                  style={{ maxWidth: 320, fontSize: '0.85rem' }}
+                />
+                <select
+                  className="input"
+                  value={zeroHoursDeptFilter}
+                  onChange={(e) => { setZeroHoursDeptFilter(e.target.value); setZeroHoursPage(1); }}
+                  style={{ maxWidth: 200, fontSize: '0.85rem' }}
+                >
+                  <option value="all">Tutti i reparti</option>
+                  <option value="ufficio_tecnico">Ufficio Tecnico</option>
+                  <option value="produzione">Produzione</option>
+                  <option value="amministrazione">Amministrazione</option>
+                  <option value="acquisti">Acquisti</option>
+                  <option value="commerciale">Commerciale</option>
+                </select>
+              </div>
+              <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                Visualizzate <strong>{filteredZeroHours.length}</strong> segnalazioni
+              </div>
+            </div>
+
+            {loadingZeroHours ? (
+              <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                Caricamento segnalazioni...
+              </div>
+            ) : filteredZeroHours.length === 0 ? (
+              <div className="backup-empty" style={{ padding: 28, textAlign: 'center' }}>
+                <div style={{ fontSize: '1.5rem', marginBottom: 8 }}>✅</div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  Nessuna mancata consuntivazione rilevata
+                </div>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                  Tutti gli addetti assegnati alle fasi attive hanno registrato regolarmente le loro ore.
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 110 }}>Data</th>
+                        <th>Addetto</th>
+                        <th>Commessa</th>
+                        <th>Fase</th>
+                        <th>Reparto</th>
+                        <th style={{ textAlign: 'right', width: 150 }}>Azione</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedZeroHours.map((alert) => (
+                        <tr key={alert.id}>
+                          <td>
+                            <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                              {alert.formatted_date || alert.date}
+                            </div>
+                          </td>
+                          <td>
+                            <div className="admin-user-cell" style={{ gap: 10 }}>
+                              <div
+                                className="sidebar-avatar"
+                                style={{
+                                  width: 28,
+                                  height: 28,
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700,
+                                  borderRadius: 8,
+                                  background: alert.department && DEPT_COLORS[alert.department]
+                                    ? `linear-gradient(135deg, ${DEPT_COLORS[alert.department]}, ${DEPT_COLORS[alert.department]}cc)`
+                                    : 'var(--sidebar-avatar-bg)',
+                                  color: '#ffffff',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  boxShadow: '0 2px 6px rgba(0,0,0,0.12)'
+                                }}
+                              >
+                                {alert.worker?.[0]?.toUpperCase() || '?'}
+                              </div>
+                              <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                                {alert.worker}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                              {alert.project_code && (
+                                <span className="badge" style={{ alignSelf: 'flex-start', fontSize: '0.7rem', padding: '1px 6px', background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+                                  {alert.project_code}
+                                </span>
+                              )}
+                              <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>
+                                {alert.project_name}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                              {alert.task_name}
+                            </span>
+                          </td>
+                          <td>
+                            {alert.department ? (
+                              <span
+                                className="badge"
+                                style={{
+                                  backgroundColor: `${DEPT_COLORS[alert.department] || '#64748b'}20`,
+                                  color: DEPT_COLORS[alert.department] || 'var(--text-secondary)',
+                                  border: `1px solid ${DEPT_COLORS[alert.department] || '#64748b'}40`,
+                                  fontSize: '0.75rem',
+                                  padding: '2px 8px'
+                                }}
+                              >
+                                {DEPT_LABELS[alert.department] || alert.department}
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>-</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              className="btn btn-sm btn-secondary"
+                              onClick={() => navigate(`/projects/${alert.project_id}`)}
+                              title="Vai al Gantt della commessa"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}
+                            >
+                              <span>Vai alla commessa</span>
+                              <AppIcon name="chevronRight" size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {totalZeroHoursPages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                      Pagina {currentZeroHoursPage} di {totalZeroHoursPages}
+                    </span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        disabled={currentZeroHoursPage <= 1}
+                        onClick={() => setZeroHoursPage(prev => Math.max(prev - 1, 1))}
+                      >
+                        Precedente
+                      </button>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        disabled={currentZeroHoursPage >= totalZeroHoursPages}
+                        onClick={() => setZeroHoursPage(prev => Math.min(prev + 1, totalZeroHoursPages))}
+                      >
+                        Successiva
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

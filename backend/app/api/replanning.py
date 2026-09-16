@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.core.dependencies import get_db, get_current_user
 from app.models.user import User, UserRole
 from app.models.replan_log import ReplanLog
-from app.services.replanning_service import get_replanning_suggestions
+from app.services.replanning_service import get_replanning_suggestions, get_zero_hours_alerts
 from app.services.smart_replanning_service import (
     generate_project_smart_suggestions,
     apply_smart_replanning_proposal,
@@ -35,6 +35,22 @@ async def get_suggestions(
             detail="Accesso negato. Solo admin ed editor possono vedere i suggerimenti."
         )
     return await get_replanning_suggestions(db, current_user)
+
+
+@router.get("/zero-hours")
+async def get_zero_hours(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Restituisce l'elenco delle mancate consuntivazioni ore per addetto e data.
+    """
+    if current_user.role not in [UserRole.ADMIN, UserRole.EDITOR]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accesso negato. Solo admin ed editor possono accedere a questa sezione."
+        )
+    return await get_zero_hours_alerts(db, current_user)
 
 
 @router.get("/project/{project_id}/suggestions")
