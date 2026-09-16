@@ -360,6 +360,14 @@ export function useWeather() {
   };
 }
 
+function getRainBadgeClass(prob, type) {
+  if (!prob || prob === 0) return 'weather-rain-badge--dry';
+  if (type === 'thunder') return 'weather-rain-badge--thunder';
+  if (prob >= 60) return 'weather-rain-badge--heavy';
+  if (prob >= 30) return 'weather-rain-badge--moderate';
+  return 'weather-rain-badge--light';
+}
+
 export function WeatherModal({ isOpen, onClose, weatherState }) {
   if (!isOpen || !weatherState) return null;
 
@@ -504,7 +512,7 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
           {/* Colonna Sinistra: Hero Card Condizioni Attuali */}
           {currentInfo ? (
             <div className={`weather-hero-card weather-theme-${currentInfo.type}`}>
-              <div className="weather-hero-badge-tag">Meteo Attuale</div>
+              <div className="weather-hero-badge-tag">● Meteo Attuale</div>
               <div className="weather-hero-main">
                 <div className="weather-hero-icon-wrap">
                   <CurrentIcon size={52} className="weather-hero-icon" />
@@ -524,7 +532,7 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
 
               <div className="weather-hero-stats">
                 <div className="weather-stat-item">
-                  <div className="weather-stat-icon"><Thermometer size={15} /></div>
+                  <div className="weather-stat-icon weather-stat-icon--temp"><Thermometer size={16} /></div>
                   <div className="weather-stat-info">
                     <span>Min / Max</span>
                     <strong>{dailyForecast[0]?.minTemp ?? '-'}° / {dailyForecast[0]?.maxTemp ?? '-'}°</strong>
@@ -532,7 +540,7 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
                 </div>
 
                 <div className="weather-stat-item">
-                  <div className="weather-stat-icon"><Droplets size={15} /></div>
+                  <div className="weather-stat-icon weather-stat-icon--humidity"><Droplets size={16} /></div>
                   <div className="weather-stat-info">
                     <span>Umidità</span>
                     <strong>{currentInfo.humidity}%</strong>
@@ -540,7 +548,7 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
                 </div>
 
                 <div className="weather-stat-item">
-                  <div className="weather-stat-icon"><Wind size={15} /></div>
+                  <div className="weather-stat-icon weather-stat-icon--wind"><Wind size={16} /></div>
                   <div className="weather-stat-info">
                     <span>Vento</span>
                     <strong>{currentInfo.wind} km/h</strong>
@@ -548,7 +556,7 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
                 </div>
 
                 <div className="weather-stat-item">
-                  <div className="weather-stat-icon"><CloudRain size={15} /></div>
+                  <div className="weather-stat-icon weather-stat-icon--rain"><CloudRain size={16} /></div>
                   <div className="weather-stat-info">
                     <span>Pioggia oggi</span>
                     <strong>{dailyForecast[0]?.precipProb ?? 0}%</strong>
@@ -622,43 +630,47 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
               <div className="weather-hourly-scroll" ref={hourlyScrollRef}>
                 {hourlyForecast.map((hour, idx) => {
                   const HourIcon = hour.icon;
+                  const rainBadgeCls = getRainBadgeClass(hour.precipProb, hour.type);
                   return (
                     <div
                       key={hour.timeStr || idx}
-                      className={`weather-hour-card ${hour.isNow ? 'is-now' : ''}`}
+                      className={`weather-hour-card weather-hour-type-${hour.type || 'cloudy'} ${hour.isNow ? 'is-now' : ''}`}
                     >
-                      <div className="weather-hour-time">
-                        {hour.hourLabel}
+                      <div className="weather-hour-header">
+                        <span className="weather-hour-time">{hour.hourLabel}</span>
+                        {hour.dayShort ? (
+                          <span className="weather-hour-day">{hour.dayShort}</span>
+                        ) : (
+                          <span className="weather-hour-day weather-hour-day--placeholder" />
+                        )}
                       </div>
-                      {hour.dayShort && (
-                        <span className="weather-hour-day">{hour.dayShort}</span>
-                      )}
 
-                      <div className="weather-hour-icon-wrap" title={hour.label}>
+                      <div className={`weather-hour-icon-wrap weather-icon-color--${hour.type}`} title={hour.label}>
                         <HourIcon size={24} className="weather-hour-icon" />
                       </div>
 
-                      <div className="weather-hour-temp">
+                      <div className={`weather-hour-temp ${hour.temp >= 26 ? 'temp-warm' : hour.temp <= 14 ? 'temp-cold' : ''}`}>
                         {hour.temp}°
                       </div>
 
-                      {hour.precipProb > 0 ? (
-                        <div className="weather-hour-rain" title="Probabilità di pioggia">
-                          <Droplets size={10} />
-                          <span>{hour.precipProb}%</span>
-                        </div>
-                      ) : (
-                        <div className="weather-hour-rain weather-hour-rain--dry" title="Asciutto">
-                          <span>0%</span>
-                        </div>
-                      )}
+                      <div
+                        className={`weather-hour-rain ${rainBadgeCls}`}
+                        title={hour.precipProb > 0 ? `Probabilità di pioggia: ${hour.precipProb}%` : 'Asciutto'}
+                      >
+                        {hour.precipProb > 0 && <Droplets size={10} />}
+                        <span>{hour.precipProb}%</span>
+                      </div>
 
-                      {hour.wind > 0 && (
-                        <div className="weather-hour-wind" title={`Vento ${hour.wind} km/h`}>
-                          <Wind size={9} />
-                          <span>{hour.wind}k</span>
-                        </div>
-                      )}
+                      <div className="weather-hour-wind" title={hour.wind > 0 ? `Vento ${hour.wind} km/h` : 'Calma di vento'}>
+                        {hour.wind > 0 ? (
+                          <>
+                            <Wind size={9} />
+                            <span>{hour.wind}k</span>
+                          </>
+                        ) : (
+                          <span className="weather-wind-calm">-</span>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -680,14 +692,16 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
             <span className="weather-source-badge">Dati meteo live Open-Meteo</span>
           </div>
 
-          <div className="weather-forecast-grid">
+          <div className={`weather-forecast-grid ${selectedForecastDay ? 'has-selection' : ''}`}>
             {dailyForecast.map((day) => {
               const DayIcon = day.icon;
               const isSelected = selectedForecastDay === day.dateStr;
+              const isTodayActive = day.isToday && (!selectedForecastDay || isSelected);
+              const rainBadgeCls = getRainBadgeClass(day.precipProb, day.type);
               return (
                 <div
                   key={day.dateStr}
-                  className={`weather-day-card ${day.isToday ? 'is-today' : ''} ${isSelected ? 'is-selected' : ''}`}
+                  className={`weather-day-card weather-day-type-${day.type || 'cloudy'} ${isTodayActive ? 'is-today' : ''} ${isSelected ? 'is-selected' : ''}`}
                   onClick={() => setSelectedForecastDay(isSelected ? null : day.dateStr)}
                   role="button"
                   tabIndex={0}
@@ -698,8 +712,8 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
                     <span>{day.dayFormatted}</span>
                   </div>
 
-                  <div className="weather-day-icon-wrap" title={day.label}>
-                    <DayIcon size={26} className="weather-day-icon" />
+                  <div className={`weather-day-icon-wrap weather-icon-color--${day.type}`} title={day.label}>
+                    <DayIcon size={28} className="weather-day-icon" />
                   </div>
 
                   <div className="weather-day-condition" title={day.label}>
@@ -707,23 +721,20 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
                   </div>
 
                   <div className="weather-day-temps">
-                    <span className="temp-max">{day.maxTemp}°</span>
-                    <div className="temp-bar-wrap">
+                    <span className="temp-max" title="Temperatura Massima">{day.maxTemp}°</span>
+                    <div className="temp-bar-wrap" title={`Min ${day.minTemp}° / Max ${day.maxTemp}°`}>
                       <div className="temp-bar" />
                     </div>
-                    <span className="temp-min">{day.minTemp}°</span>
+                    <span className="temp-min" title="Temperatura Minima">{day.minTemp}°</span>
                   </div>
 
-                  {day.precipProb > 0 ? (
-                    <div className="weather-day-rain" title="Probabilità di precipitazioni">
-                      <Droplets size={10} />
-                      <span>{day.precipProb}%</span>
-                    </div>
-                  ) : (
-                    <div className="weather-day-rain weather-day-rain--dry">
-                      <span>0%</span>
-                    </div>
-                  )}
+                  <div
+                    className={`weather-day-rain ${rainBadgeCls}`}
+                    title={day.precipProb > 0 ? `Probabilità precipitazioni: ${day.precipProb}%` : 'Asciutto'}
+                  >
+                    {day.precipProb > 0 && <Droplets size={10} />}
+                    <span>{day.precipProb}%</span>
+                  </div>
                 </div>
               );
             })}
