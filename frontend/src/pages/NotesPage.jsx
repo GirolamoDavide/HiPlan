@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import AppIcon from '../components/ui/AppIcon';
 import AssigneeInput from '../components/ui/AssigneeInput';
+import { Type, Heading1, Heading2, Bold, Italic, List, ListTodo, Quote, Code, Eraser, Calendar, ArrowUpDown, ChevronDown } from 'lucide-react';
 import './NotesPage.css';
 
 const BACKEND_URL = import.meta.env.VITE_API_URL
@@ -66,6 +67,19 @@ export default function NotesPage() {
   // Ref per l'editor visuale contentEditable e timeout autocalcolato
   const editorRef = useRef(null);
   const saveTimeoutRef = useRef(null);
+  const uploadingAttachmentsRef = useRef(false);
+
+  // Formati attivi nella selezione corrente per evidenziare i tasti della barra
+  const [activeFormats, setActiveFormats] = useState({
+    bold: false,
+    italic: false,
+    bullet: false,
+    h1: false,
+    h2: false,
+    quote: false,
+    todo: false,
+    code: false,
+  });
 
   const loadTrash = useCallback(async () => {
     setTrashLoading(true);
@@ -728,6 +742,7 @@ export default function NotesPage() {
     }
     if (!e.target.files || e.target.files.length === 0) return;
     await uploadFiles(e.target.files);
+    e.target.value = '';
   }
 
   async function handleDropAttachment(e) {
@@ -743,8 +758,18 @@ export default function NotesPage() {
   }
 
   async function uploadFiles(files) {
+    if (!activeNoteId || uploadingAttachmentsRef.current) return;
+    uploadingAttachmentsRef.current = true;
     try {
-      for (const file of files) {
+      const fileArr = Array.from(files || []);
+      const seen = new Set();
+      const uniqueFiles = fileArr.filter(f => {
+        const key = `${f.name}_${f.size}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      for (const file of uniqueFiles) {
         const fd = new FormData();
         fd.append('file', file);
         await api.post(`/notes/${activeNoteId}/attachments`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -753,6 +778,8 @@ export default function NotesPage() {
       loadNotes();
     } catch (err) {
       toast.error('Errore durante il caricamento');
+    } finally {
+      uploadingAttachmentsRef.current = false;
     }
   }
 
@@ -801,6 +828,33 @@ export default function NotesPage() {
       return '';
     }
   }
+
+  const updateActiveFormats = useCallback(() => {
+    if (!editorRef.current) return;
+    try {
+      const isBold = Boolean(document.queryCommandState('bold'));
+      const isItalic = Boolean(document.queryCommandState('italic'));
+      const isBullet = Boolean(document.queryCommandState('insertUnorderedList'));
+      const block = (document.queryCommandValue('formatBlock') || '').toLowerCase();
+      const isTodo = selectionIsInside('.note-checklist-item');
+      const isCode = selectionIsInside('.note-code-block');
+      const isQuote = block.includes('blockquote') || selectionIsInside('blockquote');
+      const isH1 = block.includes('h1') || selectionIsInside('h1');
+      const isH2 = block.includes('h2') || selectionIsInside('h2');
+      setActiveFormats({
+        bold: isBold,
+        italic: isItalic,
+        bullet: isBullet,
+        h1: isH1,
+        h2: isH2,
+        quote: isQuote,
+        todo: isTodo,
+        code: isCode,
+      });
+    } catch {
+      // noop
+    }
+  }, []);
 
   function applyFormatting(formatType) {
     if (!editorRef.current) return;
@@ -984,6 +1038,7 @@ export default function NotesPage() {
         return;
     }
     handleEditorInput();
+    setTimeout(updateActiveFormats, 10);
   }
 
   // Filtra note per tab e ricerca
@@ -1046,6 +1101,7 @@ export default function NotesPage() {
 
   function handleDrop(e, targetId) {
     e.preventDefault();
+    e.stopPropagation();
     const srcId = dragId || e.dataTransfer.getData('text/plain');
     const rect = e.currentTarget.getBoundingClientRect();
     const before = (e.clientY - rect.top) < rect.height / 2;
@@ -1086,38 +1142,26 @@ export default function NotesPage() {
     return date.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
   }
 
+  // Formatta data per l'intestazione della nota
+  function formatNoteDate(dateStr) {
+    if (!dateStr) return '';
+    let safeDateStr = dateStr;
+    if (typeof safeDateStr === 'string' && !safeDateStr.endsWith('Z') && !safeDateStr.includes('+')) {
+      if (!safeDateStr.includes('T')) safeDateStr = safeDateStr.replace(' ', 'T');
+      safeDateStr += 'Z';
+    }
+    const date = new Date(safeDateStr);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>;
 
   return (
     <div className="notes-page-container animate-fadeIn">
       {/* SIDEBAR SINISTRA */}
       <aside className="notes-sidebar">
-        <div className="notes-sidebar-top">
-          <select
-            className="notes-sort-select"
-            value={sortMode}
-            onChange={(e) => setSortMode(e.target.value)}
-            aria-label="Ordina note"
-          >
-            <option value="created">Data di creazione</option>
-            <option value="alpha">Alfabetico</option>
-            <option value="custom">Personalizzato (trascina)</option>
-          </select>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              setNewTitle('');
-              setNewVisibility('private');
-              setNewSharedWith([]);
-              setShowNewModal(true);
-            }}
-          >
-            <AppIcon name="plus" size={15} />
-            Nuova
-          </button>
-        </div>
-
-        {/* CAMPO DI RICERCA */}
+        {/* CAMPO DI RICERCA (SOPRA I FILTRI) */}
         <div className="notes-search-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <img
             src="/hiway-icon.png"
@@ -1144,6 +1188,36 @@ export default function NotesPage() {
               <AppIcon name="close" size={14} />
             </button>
           )}
+        </div>
+
+        {/* ORDINAMENTO E NUOVA NOTA */}
+        <div className="notes-sidebar-top">
+          <div className="notes-sort-container">
+            <ArrowUpDown size={13} className="notes-sort-icon-left" />
+            <select
+              className="notes-sort-select"
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value)}
+              aria-label="Ordina note"
+            >
+              <option value="created">Data di creazione</option>
+              <option value="alpha">Alfabetico (A-Z)</option>
+              <option value="custom">Personalizzato (trascina)</option>
+            </select>
+            <ChevronDown size={13} className="notes-sort-icon-right" />
+          </div>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setNewTitle('');
+              setNewVisibility('private');
+              setNewSharedWith([]);
+              setShowNewModal(true);
+            }}
+          >
+            <AppIcon name="plus" size={15} />
+            Nuova
+          </button>
         </div>
 
         {/* TABS FILTRO */}
@@ -1208,10 +1282,6 @@ export default function NotesPage() {
                       >
                         <AppIcon name={note.visibility === 'team' ? 'users' : note.visibility === 'selected' ? 'user-check' : 'lock'} size={14} />
                       </span>
-                    </div>
-                    <div className="note-card-meta">
-                      <span className="note-meta-owner"><AppIcon name="user" size={12} />{note.owner?.full_name || note.owner?.username || (isMine ? 'Tu' : 'Utente')}</span>
-                      <span>{formatRelativeDate(note.created_at)}</span>
                     </div>
                   </div>
                   {showAfter && <div className="note-drop-indicator" />}
@@ -1296,6 +1366,13 @@ export default function NotesPage() {
                 <span>
                   Autore: <strong>{activeNote.owner?.full_name || activeNote.owner?.username || (activeNote.owner_id === user?.id ? 'Tu' : 'Utente')}</strong>
                 </span>
+                {activeNote.created_at && (
+                  <span className="note-header-date" title={new Date(activeNote.created_at).toLocaleString('it-IT')}>
+                    <span className="note-header-date-sep">•</span>
+                    <Calendar size={13} style={{ opacity: 0.7 }} />
+                    <span>{formatNoteDate(activeNote.created_at)}</span>
+                  </span>
+                )}
                 {saving && <span className="note-save-state">Salvataggio…</span>}
                 {!saving && lastSaved && <span className="note-save-state saved"><AppIcon name="check" size={13} />Salvato {lastSaved.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>}
               </div>
@@ -1430,24 +1507,144 @@ export default function NotesPage() {
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onDrop={handleDropAttachment}
             >
+              {/* TOOLBAR DI FORMATTAZIONE STYLE NOTION (A TUTTA LARGHEZZA) */}
+              <div className="notion-formatting-bar">
+                {/* Sezione Sinistra: Strumenti di Formattazione */}
+                <div className="format-toolbar-left">
+                  {/* Gruppo 1: Intestazioni e Testo */}
+                  <div className="format-group">
+                    <button
+                      type="button"
+                      className={`format-btn ${!activeFormats.h1 && !activeFormats.h2 && !activeFormats.quote && !activeFormats.todo && !activeFormats.code ? 'active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFormatting('normal')}
+                      title="Testo normale (Paragrafo)"
+                      aria-label="Testo normale"
+                    >
+                      <Type size={14} />
+                      <span>Testo</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`format-btn ${activeFormats.h1 ? 'active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFormatting('h1')}
+                      title="Titolo principale (H1)"
+                      aria-label="Titolo principale (H1)"
+                    >
+                      <Heading1 size={14} />
+                      <span>Titolo</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`format-btn ${activeFormats.h2 ? 'active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFormatting('h2')}
+                      title="Sottotitolo (H2)"
+                      aria-label="Sottotitolo (H2)"
+                    >
+                      <Heading2 size={14} />
+                      <span>Sottotitolo</span>
+                    </button>
+                  </div>
+
+                  <div className="format-divider" />
+
+                  {/* Gruppo 2: Inline Styles */}
+                  <div className="format-group">
+                    <button
+                      type="button"
+                      className={`format-btn format-btn--icon ${activeFormats.bold ? 'active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFormatting('bold')}
+                      title="Grassetto (Ctrl+B)"
+                      aria-label="Grassetto"
+                    >
+                      <Bold size={14} strokeWidth={2.4} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`format-btn format-btn--icon ${activeFormats.italic ? 'active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFormatting('italic')}
+                      title="Corsivo (Ctrl+I)"
+                      aria-label="Corsivo"
+                    >
+                      <Italic size={14} strokeWidth={2.4} />
+                    </button>
+                  </div>
+
+                  <div className="format-divider" />
+
+                  {/* Gruppo 3: Elenchi e Blocchi */}
+                  <div className="format-group">
+                    <button
+                      type="button"
+                      className={`format-btn ${activeFormats.bullet ? 'active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFormatting('bullet')}
+                      title="Elenco puntato"
+                      aria-label="Elenco puntato"
+                    >
+                      <List size={14} />
+                      <span>Elenco</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`format-btn ${activeFormats.todo ? 'active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFormatting('todo')}
+                      title="Check-list interattiva"
+                      aria-label="Check-list interattiva"
+                    >
+                      <ListTodo size={14} />
+                      <span>Check-list</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`format-btn ${activeFormats.quote ? 'active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFormatting('quote')}
+                      title="Citazione"
+                      aria-label="Citazione"
+                    >
+                      <Quote size={13} />
+                      <span className="fmt-label-optional">Citazione</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`format-btn ${activeFormats.code ? 'active' : ''}`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => applyFormatting('code')}
+                      title="Blocco di codice"
+                      aria-label="Blocco di codice"
+                    >
+                      <Code size={14} />
+                      <span className="fmt-label-optional">Codice</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sezione Destra: Reset Formattazione */}
+                <div className="format-toolbar-right">
+                  <button
+                    type="button"
+                    className="format-btn format-btn--clear"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('normal')}
+                    title="Rimuovi ogni formattazione"
+                    aria-label="Rimuovi ogni formattazione"
+                  >
+                    <Eraser size={14} />
+                    <span>Pulisci</span>
+                  </button>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', gap: '32px', minHeight: '100%' }}>
 
                 {/* COLONNA SINISTRA: EDITOR TESTUALE */}
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                  {/* TOOLBAR DI FORMATTAZIONE STYLE NOTION */}
-                  <div className="notion-formatting-bar">
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('normal')} title="Testo normale (P)">P Normale</button>
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('h1')} title="Titolo grande (H1)">H1 Titolo</button>
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('h2')} title="Sottotitolo (H2)">H2 Sottotitolo</button>
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('bold')} title="Grassetto"><strong>B</strong> Grassetto</button>
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('italic')} title="Corsivo"><em>I</em> Corsivo</button>
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('bullet')} title="Elenco puntato">• Elenco</button>
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('todo')} title="Check-list interattiva"><AppIcon name="check" size={14} /> Check-list [ ]</button>
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('quote')} title="Citazione">❝ Citazione</button>
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('code')} title="Blocco Codice">⟨/⟩ Codice</button>
-                    <button type="button" className="format-btn" onMouseDown={(e) => e.preventDefault()} onClick={() => applyFormatting('normal')} title="Rimuovi ogni formattazione">Nessuna formattazione</button>
-                  </div>
-
                   {/* CAMPO TITOLO */}
                   <input
                     type="text"
@@ -1463,8 +1660,18 @@ export default function NotesPage() {
                     contentEditable
                     className="note-content-area"
                     onInput={handleEditorInput}
-                    onClick={handleEditorClick}
+                    onClick={(e) => {
+                      handleEditorClick(e);
+                      setTimeout(updateActiveFormats, 10);
+                    }}
+                    onKeyUp={() => setTimeout(updateActiveFormats, 10)}
                     onKeyDown={handleEditorKeyDown}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleDropAttachment(e);
+                    }}
                     placeholder="Scrivi qui i tuoi appunti... Usa i pulsanti sopra per formattare con titoli, check-list e citazioni."
                     suppressContentEditableWarning
                   />

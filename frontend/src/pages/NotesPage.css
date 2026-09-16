@@ -26,17 +26,17 @@
   min-height: 0;
 }
 
+.notes-search-wrapper {
+  position: relative;
+  margin-bottom: 10px;
+}
+
 .notes-sidebar-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
-}
-
-.notes-search-wrapper {
-  position: relative;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 .notes-search-input {
   width: 100%;
@@ -105,21 +105,68 @@
 }
 
 /* Controlli di ordinamento */
-.notes-sort-select {
+.notes-sort-container {
+  position: relative;
+  display: flex;
+  align-items: center;
   flex: 1;
+  min-width: 0;
+}
+
+.notes-sort-icon-left {
+  position: absolute;
+  left: 10px;
+  pointer-events: none;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+  z-index: 1;
+}
+
+.notes-sort-icon-right {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+  z-index: 1;
+}
+
+.notes-sort-select {
+  width: 100%;
   height: 34px;
   box-sizing: border-box;
-  padding: 0 10px;
-  border-radius: 8px;
+  padding: 0 28px 0 30px;
+  border-radius: 9px;
   border: 1px solid var(--border-default);
   background: var(--bg-tertiary);
   color: var(--text-primary);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 550;
   cursor: pointer;
   outline: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
+
+.notes-sort-select:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-500);
+}
+
 .notes-sort-select:focus {
-  border-color: rgba(99, 102, 241, 0.5);
+  background: var(--bg-card);
+  border-color: var(--accent-500);
+  box-shadow: 0 0 0 3px var(--accent-glow, rgba(99, 102, 241, 0.15));
+}
+
+.notes-sort-container:hover .notes-sort-icon-left,
+.notes-sort-container:hover .notes-sort-icon-right {
+  color: var(--text-primary);
 }
 
 .note-card[draggable="true"] {
@@ -207,7 +254,7 @@
 .note-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
 }
 .note-card-title {
@@ -281,14 +328,14 @@
 .notes-editor-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 64px;
+  padding: 16px 18px 32px;
   display: block;
   min-height: 0;
 }
 
 @media (max-width: 1100px) {
   .notes-editor-scroll {
-    padding: 24px 32px;
+    padding: 14px 14px 24px;
   }
 }
 
@@ -297,7 +344,7 @@
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border-subtle);
-  padding: 20px 64px 16px;
+  padding: 10px 18px;
   margin-bottom: 0;
   flex-shrink: 0;
 }
@@ -308,6 +355,22 @@
   gap: 8px;
   font-size: 0.8125rem;
   color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.note-header-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.note-header-date-sep {
+  margin: 0 4px;
+  color: var(--border-default);
+  opacity: 0.7;
 }
 
 .visibility-toggle-dropdown {
@@ -362,32 +425,106 @@
   border-color: rgba(99, 102, 241, 0.3);
 }
 
-/* Toolbar di formattazione veloce (H1, H2, Bold, Check, ecc.) */
+/* Toolbar di formattazione veloce stile Notion / TipTap */
 .notion-formatting-bar {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  background: var(--bg-tertiary);
-  padding: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-card);
+  padding: 6px 12px;
   border-radius: 10px;
-  border: 1px solid var(--border-subtle);
-  margin-bottom: 20px;
+  border: 1px solid var(--border-default);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  margin-bottom: 22px;
+  gap: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.notion-formatting-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.format-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.format-toolbar-right {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-left: 8px;
+}
+
+.format-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.format-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-subtle);
+  margin: 0 5px;
+  flex-shrink: 0;
 }
 
 .format-btn {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--text-secondary);
-  padding: 5px 10px;
+  padding: 4px 8px;
+  min-height: 28px;
   border-radius: 6px;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
+  font-weight: 500;
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.15s ease;
+  user-select: none;
 }
+
 .format-btn:hover {
-  background: var(--accent-glow);
-  color: var(--accent-500);
-  border-color: rgba(99, 102, 241, 0.3);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: transparent;
+}
+
+.format-btn.active {
+  background: var(--accent-glow, rgba(99, 102, 241, 0.12));
+  color: var(--accent-500, #6366f1);
+  font-weight: 600;
+}
+
+.format-btn--icon {
+  width: 30px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.format-btn--clear:hover {
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+@media (max-width: 680px) {
+  .fmt-label-optional {
+    display: none;
+  }
 }
 
 /* Campo Titolo (Stile Notion) */
@@ -401,6 +538,7 @@
   width: 100%;
   margin-bottom: 16px;
   letter-spacing: -0.02em;
+  padding: 0;
 }
 .note-title-input::placeholder {
   color: var(--text-muted);

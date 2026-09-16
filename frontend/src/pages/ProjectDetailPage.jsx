@@ -456,9 +456,12 @@ export default function ProjectDetailPage() {
     }
   }, [taskForm.planned_hours, taskForm.workers, taskForm.taskType]);
 
+  const uploadingAttachmentsRef = useRef(false);
+
   async function handleUploadAttachment(e) {
     if (!e.target.files || e.target.files.length === 0) return;
     await uploadFiles(e.target.files);
+    e.target.value = '';
   }
 
   async function handleDropAttachment(e) {
@@ -470,8 +473,18 @@ export default function ProjectDetailPage() {
   }
 
   async function uploadFiles(files) {
+    if (uploadingAttachmentsRef.current) return;
+    uploadingAttachmentsRef.current = true;
     try {
-      for (const file of files) {
+      const fileArr = Array.from(files || []);
+      const seen = new Set();
+      const uniqueFiles = fileArr.filter(f => {
+        const key = `${f.name}_${f.size}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      for (const file of uniqueFiles) {
         const fd = new FormData();
         fd.append('file', file);
         await api.post(`/projects/${id}/attachments`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -480,6 +493,8 @@ export default function ProjectDetailPage() {
       loadProject();
     } catch (err) {
       toast.error('Errore durante il caricamento');
+    } finally {
+      uploadingAttachmentsRef.current = false;
     }
   }
 
@@ -2412,15 +2427,15 @@ export default function ProjectDetailPage() {
             <div className="commessa-stats-grid">
               <div className="stat-box">
                 <div className="stat-box-label">Codice Commessa</div>
-                <div className="stat-box-value" style={{ color: 'var(--accent-500)' }}>{project?.code || 'N/D'}</div>
+                <div className="stat-box-value" style={{ color: 'var(--accent-500)', fontSize: '0.95rem' }} title={project?.code}>{project?.code || 'N/D'}</div>
               </div>
               <div className="stat-box">
                 <div className="stat-box-label">Cliente</div>
-                <div className="stat-box-value">{project?.client || 'N/D'}</div>
+                <div className="stat-box-value" style={{ fontSize: '0.92rem' }} title={project?.client}>{project?.client || 'N/D'}</div>
               </div>
               <div className="stat-box">
                 <div className="stat-box-label">Data Avvio / Fine</div>
-                <div className="stat-box-value" style={{ fontSize: '0.95rem' }}>
+                <div className="stat-box-value" style={{ fontSize: '0.85rem' }}>
                   {project?.start_date ? formatDateItalian(project.start_date) : 'N/D'} → {project?.end_date ? formatDateItalian(project.end_date) : 'N/D'}
                 </div>
               </div>
@@ -2436,7 +2451,7 @@ export default function ProjectDetailPage() {
               </div>
               <div className="stat-box">
                 <div className="stat-box-label">Stato Avanzamento</div>
-                <div className="stat-box-value">
+                <div className="stat-box-value" style={{ fontSize: '0.85rem' }}>
                   {delaysList.length > 0 ? (
                     <span className="semaforo-ritardo"><span className="status-dot danger" />{delaysList.length} Fasi in allarme</span>
                   ) : (
@@ -2446,13 +2461,13 @@ export default function ProjectDetailPage() {
               </div>
               <div className="stat-box">
                 <div className="stat-box-label">Referente Commessa</div>
-                <div className="stat-box-value" style={{ fontSize: '0.95rem' }}>
+                <div className="stat-box-value" style={{ fontSize: '0.88rem' }} title={project?.responsible_name || project?.responsible_username || project?.responsible?.full_name || project?.responsible?.username || ''}>
                   {project?.responsible_name || project?.responsible_username || project?.responsible?.full_name || project?.responsible?.username || 'N/D'}
                 </div>
               </div>
               <div className="stat-box">
                 <div className="stat-box-label">Addetti Commessa</div>
-                <div className="stat-box-value" style={{ fontSize: '0.9rem', whiteSpace: 'normal', lineHeight: '1.3' }}>
+                <div className="stat-box-value" style={{ fontSize: '0.82rem', whiteSpace: 'normal', lineHeight: '1.25' }} title={Array.isArray(project?.assigned_workers) ? project.assigned_workers.join(', ') : ''}>
                   {Array.isArray(project?.assigned_workers) && project.assigned_workers.length > 0
                     ? project.assigned_workers.join(', ')
                     : 'Nessuno specifico'}

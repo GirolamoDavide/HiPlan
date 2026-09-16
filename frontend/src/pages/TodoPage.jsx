@@ -335,7 +335,13 @@ export default function TodoPage() {
 
   // Pending files management in modal
   function addPendingFile(file) {
-    setPendingFiles(prev => [...prev, file]);
+    if (!file) return;
+    setPendingFiles(prev => {
+      if (prev.some(f => f.name === file.name && f.size === file.size)) {
+        return prev;
+      }
+      return [...prev, file];
+    });
   }
 
   function removePendingFile(idx) {
@@ -357,17 +363,26 @@ export default function TodoPage() {
   // Drag & drop in modal
   function handleModalDrop(e) {
     e.preventDefault();
+    e.stopPropagation();
     setDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
+    const files = Array.from(e.dataTransfer.files || []);
     files.forEach(addPendingFile);
   }
 
   // Drag & drop on detail panel
   function handleDetailDrop(e) {
     e.preventDefault();
+    e.stopPropagation();
     if (!selected) return;
-    const files = Array.from(e.dataTransfer.files);
-    files.forEach(f => uploadAttachment(f, selected.id));
+    const files = Array.from(e.dataTransfer.files || []);
+    const seen = new Set();
+    const uniqueFiles = files.filter(f => {
+      const key = `${f.name}_${f.size}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    uniqueFiles.forEach(f => uploadAttachment(f, selected.id));
   }
 
   const canDelete = (todo) => user?.id === todo.creator_id || user?.role === 'admin';
@@ -706,8 +721,9 @@ export default function TodoPage() {
             onDragLeave={() => setDragOver(false)}
             onDrop={e => {
               e.preventDefault();
+              e.stopPropagation();
               setDragOver(false);
-              Array.from(e.dataTransfer.files).forEach(addPendingFile);
+              Array.from(e.dataTransfer.files || []).forEach(addPendingFile);
             }}
           >
             <div className="todo-modal-header">

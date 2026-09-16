@@ -289,7 +289,12 @@ function NewTicketModal({ onClose, onCreated, projects, users, currentUser }) {
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      setFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
+      const dropped = Array.from(e.dataTransfer.files);
+      setFiles(prev => {
+        const seen = new Set(prev.map(f => `${f.name}_${f.size}`));
+        const toAdd = dropped.filter(f => !seen.has(`${f.name}_${f.size}`));
+        return [...prev, ...toAdd];
+      });
     }
   }
 
@@ -369,7 +374,15 @@ function NewTicketModal({ onClose, onCreated, projects, users, currentUser }) {
               <label className="ticket-upload-label" style={{ marginLeft: 8 }}>
                 <AppIcon name="paperclip" size={14} />
                 Scegli file
-                <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={e => setFiles(prev => [...prev, ...Array.from(e.target.files)])} />
+                <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={e => {
+                  const selected = Array.from(e.target.files || []);
+                  setFiles(prev => {
+                    const seen = new Set(prev.map(f => `${f.name}_${f.size}`));
+                    const toAdd = selected.filter(f => !seen.has(`${f.name}_${f.size}`));
+                    return [...prev, ...toAdd];
+                  });
+                  e.target.value = '';
+                }} />
               </label>
             </div>
             {files.length > 0 && (
@@ -777,7 +790,12 @@ function TicketDetail({ ticket, currentUser, onRefresh, users, projects, phases 
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      setReplyFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
+      const dropped = Array.from(e.dataTransfer.files);
+      setReplyFiles(prev => {
+        const seen = new Set(prev.map(f => `${f.name}_${f.size}`));
+        const toAdd = dropped.filter(f => !seen.has(`${f.name}_${f.size}`));
+        return [...prev, ...toAdd];
+      });
     }
   }
 
@@ -1142,7 +1160,15 @@ function TicketDetail({ ticket, currentUser, onRefresh, users, projects, phases 
             <label className="ticket-upload-label" style={{ cursor: 'pointer' }}>
               <AppIcon name="paperclip" size={16} />
               <input ref={replyFileRef} type="file" multiple style={{ display: 'none' }}
-                onChange={e => setReplyFiles(p => [...p, ...Array.from(e.target.files)])} />
+                onChange={e => {
+                  const selected = Array.from(e.target.files || []);
+                  setReplyFiles(prev => {
+                    const seen = new Set(prev.map(f => `${f.name}_${f.size}`));
+                    const toAdd = selected.filter(f => !seen.has(`${f.name}_${f.size}`));
+                    return [...prev, ...toAdd];
+                  });
+                  e.target.value = '';
+                }} />
             </label>
             <button
               className="btn btn-primary btn-sm"

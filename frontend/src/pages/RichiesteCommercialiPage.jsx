@@ -371,8 +371,10 @@ function Dropzone({ files, onFilesChange, existingUrls = [], compact = false, pl
     e.preventDefault();
     e.stopPropagation();
     setDragging(false);
-    const dropped = Array.from(e.dataTransfer.files);
-    onFilesChange([...files, ...dropped]);
+    const dropped = Array.from(e.dataTransfer.files || []);
+    const seen = new Set((files || []).map(f => `${f.name}_${f.size}`));
+    const newFiles = dropped.filter(f => !seen.has(`${f.name}_${f.size}`));
+    onFilesChange([...(files || []), ...newFiles]);
   };
 
   return (
@@ -397,7 +399,13 @@ function Dropzone({ files, onFilesChange, existingUrls = [], compact = false, pl
           type="file"
           multiple
           style={{ display: 'none' }}
-          onChange={(e) => onFilesChange([...files, ...Array.from(e.target.files)])}
+          onChange={(e) => {
+            const selected = Array.from(e.target.files || []);
+            const seen = new Set((files || []).map(f => `${f.name}_${f.size}`));
+            const newFiles = selected.filter(f => !seen.has(`${f.name}_${f.size}`));
+            onFilesChange([...(files || []), ...newFiles]);
+            e.target.value = '';
+          }}
         />
       </div>
       <div className="rc-attachments-list">
@@ -468,9 +476,17 @@ function ArticleDropzone({
     e.preventDefault();
     e.stopPropagation();
     setDragging(false);
-    const dropped = Array.from(e.dataTransfer.files);
+    if (isUploading) return;
+    const dropped = Array.from(e.dataTransfer.files || []);
     if (dropped.length > 0 && onUpload) {
-      onUpload(dropped);
+      const seen = new Set();
+      const unique = dropped.filter(f => {
+        const k = `${f.name}_${f.size}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      onUpload(unique);
     }
   };
 
@@ -502,8 +518,18 @@ function ArticleDropzone({
             multiple
             style={{ display: 'none' }}
             onChange={(e) => {
-              const files = Array.from(e.target.files);
-              if (files.length > 0 && onUpload) onUpload(files);
+              if (isUploading) return;
+              const files = Array.from(e.target.files || []);
+              if (files.length > 0 && onUpload) {
+                const seen = new Set();
+                const unique = files.filter(f => {
+                  const k = `${f.name}_${f.size}`;
+                  if (seen.has(k)) return false;
+                  seen.add(k);
+                  return true;
+                });
+                onUpload(unique);
+              }
               e.target.value = '';
             }}
           />
@@ -1463,7 +1489,11 @@ const ArticoloForm = forwardRef(function ArticoloForm({ richiestaId, richiesta, 
         <ArticleDropzone
           existingAttachments={existingAttachments}
           pendingFiles={files}
-          onUpload={(newFiles) => setFiles(prev => [...prev, ...newFiles])}
+          onUpload={(newFiles) => setFiles(prev => {
+            const seen = new Set((prev || []).map(f => `${f.name}_${f.size}`));
+            const toAdd = (newFiles || []).filter(f => !seen.has(`${f.name}_${f.size}`));
+            return [...(prev || []), ...toAdd];
+          })}
           onRemovePending={(fileIdx) => setFiles(prev => prev.filter((_, i) => i !== fileIdx))}
           onDeleteExisting={handleDeleteExistingAttachment}
           isDeletingUrl={deletingAttUrl}
@@ -1730,9 +1760,18 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
 
   const handleUploadArticoloAttachments = async (artId, fileList) => {
     if (!fileList || fileList.length === 0) return;
+    if (uploadingAttArtId === artId) return;
     setUploadingAttArtId(artId);
     try {
-      const res = await uploadAttachmentsArticolo(richiestaId, artId, Array.from(fileList));
+      const fileArr = Array.from(fileList);
+      const seen = new Set();
+      const uniqueFiles = fileArr.filter(f => {
+        const k = `${f.name}_${f.size}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      const res = await uploadAttachmentsArticolo(richiestaId, artId, uniqueFiles);
       showToast('Allegati caricati con successo', 'success');
       if (res?.attachments) {
         setRichiesta(prev => {
