@@ -625,39 +625,24 @@ export default function AdminPage() {
 
   return (
     <div className="admin-page animate-fadeIn">
-
       {/* SEZIONE REPORTISTICA AI */}
       <div className={`admin-section-card ${collapsedSections.aiReport ? 'is-collapsed' : ''}`} style={{
-        marginBottom: 30,
         background: 'linear-gradient(135deg, var(--bg-card) 0%, rgba(99, 102, 241, 0.04) 100%)',
-        border: '1px solid var(--border-default)',
         position: 'relative',
         overflow: 'hidden'
       }}>
-        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => toggleSection('aiReport')}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                  color: '#fff',
-                  boxShadow: '0 2px 6px rgba(99, 102, 241, 0.3)'
-                }}>
-                  <AppIcon name="robot" size={17} />
-                </span>
-                Reportistica & Analisi AI
-              </h2>
+        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div style={{ cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => toggleSection('aiReport')}>
+            <span className="admin-icon-badge admin-badge-ai">
+              <AppIcon name="robot" size={20} />
+            </span>
+            <div>
+              <h2 style={{ margin: 0 }}>Reportistica & Analisi AI</h2>
+              <p className="admin-section-desc">Resoconto intelligente a 360° su commesse, attività TODO, ticket di assistenza e pipeline di preventivazione salvato in cache.</p>
             </div>
-            <p className="admin-section-desc">Resoconto intelligente a 360° su commesse, attività TODO, ticket di assistenza e pipeline di preventivazione salvato in cache.</p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {aiReportData && (
               <button
                 type="button"
@@ -687,7 +672,7 @@ export default function AdminPage() {
               <AppIcon name={aiReportLoading ? "spinner" : "refresh"} size={13} className={aiReportLoading ? "spin" : ""} />
               {aiReportLoading ? "Analisi in corso..." : (aiReportData ? "Aggiorna Report" : "Genera Report")}
             </button>
-            <div style={{ cursor: 'pointer', color: 'var(--text-muted)', marginLeft: 6 }} onClick={() => toggleSection('aiReport')}>
+            <div className="admin-toggle-chevron" onClick={() => toggleSection('aiReport')} title={collapsedSections.aiReport ? 'Espandi' : 'Comprimi'}>
               <AppIcon name={collapsedSections.aiReport ? 'chevronDown' : 'chevronUp'} size={18} />
             </div>
           </div>
@@ -839,14 +824,19 @@ export default function AdminPage() {
       </div>
 
       {/* SEZIONE BACHECA AZIENDALE */}
-      <div className={`admin-section-card ${collapsedSections.annunci ? 'is-collapsed' : ''}`} style={{ marginBottom: 30 }}>
-        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => toggleSection('annunci')}>
-            <h2><AppIcon name="megaphone" /> Annunci</h2>
-            <p className="admin-section-desc">Annunci in evidenza che appariranno a tutti gli utenti in cima alla Dashboard.</p>
+      <div className={`admin-section-card ${collapsedSections.annunci ? 'is-collapsed' : ''}`}>
+        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div style={{ cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => toggleSection('annunci')}>
+            <span className="admin-icon-badge admin-badge-annunci">
+              <AppIcon name="megaphone" size={19} />
+            </span>
+            <div>
+              <h2>Annunci</h2>
+              <p className="admin-section-desc">Annunci in evidenza che appariranno a tutti gli utenti in cima alla Dashboard.</p>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-            <div style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => toggleSection('annunci')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="admin-toggle-chevron" onClick={() => toggleSection('annunci')} title={collapsedSections.annunci ? 'Espandi' : 'Comprimi'}>
               <AppIcon name={collapsedSections.annunci ? 'chevronDown' : 'chevronUp'} size={18} />
             </div>
           </div>
@@ -943,10 +933,7 @@ export default function AdminPage() {
       {/* SEZIONE AUTOMAZIONI SENZA CODICE */}
       <div
         className="admin-section-card is-collapsed"
-        style={{
-          marginBottom: 8,
-          cursor: 'pointer'
-        }}
+        style={{ cursor: 'pointer' }}
         onClick={() => navigate('/admin/automations')}
       >
         <div
@@ -961,18 +948,21 @@ export default function AdminPage() {
             borderBottom: 0
           }}
         >
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-                <AppIcon name="zap" /> Automazioni Senza Codice
-              </h2>
-              <span className="badge badge-primary" style={{ fontSize: '0.75rem', fontWeight: 600 }}>
-                {automationRulesCount.active} attive / {automationRulesCount.total} totali
-              </span>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span className="admin-icon-badge admin-badge-automations">
+              <AppIcon name="zap" size={19} />
+            </span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <h2 style={{ margin: 0 }}>Automazioni Senza Codice</h2>
+                <span className="badge badge-primary" style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                  {automationRulesCount.active} attive / {automationRulesCount.total} totali
+                </span>
+              </div>
+              <p className="admin-section-desc" style={{ margin: '3px 0 0 0' }}>
+                Regole automatiche su avanzamento fasi, consuntivi ore a budget e scadenze con creazione automatica TODO o alert.
+              </p>
             </div>
-            <p className="admin-section-desc" style={{ margin: '4px 0 0 0' }}>
-              Regole automatiche su avanzamento fasi, consuntivi ore a budget e scadenze con creazione automatica TODO o alert.
-            </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <button
@@ -992,12 +982,17 @@ export default function AdminPage() {
 
       {/* SEZIONE 1: UTENTI DI SISTEMA */}
       <div className={`admin-section-card ${collapsedSections.users ? 'is-collapsed' : ''}`}>
-        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => toggleSection('users')}>
-            <h2><AppIcon name="users" /> Utenti di sistema</h2>
-            <p className="admin-section-desc">Utenti registrati con credenziali di login per accedere al gestionale HiPlan ({users.length})</p>
+        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div style={{ cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => toggleSection('users')}>
+            <span className="admin-icon-badge admin-badge-users">
+              <AppIcon name="users" size={19} />
+            </span>
+            <div>
+              <h2>Utenti di sistema</h2>
+              <p className="admin-section-desc">Utenti registrati con credenziali di login per accedere al gestionale HiPlan ({users.length})</p>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!collapsedSections.users && (
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <button
@@ -1032,7 +1027,7 @@ export default function AdminPage() {
                 </div>
               </div>
             )}
-            <div style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => toggleSection('users')}>
+            <div className="admin-toggle-chevron" onClick={() => toggleSection('users')} title={collapsedSections.users ? 'Espandi' : 'Comprimi'}>
               <AppIcon name={collapsedSections.users ? 'chevronDown' : 'chevronUp'} size={18} />
             </div>
           </div>
@@ -1132,22 +1127,27 @@ export default function AdminPage() {
       </div>
 
       {/* SEZIONE: MANCATA CONSUNTIVAZIONE ORE */}
-      <div className={`admin-section-card ${collapsedSections.zeroHours ? 'is-collapsed' : ''}`} style={{ marginTop: 32 }}>
-        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => toggleSection('zeroHours')}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <h2><AppIcon name="clock" /> Mancata consuntivazione ore</h2>
-              {zeroHoursAlerts.length > 0 && (
-                <span className="badge" style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', fontWeight: 600, fontSize: '0.75rem', padding: '2px 8px', borderRadius: 999 }}>
-                  {zeroHoursAlerts.length}
-                </span>
-              )}
+      <div className={`admin-section-card ${collapsedSections.zeroHours ? 'is-collapsed' : ''}`}>
+        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div style={{ cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => toggleSection('zeroHours')}>
+            <span className="admin-icon-badge admin-badge-zerohours">
+              <AppIcon name="clock" size={19} />
+            </span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <h2>Mancata consuntivazione ore</h2>
+                {zeroHoursAlerts.length > 0 && (
+                  <span className="badge" style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', fontWeight: 600, fontSize: '0.75rem', padding: '2px 8px', borderRadius: 999 }}>
+                    {zeroHoursAlerts.length}
+                  </span>
+                )}
+              </div>
+              <p className="admin-section-desc">
+                Rilevamento addetti che non hanno consuntivato ore nelle date lavorative previste ({zeroHoursAlerts.length} segnalazioni)
+              </p>
             </div>
-            <p className="admin-section-desc">
-              Rilevamento addetti che non hanno consuntivato ore nelle date lavorative previste ({zeroHoursAlerts.length} segnalazioni)
-            </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!collapsedSections.zeroHours && (
               <button
                 className="btn btn-secondary btn-sm"
@@ -1159,7 +1159,7 @@ export default function AdminPage() {
                 Aggiorna
               </button>
             )}
-            <div style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => toggleSection('zeroHours')}>
+            <div className="admin-toggle-chevron" onClick={() => toggleSection('zeroHours')} title={collapsedSections.zeroHours ? 'Espandi' : 'Comprimi'}>
               <AppIcon name={collapsedSections.zeroHours ? 'chevronDown' : 'chevronUp'} size={18} />
             </div>
           </div>
@@ -1341,15 +1341,20 @@ export default function AdminPage() {
       </div>
 
       {/* SEZIONE 2: FASI DI LAVORAZIONE PREIMPOSTATE */}
-      <div className={`admin-section-card ${collapsedSections.templates ? 'is-collapsed' : ''}`} style={{ marginTop: 32 }}>
-        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => toggleSection('templates')}>
-            <h2><AppIcon name="list" /> Fasi di lavorazione preimpostate</h2>
-            <p className="admin-section-desc">
-              Gestisci l'elenco delle fasi suggerite nel menu a tendina quando gli addetti creano o modificano le attività di commessa ({phaseTemplates.filter(t => filterDept === 'all' || t.department === filterDept || t.department === 'condivisa').length} visualizzate).
-            </p>
+      <div className={`admin-section-card ${collapsedSections.templates ? 'is-collapsed' : ''}`}>
+        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div style={{ cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => toggleSection('templates')}>
+            <span className="admin-icon-badge admin-badge-templates">
+              <AppIcon name="list" size={19} />
+            </span>
+            <div>
+              <h2>Fasi di lavorazione preimpostate</h2>
+              <p className="admin-section-desc">
+                Gestisci l'elenco delle fasi suggerite nel menu a tendina quando gli addetti creano o modificano le attività di commessa ({phaseTemplates.filter(t => filterDept === 'all' || t.department === filterDept || t.department === 'condivisa').length} visualizzate).
+              </p>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!collapsedSections.templates && (
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <select
@@ -1375,7 +1380,7 @@ export default function AdminPage() {
                 </button>
               </div>
             )}
-            <div style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => toggleSection('templates')}>
+            <div className="admin-toggle-chevron" onClick={() => toggleSection('templates')} title={collapsedSections.templates ? 'Espandi' : 'Comprimi'}>
               <AppIcon name={collapsedSections.templates ? 'chevronDown' : 'chevronUp'} size={18} />
             </div>
           </div>
@@ -1467,16 +1472,21 @@ export default function AdminPage() {
       </div>
 
       {/* SEZIONE 3: FASI TICKET */}
-      <div className={`admin-section-card ${collapsedSections.ticketPhases ? 'is-collapsed' : ''}`} style={{ marginTop: 32 }}>
-        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => toggleSection('ticketPhases')}>
-            <h2><AppIcon name="ticket" /> Fasi ticket</h2>
-            <p className="admin-section-desc">
-              Personalizza l'elenco delle fasi o eventi selezionabili quando si risponde a un ticket (es. "Inviato al cliente", "In lavorazione").
-            </p>
+      <div className={`admin-section-card ${collapsedSections.ticketPhases ? 'is-collapsed' : ''}`}>
+        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div style={{ cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => toggleSection('ticketPhases')}>
+            <span className="admin-icon-badge admin-badge-ticketphases">
+              <AppIcon name="ticket" size={19} />
+            </span>
+            <div>
+              <h2>Fasi ticket</h2>
+              <p className="admin-section-desc">
+                Personalizza l'elenco delle fasi o eventi selezionabili quando si risponde a un ticket (es. "Inviato al cliente", "In lavorazione").
+              </p>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
-            <div style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => toggleSection('ticketPhases')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="admin-toggle-chevron" onClick={() => toggleSection('ticketPhases')} title={collapsedSections.ticketPhases ? 'Espandi' : 'Comprimi'}>
               <AppIcon name={collapsedSections.ticketPhases ? 'chevronDown' : 'chevronUp'} size={18} />
             </div>
           </div>
@@ -1524,13 +1534,18 @@ export default function AdminPage() {
       <RichiesteCommercialiAdminSection users={users} toast={toast} />
 
       {/* SEZIONE LOG EMAIL */}
-      <div className={`admin-section-card ${collapsedSections.emails ? 'is-collapsed' : ''}`} style={{ marginTop: 32, marginBottom: 30 }}>
-        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => toggleSection('emails')}>
-            <h2><AppIcon name="mail" /> Notifiche email</h2>
-            <p className="admin-section-desc">Cronologia delle comunicazioni e riepilogo degli invii futuri.</p>
+      <div className={`admin-section-card ${collapsedSections.emails ? 'is-collapsed' : ''}`}>
+        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div style={{ cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => toggleSection('emails')}>
+            <span className="admin-icon-badge admin-badge-emails">
+              <AppIcon name="mail" size={19} />
+            </span>
+            <div>
+              <h2>Notifiche email</h2>
+              <p className="admin-section-desc">Cronologia delle comunicazioni e riepilogo degli invii futuri.</p>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!collapsedSections.emails && (
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <div className="tabs" style={{ display: 'flex', gap: 8 }}>
@@ -1549,7 +1564,7 @@ export default function AdminPage() {
                 </div>
               </div>
             )}
-            <div style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => toggleSection('emails')}>
+            <div className="admin-toggle-chevron" onClick={() => toggleSection('emails')} title={collapsedSections.emails ? 'Espandi' : 'Comprimi'}>
               <AppIcon name={collapsedSections.emails ? 'chevronDown' : 'chevronUp'} size={18} />
             </div>
           </div>
@@ -1643,19 +1658,24 @@ export default function AdminPage() {
       </div>
 
       {/* SEZIONE BACKUP */}
-      <div className={`admin-section-card ${collapsedSections.backup ? 'is-collapsed' : ''}`} style={{ marginTop: 32, marginBottom: 30 }}>
-        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => toggleSection('backup')}>
-            <h2><AppIcon name="save" /> Backup di Sistema</h2>
-            <p className="admin-section-desc">Stato del salvataggio dati e archivi ZIP generati.</p>
+      <div className={`admin-section-card ${collapsedSections.backup ? 'is-collapsed' : ''}`}>
+        <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div style={{ cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => toggleSection('backup')}>
+            <span className="admin-icon-badge admin-badge-backup">
+              <AppIcon name="save" size={19} />
+            </span>
+            <div>
+              <h2>Backup di Sistema</h2>
+              <p className="admin-section-desc">Stato del salvataggio dati e archivi ZIP generati.</p>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!collapsedSections.backup && (
               <button className="btn btn-primary btn-sm" onClick={handleTriggerBackup}>
                 <AppIcon name="refresh" size={14} /> Esegui Ora
               </button>
             )}
-            <div style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => toggleSection('backup')}>
+            <div className="admin-toggle-chevron" onClick={() => toggleSection('backup')} title={collapsedSections.backup ? 'Espandi' : 'Comprimi'}>
               <AppIcon name={collapsedSections.backup ? 'chevronDown' : 'chevronUp'} size={18} />
             </div>
           </div>
@@ -2307,14 +2327,21 @@ function RichiesteCommercialiAdminSection({ users, toast }) {
   }
 
   return (
-    <div className={`admin-section-card ${collapsed ? 'is-collapsed' : ''}`} style={{ marginTop: 32 }}>
-      <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
-        <div style={{ cursor: 'pointer', flex: 1 }} onClick={() => setCollapsed(c => !c)}>
-          <h2><AppIcon name="briefcase" /> Preventivazione</h2>
-          <p className="admin-section-desc">Gestisci le liste utenti e le impostazioni email del modulo Preventivazione.</p>
+    <div className={`admin-section-card ${collapsed ? 'is-collapsed' : ''}`}>
+      <div className="admin-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+        <div style={{ cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 12 }} onClick={() => setCollapsed(c => !c)}>
+          <span className="admin-icon-badge admin-badge-preventivazione">
+            <AppIcon name="briefcase" size={19} />
+          </span>
+          <div>
+            <h2>Preventivazione</h2>
+            <p className="admin-section-desc">Gestisci le liste utenti e le impostazioni email del modulo Preventivazione.</p>
+          </div>
         </div>
-        <div style={{ cursor: 'pointer', color: 'var(--text-muted)', marginTop: 4 }} onClick={() => setCollapsed(c => !c)}>
-          <AppIcon name={collapsed ? 'chevronDown' : 'chevronUp'} size={18} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="admin-toggle-chevron" onClick={() => setCollapsed(c => !c)} title={collapsed ? 'Espandi' : 'Comprimi'}>
+            <AppIcon name={collapsed ? 'chevronDown' : 'chevronUp'} size={18} />
+          </div>
         </div>
       </div>
 

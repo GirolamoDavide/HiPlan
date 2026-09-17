@@ -94,8 +94,6 @@
 }
 
 .projects-page,
-.admin-page,
-.conflicts-page,
 .rc-page {
   width: 100%;
   max-width: 100%;
@@ -1637,9 +1635,16 @@
    TODO and Tickets shared workspaces
    --------------------------------------------------------- */
 
-.todo-page-wrapper,
+.todo-page-wrapper {
+  gap: 0;
+}
+
 .tickets-page-wrapper {
   gap: 0;
+  max-width: 1380px;
+  margin: 0 auto;
+  width: 100%;
+  animation: profileFadeIn 0.22s ease-out;
 }
 
 .todo-page-header,
@@ -1650,10 +1655,10 @@
 .todo-body,
 .tickets-body {
   overflow: hidden;
-  border-color: var(--border-default);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default) !important;
+  border-radius: 14px !important;
   background: var(--bg-card);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
 }
 
 .todo-sidebar,
@@ -1960,7 +1965,12 @@
 .conflicts-page {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  padding: 4px 2px 48px;
+  max-width: 1380px;
+  margin: 0 auto;
+  width: 100%;
+  animation: profileFadeIn 0.22s ease-out;
 }
 
 .conflicts-page .projects-header {
@@ -1979,13 +1989,23 @@
 }
 
 .workload-heatmap-container {
-  margin-bottom: 0 !important;
-  padding: 14px 18px;
+  margin: 0 !important;
+  padding: 18px 22px !important;
   overflow: hidden;
-  border-color: var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default) !important;
+  border-radius: 14px !important;
   background: var(--bg-card);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.workload-heatmap-container:hover {
+  border-color: var(--border-strong, var(--border-default)) !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+
+.workload-heatmap-container.is-collapsed {
+  padding: 13px 20px !important;
 }
 
 .workload-heatmap-container>div:first-child {
@@ -1994,14 +2014,16 @@
 
 .workload-heatmap-container>div:first-child h3 {
   color: var(--text-primary);
-  font-size: 0.9rem;
-  font-weight: 800;
-  letter-spacing: -0.015em;
+  font-size: 0.98rem;
+  font-weight: 700;
+  margin: 0;
 }
 
-.workload-heatmap-container>div:first-child span:not(.badge):not(.btn):not(.btn-primary):not(.conflict-counter-badge) {
-  color: var(--text-tertiary) !important;
-  font-size: 0.67rem !important;
+.workload-heatmap-container>div:first-child span.conflict-section-desc,
+.conflict-section-desc {
+  color: var(--text-secondary) !important;
+  font-size: 0.8rem !important;
+  line-height: 1.4;
 }
 
 .workload-heatmap-container>div:first-child span.btn-primary,
@@ -2142,7 +2164,14 @@
    --------------------------------------------------------- */
 
 .admin-page {
-  padding-bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 2px 48px;
+  max-width: 1380px;
+  margin: 0 auto;
+  width: 100%;
+  animation: profileFadeIn 0.22s ease-out;
 }
 
 .admin-header {
@@ -2150,12 +2179,19 @@
 }
 
 .admin-section-card {
-  margin-top: 14px !important;
-  padding: 18px;
-  border-color: var(--border-subtle);
-  border-radius: var(--radius-lg);
+  margin: 0 !important;
+  padding: 18px 22px;
+  border: 1px solid var(--border-default) !important;
+  border-radius: 14px;
   background: var(--bg-card);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.admin-section-card:hover {
+  border-color: var(--border-strong, var(--border-default)) !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
 }
 
 .admin-section-card:first-of-type {
@@ -2163,10 +2199,9 @@
 }
 
 .admin-section-card.is-collapsed {
-  margin-top: 8px !important;
-  margin-bottom: 8px !important;
-  padding: 11px 14px;
-  border-radius: 12px;
+  margin: 0 !important;
+  padding: 13px 20px;
+  border-radius: 14px;
 }
 
 .admin-section-card.is-collapsed .admin-section-header {

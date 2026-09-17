@@ -1471,7 +1471,7 @@ export default function TicketsPage() {
   const lowCount = baseTickets.filter(t => t.priority === 'low').length;
 
   return (
-    <div className="tickets-page-wrapper">
+    <div className="tickets-page-wrapper animate-fadeIn">
       {showNew && (
         <NewTicketModal
           currentUser={user}

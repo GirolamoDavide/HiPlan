@@ -343,7 +343,7 @@ export default function ConflictMonitoringPage() {
       <WorkloadHeatmap />
 
       {/* Ricerca Slot Liberi Section */}
-      <div className="workload-heatmap-container">
+      <div className={`workload-heatmap-container ${!isSearchOpen ? 'is-collapsed' : ''}`}>
         <div
           style={{
             display: 'flex',
@@ -355,26 +355,31 @@ export default function ConflictMonitoringPage() {
           }}
           onClick={() => setIsSearchOpen(!isSearchOpen)}
         >
-          <div>
-            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AppIcon name="search" size={18} />
-              Ricerca Slot Liberi
-            </h3>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>
-              Trova gli spazi di tempo disponibili per uno o più addetti.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span className="conflict-icon-badge conflict-badge-search">
+              <AppIcon name="search" size={19} />
             </span>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Ricerca Slot Liberi
+              </h3>
+              <span className="conflict-section-desc">
+                Trova gli spazi di tempo disponibili per uno o più addetti.
+              </span>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
             {searchResults && searchResults.length > 0 && (
-              <span className="badge badge-success" style={{ padding: '4px 8px', fontSize: '0.85rem', borderRadius: '12px' }}>
+              <span className="badge badge-success" style={{ padding: '3px 8px', fontSize: '0.8rem', borderRadius: '12px' }}>
                 {searchResults.length}
               </span>
             )}
             <div
-              style={{ cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}
+              className="conflict-toggle-chevron"
               onClick={() => setIsSearchOpen(!isSearchOpen)}
+              title={isSearchOpen ? "Comprimi" : "Espandi"}
             >
-              <AppIcon name={isSearchOpen ? "chevronUp" : "chevronDown"} size={20} />
+              <AppIcon name={isSearchOpen ? "chevronUp" : "chevronDown"} size={18} />
             </div>
           </div>
         </div>
@@ -505,7 +510,7 @@ export default function ConflictMonitoringPage() {
       </div>
 
       {/* Conflitti Collapsible Section */}
-      <div className="workload-heatmap-container">
+      <div className={`workload-heatmap-container ${!isConflictsOpen ? 'is-collapsed' : ''}`}>
         <div
           style={{
             display: 'flex',
@@ -517,22 +522,26 @@ export default function ConflictMonitoringPage() {
           }}
           onClick={() => setIsConflictsOpen(!isConflictsOpen)}
         >
-          <div>
-            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AppIcon name="alert" size={18} />
-              Conflitti
-            </h3>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>
-              Dettaglio delle sovrapposizioni critiche di pianificazione sulle fasi.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span className="conflict-icon-badge conflict-badge-conflicts">
+              <AppIcon name="alert" size={19} />
             </span>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Conflitti
+              </h3>
+              <span className="conflict-section-desc">
+                Dettaglio delle sovrapposizioni critiche di pianificazione sulle fasi.
+              </span>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
             {conflicts.length > 0 && (
               <span
                 className="btn btn-primary btn-sm conflict-counter-badge"
                 style={{
-                  padding: '4px 8px',
-                  fontSize: '0.85rem',
+                  padding: '3px 8px',
+                  fontSize: '0.8rem',
                   borderRadius: '12px',
                   color: '#ffffff',
                   fontWeight: 700
@@ -542,10 +551,11 @@ export default function ConflictMonitoringPage() {
               </span>
             )}
             <div
-              style={{ cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}
+              className="conflict-toggle-chevron"
               onClick={() => setIsConflictsOpen(!isConflictsOpen)}
+              title={isConflictsOpen ? "Comprimi" : "Espandi"}
             >
-              <AppIcon name={isConflictsOpen ? "chevronUp" : "chevronDown"} size={20} />
+              <AppIcon name={isConflictsOpen ? "chevronUp" : "chevronDown"} size={18} />
             </div>
           </div>
         </div>
@@ -675,7 +685,7 @@ export default function ConflictMonitoringPage() {
       </div>
 
       {/* Panoramica Ferie Collapsible Section */}
-      <div className="workload-heatmap-container">
+      <div className={`workload-heatmap-container ${!isVacationsOpen ? 'is-collapsed' : ''}`}>
         <div
           style={{
             display: 'flex',
@@ -687,18 +697,22 @@ export default function ConflictMonitoringPage() {
           }}
           onClick={() => setIsVacationsOpen(!isVacationsOpen)}
         >
-          <div>
-            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AppIcon name="vacations" size={18} />
-              Panoramica Ferie
-            </h3>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>
-              Gestione centralizzata delle ferie inserite.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span className="conflict-icon-badge conflict-badge-vacations">
+              <AppIcon name="vacations" size={19} />
             </span>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Panoramica Ferie
+              </h3>
+              <span className="conflict-section-desc">
+                Gestione centralizzata delle ferie inserite.
+              </span>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
             {(user?.role === 'admin' || user?.role === 'editor') && (
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   className="btn btn-secondary btn-sm"
                   onClick={(e) => {
@@ -722,10 +736,11 @@ export default function ConflictMonitoringPage() {
               </div>
             )}
             <div
-              style={{ cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}
+              className="conflict-toggle-chevron"
               onClick={() => setIsVacationsOpen(!isVacationsOpen)}
+              title={isVacationsOpen ? "Comprimi" : "Espandi"}
             >
-              <AppIcon name={isVacationsOpen ? "chevronUp" : "chevronDown"} size={20} />
+              <AppIcon name={isVacationsOpen ? "chevronUp" : "chevronDown"} size={18} />
             </div>
           </div>
         </div>

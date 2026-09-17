@@ -221,7 +221,7 @@ export default function WorkloadHeatmap() {
   if (loading) return <div>Caricamento...</div>;
 
   return (
-    <div className="workload-heatmap-container">
+    <div className={`workload-heatmap-container ${!isWorkloadOpen ? 'is-collapsed' : ''}`}>
       <div 
         style={{ 
           display: 'flex', 
@@ -233,14 +233,18 @@ export default function WorkloadHeatmap() {
         }}
         onClick={() => setIsWorkloadOpen(!isWorkloadOpen)}
       >
-        <div>
-          <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <AppIcon name="users" size={18} />
-            Pianificazione Carichi di Lavoro
-          </h3>
-          <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-            {dataMode === 'planned' ? 'Panoramica ore assegnate nelle fasi dei vari progetti (ore previste, non a consuntivo)' : dataMode === 'actual' ? 'Panoramica ore effettivamente registrate (consuntivate) dagli addetti' : 'Panoramica ore consuntivate rispetto alle previste (Consuntivate / Previste)'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span className="conflict-icon-badge conflict-badge-workload">
+            <AppIcon name="users" size={19} />
           </span>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Pianificazione Carichi di Lavoro
+            </h3>
+            <span className="conflict-section-desc">
+              {dataMode === 'planned' ? 'Panoramica ore assegnate nelle fasi dei vari progetti (ore previste, non a consuntivo)' : dataMode === 'actual' ? 'Panoramica ore effettivamente registrate (consuntivate) dagli addetti' : 'Panoramica ore consuntivate rispetto alle previste (Consuntivate / Previste)'}
+            </span>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
           {isWorkloadOpen && (
@@ -365,10 +369,11 @@ export default function WorkloadHeatmap() {
             </>
           )}
           <div 
-            style={{ cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}
+            className="conflict-toggle-chevron"
             onClick={() => setIsWorkloadOpen(!isWorkloadOpen)}
+            title={isWorkloadOpen ? "Comprimi" : "Espandi"}
           >
-            <AppIcon name={isWorkloadOpen ? "chevronUp" : "chevronDown"} size={20} />
+            <AppIcon name={isWorkloadOpen ? "chevronUp" : "chevronDown"} size={18} />
           </div>
         </div>
       </div>
