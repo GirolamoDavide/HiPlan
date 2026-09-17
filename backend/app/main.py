@@ -11,7 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from app.api import (
     auth, users, projects, tasks, notes, export, 
     notifications, phase_templates, workload, vacations, 
-    tickets, task_collaboration, websockets, settings as api_settings, activity_logs, todos, email_logs, search, replanning, chat, calendar, richieste_commerciali
+    tickets, task_collaboration, websockets, settings as api_settings, activity_logs, todos, email_logs, search, replanning, chat, calendar, richieste_commerciali,
+    automations
 )
 
 @asynccontextmanager
@@ -72,6 +73,10 @@ async def lifespan(app: FastAPI):
                 session.add(PhaseTemplate(name=name, department=dept, default_color=col, is_custom=False))
             await session.commit()
             print("[INIT] Inserite fasi preimpostate di default per tutti i reparti")
+
+        # Seed regole di automazione predefinite se tabella vuota
+        from app.services.automation_service import AutomationService
+        await AutomationService.seed_default_rules(session)
 
         result = await session.execute(select(User).where(func.lower(User.username) == "admin"))
         admin_user = result.scalar_one_or_none()
@@ -327,12 +332,23 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[SCHEDULER] Errore pulizia automatica cestino: {e}")
 
+    # Scheduler: Controllo automazioni periodiche su scadenze imminenti (ogni 15 min)
+    async def run_automation_checks():
+        try:
+            from app.models.base import AsyncSessionLocal
+            from app.services.automation_service import AutomationService
+            async with AsyncSessionLocal() as session:
+                await AutomationService.check_scheduled_automations(session)
+        except Exception as e:
+            print(f"[SCHEDULER] Errore controllo automazioni periodiche: {e}")
+
     scheduler.add_job(run_daily_trash_purge, 'cron', hour=3, minute=0)
     scheduler.add_job(run_daily_ai_report, 'cron', hour=7, minute=0)
     scheduler.add_job(run_todo_notifications, 'interval', minutes=5)
     scheduler.add_job(run_calendar_notifications, 'interval', minutes=5)
+    scheduler.add_job(run_automation_checks, 'interval', minutes=15)
     scheduler.start()
-    print("[INIT] Scheduler avviato (Report AI ore 07:00, pulizia Cestino 90gg ore 03:00, controllo TODO ed Eventi ogni 5 minuti)")
+    print("[INIT] Scheduler avviato (Report AI ore 07:00, pulizia Cestino 90gg ore 03:00, controllo TODO ed Eventi ogni 5m, Automazioni ogni 15m)")
 
     yield
     await engine.dispose()
@@ -397,6 +413,7 @@ app.include_router(replanning.router)
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(calendar.router, prefix="/api/calendar", tags=["Calendar"])
 app.include_router(richieste_commerciali.router)
+app.include_router(automations.router)
 
 @app.get("/api/health")
 async def health_check():

@@ -18,6 +18,7 @@ import TicketsPage from './pages/TicketsPage';
 import TodoPage from './pages/TodoPage';
 import ChatPage from './pages/ChatPage';
 import RichiesteCommercialiPage from './pages/RichiesteCommercialiPage';
+import AutomationsPage from './pages/AutomationsPage';
 import './index.css';
 import './workspace-restyle.css';
 
@@ -82,6 +83,22 @@ function AppRoutes() {
         />
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/richieste-commerciali" element={<RichiesteCommercialiPage />} />
+        <Route
+          path="/admin/automations"
+          element={
+            <ProtectedRoute adminOnly>
+              <AutomationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/automations"
+          element={
+            <ProtectedRoute adminOnly>
+              <Navigate to="/admin/automations" replace />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/admin"
           element={

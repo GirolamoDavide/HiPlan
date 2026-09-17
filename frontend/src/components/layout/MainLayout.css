@@ -540,7 +540,7 @@
   min-height: 0;
   max-width: 100%;
   overflow-y: auto;
-  padding: clamp(16px, 1.5vw, 24px);
+  padding: 16px;
   scroll-behavior: smooth;
 }
 
@@ -560,7 +560,8 @@
 .main-body-notes>.notes-page-container,
 .main-body-todo>.todo-page-wrapper,
 .main-body-tickets>.tickets-page-wrapper,
-.main-body-calendar>.calendar-page {
+.main-body-calendar>.calendar-page,
+.main-body-personal-calendar>.personal-calendar-page {
   width: 100%;
   height: 100%;
   max-height: 100%;
@@ -568,13 +569,19 @@
 
 .main-body-todo,
 .main-body-tickets,
-.main-body-calendar {
+.main-body-calendar,
+.main-body-personal-calendar {
   overflow: hidden;
   padding: 16px;
 }
 
-.main-body-projects {
-  padding: 24px 24px 24px 24px;
+.main-body-projects,
+.main-body-richieste-commerciali,
+.main-body-conflicts,
+.main-body-dashboard,
+.main-body-admin,
+.main-body-replanning {
+  padding: 16px;
 }
 
 .main-body-project-detail {

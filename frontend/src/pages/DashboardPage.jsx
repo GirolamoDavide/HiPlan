@@ -734,7 +734,7 @@ export default function DashboardPage() {
                         {project.code && <small>{project.code}</small>}
                         {project.name}
                       </span>
-                      <span className={`badge badge-${project.status}`}>{STATUS_LABELS_IT[project.status] || project.status}</span>
+                      <span className={`badge badge-${project.status}`} style={{ whiteSpace: 'nowrap' }}>{STATUS_LABELS_IT[project.status] || project.status}</span>
                     </div>
                     <div className="progress-bar">
                       <div

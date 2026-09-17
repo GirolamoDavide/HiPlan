@@ -213,6 +213,16 @@
   vertical-align: middle;
 }
 
+.projects-table td:nth-child(3),
+.projects-table th:nth-child(3) {
+  white-space: nowrap;
+  min-width: 110px;
+}
+
+.projects-table .badge {
+  white-space: nowrap !important;
+}
+
 .projects-table-row {
   cursor: pointer;
   transition: background var(--transition-fast);

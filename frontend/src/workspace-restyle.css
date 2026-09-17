@@ -95,98 +95,124 @@
 
 .projects-page,
 .admin-page,
-.conflicts-page {
-  width: min(100%, 1560px);
-  margin: 0 auto;
+.conflicts-page,
+.rc-page {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
 }
 
 .projects-command-stack {
   display: grid;
-  grid-template-columns: minmax(500px, 1fr) minmax(260px, 400px) auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 8px 12px;
-  margin-bottom: 12px;
-  padding: 8px;
+  gap: 12px 16px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
   background: var(--bg-card);
   box-shadow: var(--shadow-sm);
 }
 
-.projects-command-stack .page-result-count {
+/* Riga 1 (Sinistra): Barra di ricerca HiWay */
+.projects-command-stack .hiway-search-bar {
   grid-column: 1;
   grid-row: 1;
-  padding-left: 4px;
-}
-
-.projects-command-stack .projects-filters {
-  grid-column: 1;
-  grid-row: 2;
-  gap: 4px;
-  padding: 4px;
-  flex-wrap: nowrap !important;
-  white-space: nowrap !important;
-}
-
-.projects-command-stack .filter-chip {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 9px;
-  font-size: 0.71rem;
-  line-height: 1;
-  flex-shrink: 0;
-  white-space: nowrap;
+  justify-self: start;
+  width: min(100%, 420px);
+  max-width: 420px !important;
+  min-width: 220px;
 }
 
 .projects-command-stack .hiway-search-bar .input {
-  min-height: 42px;
+  min-height: 36px;
+  height: 36px;
   box-shadow: var(--shadow-xs);
 }
 
+/* Riga 1 (Destra): Gruppo azioni e Nuova commessa */
 .projects-command-stack .page-action-group {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
 .projects-command-stack .page-action-group .btn {
-  min-height: 38px;
+  min-height: 36px;
+  height: 36px;
 }
 
 .projects-command-stack .page-action-group .btn-icon {
-  width: 38px;
-  min-width: 38px;
-  height: 38px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
 }
 
-.projects-command-stack .hiway-search-bar {
-  grid-column: 2 / 4;
-  grid-row: 2;
-  justify-self: end;
-}
-
-.projects-command-stack .page-action-group {
-  grid-column: 2 / 4;
-  grid-row: 1;
-  justify-self: end;
-}
-
+/* Riga 2 (Sinistra): Filtri di stato */
 .projects-command-stack .projects-filters {
-  min-width: 0;
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  width: fit-content;
+  max-width: 100%;
   overflow-x: auto;
-  border: 0;
-  box-shadow: none;
   scrollbar-width: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-xs);
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
+  box-sizing: border-box;
 }
 
 .projects-command-stack .projects-filters::-webkit-scrollbar {
   display: none;
 }
 
-.projects-command-stack .hiway-search-bar {
-  width: min(100%, 480px);
-  max-width: 480px !important;
+.projects-command-stack .filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 8px;
+  font-size: 0.73rem;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.projects-command-stack .filter-chip:last-child {
+  margin-right: 2px;
+}
+
+/* Riga 2 (Destra): Conteggio commesse */
+.projects-command-stack .page-result-count {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .projects-header,
@@ -1934,7 +1960,7 @@
 .conflicts-page {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .conflicts-page .projects-header {
@@ -1942,7 +1968,7 @@
 }
 
 .conflicts-page>.card {
-  padding: 16px 18px !important;
+  padding: 14px 18px !important;
   border-color: var(--border-subtle);
   background: var(--bg-card);
 }
@@ -1953,8 +1979,8 @@
 }
 
 .workload-heatmap-container {
-  margin-bottom: 8px;
-  padding: 16px;
+  margin-bottom: 0 !important;
+  padding: 14px 18px;
   overflow: hidden;
   border-color: var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -1964,7 +1990,6 @@
 
 .workload-heatmap-container>div:first-child {
   gap: 16px;
-  margin-bottom: 12px !important;
 }
 
 .workload-heatmap-container>div:first-child h3 {
@@ -2240,28 +2265,38 @@
 
 @media (max-width: 1100px) {
   .projects-command-stack {
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 300px) auto;
+    grid-template-columns: 1fr auto;
+    gap: 10px 14px;
   }
 
-  .projects-command-stack .page-result-count {
+  .projects-command-stack .hiway-search-bar {
     grid-column: 1;
     grid-row: 1;
+    justify-self: start;
+    width: min(100%, 360px);
+    max-width: 360px !important;
+    min-width: 180px;
+  }
+
+  .projects-command-stack .page-action-group {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    gap: 6px;
   }
 
   .projects-command-stack .projects-filters {
     grid-column: 1;
     grid-row: 2;
+    justify-self: start;
+    width: fit-content;
+    max-width: 100%;
   }
 
-  .projects-command-stack .page-action-group {
-    grid-column: 2 / 4;
-    grid-row: 1;
-  }
-
-  .projects-command-stack .hiway-search-bar {
-    grid-column: 2 / 4;
+  .projects-command-stack .page-result-count {
+    grid-column: 2;
     grid-row: 2;
-    min-width: 220px !important;
+    justify-self: end;
   }
 
   .projects-page .projects-grid {
@@ -2325,27 +2360,38 @@
 
 @media (max-width: 620px) {
   .projects-command-stack {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .projects-command-stack .hiway-search-bar {
+    grid-column: 1;
+    grid-row: 1;
+    width: 100%;
+    max-width: 100% !important;
+  }
+
+  .projects-command-stack .page-action-group {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: stretch;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .projects-command-stack .projects-filters {
+    grid-column: 1;
+    grid-row: 3;
+    width: 100%;
+    max-width: 100%;
   }
 
   .projects-command-stack .page-result-count {
     grid-column: 1;
-    grid-row: 1;
-  }
-
-  .projects-command-stack .page-action-group {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .projects-command-stack .projects-filters {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-
-  .projects-command-stack .hiway-search-bar {
-    grid-column: 1 / -1;
-    grid-row: 3;
+    grid-row: 4;
+    justify-self: flex-start;
   }
 
   .page-action-bar {
@@ -2535,4 +2581,52 @@
   .calendar-search-row .hiway-search-bar {
     max-width: 720px;
   }
+}
+
+/* Automation Variables Inline Pill Tag */
+.automation-pill-tag {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  background: rgba(3, 105, 161, 0.12) !important;
+  color: #0284c7 !important;
+  border: 1px solid rgba(14, 165, 233, 0.35) !important;
+  border-radius: 6px !important;
+  padding: 1px 7px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  margin: 0 3px !important;
+  vertical-align: baseline !important;
+  line-height: 1.4 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+  cursor: default !important;
+  user-select: none !important;
+}
+
+.automation-pill-tag .pill-close-btn {
+  cursor: pointer !important;
+  margin-left: 3px !important;
+  font-weight: 800 !important;
+  font-size: 13px !important;
+  color: #0369a1 !important;
+  padding: 0 2px !important;
+  border-radius: 4px !important;
+}
+
+.automation-pill-tag .pill-close-btn:hover {
+  background: rgba(2, 132, 199, 0.2) !important;
+  color: #dc2626 !important;
+}
+
+[contenteditable][data-placeholder]:empty:before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+  display: block;
+}
+
+/* Assicura che i badge di stato (es. "In Corso", "In Pianificazione") non vadano mai a capo */
+.badge {
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
 }

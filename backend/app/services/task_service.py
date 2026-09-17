@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import List, Optional
 # pyrefly: ignore [missing-import]
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,8 @@ from app.schemas.task import TaskCreate, TaskUpdate, TaskOut, LinkCreate, LinkOu
 # pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
 from app.core.websocket_manager import manager
+
+logger = logging.getLogger(__name__)
 
 
 def find_vacation_conflicts(task_start, task_end, vacations, excluded_dates=None, custom_dates=None):
@@ -180,8 +183,13 @@ def _compute_task_progress_and_completed(task: Task, update_data: Optional[dict]
         if explicit_completed is None and calc_progress >= 1.0 and planned > 0:
             task.completed = 1
             task.progress = 1.0
-        else:
+        elif tot_eff > 0:
             task.progress = min(0.99, calc_progress) if calc_progress >= 1.0 else calc_progress
+        else:
+            if update_data and "progress" in update_data and update_data["progress"] is not None:
+                task.progress = float(update_data["progress"])
+            elif task.progress is None:
+                task.progress = 0.0
 
     # Modifica commentata per mantenere le date originali preventivate:
     # if task.completed == 1 and isinstance(actual_map, dict):
@@ -298,7 +306,8 @@ async def create_task(db: AsyncSession, project_id: str, data: TaskCreate, user=
         vacs = vac_res.scalars().all()
         vacation_payloads = [{"start_date": v.start_date, "end_date": v.end_date} for v in vacs]
         conflicts = find_vacation_conflicts(task.start_date, task.end_date or task.start_date, vacation_payloads, data.excluded_dates, active_custom_dates)
-        total_shift_days = max(total_shift_days, conflicts[0]["workdays"] if conflicts else 0)
+        shift_days: int = int(conflicts[0]["workdays"]) if conflicts else 0
+        total_shift_days = max(total_shift_days, shift_days)
 
     if total_shift_days > 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assegnazione bloccata: esistono ferie nel periodo della fase")
@@ -394,6 +403,16 @@ async def update_task(db: AsyncSession, task_id: str, data: TaskUpdate, user=Non
     old_end = task.end_date
     old_duration = task.duration
     old_actual_hours_str = task.actual_hours
+    old_progress_val = task.progress
+    old_completed_val = getattr(task, "completed", 0)
+
+    # Calcolo totale ore consuntivate precedenti
+    old_actual_hours_total = 0.0
+    try:
+        from app.services.automation_service import _calculate_task_actual_hours
+        old_actual_hours_total = _calculate_task_actual_hours(old_actual_hours_str)
+    except Exception:
+        pass
 
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -429,7 +448,8 @@ async def update_task(db: AsyncSession, task_id: str, data: TaskUpdate, user=Non
         except Exception:
             excluded_dates_list = []
         conflicts = find_vacation_conflicts(task.start_date, task.end_date or task.start_date, vacation_payloads, excluded_dates_list, active_custom_dates)
-        total_shift_days = max(total_shift_days, conflicts[0]["workdays"] if conflicts else 0)
+        shift_days: int = int(conflicts[0]["workdays"]) if conflicts else 0
+        total_shift_days = max(total_shift_days, shift_days)
 
     # Salta il controllo ferie se si stanno solo aggiornando ore consuntivate o stato completamento
     # (non stiamo cambiando date o addetti, solo registrando ore effettive)
@@ -568,6 +588,22 @@ async def update_task(db: AsyncSession, task_id: str, data: TaskUpdate, user=Non
 
     await db.commit()
     await db.refresh(task)
+
+    # Valutazione regole di automazione
+    try:
+        from app.services.automation_service import AutomationService
+        await AutomationService.evaluate_task_triggers(
+            db=db,
+            task=task,
+            old_state={
+                "progress": old_progress_val,
+                "completed": old_completed_val,
+                "actual_hours_total": old_actual_hours_total,
+            },
+            current_user=user,
+        )
+    except Exception as auto_err:
+        logger.error(f"[AUTOMATION TRIGGER ERROR] {auto_err}", exc_info=True)
 
     await manager.broadcast(task.project_id, {"action": "task_updated", "task": _task_to_out(task).model_dump()})
 

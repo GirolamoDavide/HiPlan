@@ -133,6 +133,7 @@ export default function AdminPage() {
     emails: true,
     backup: true
   });
+  const [automationRulesCount, setAutomationRulesCount] = useState({ total: 0, active: 0 });
 
   const toggleSection = (section) => {
     setCollapsedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -218,10 +219,24 @@ export default function AdminPage() {
     }
   }
 
+  async function loadAutomationRulesCount() {
+    try {
+      const { data } = await api.get('/automations/rules');
+      if (Array.isArray(data)) {
+        setAutomationRulesCount({
+          total: data.length,
+          active: data.filter(r => r.is_active).length
+        });
+      }
+    } catch (err) {
+      console.error('Errore caricamento regole automazioni:', err);
+    }
+  }
+
   async function loadData() {
     setLoading(true);
     try {
-      await Promise.all([loadUsers(), loadZeroHoursAlerts(), loadPhaseTemplates(), loadGlobalBanners(), loadTicketPhases(), loadLastBackup(), loadEmailLogs(), loadTodoEmailSettings()]);
+      await Promise.all([loadUsers(), loadZeroHoursAlerts(), loadPhaseTemplates(), loadGlobalBanners(), loadTicketPhases(), loadLastBackup(), loadEmailLogs(), loadTodoEmailSettings(), loadAutomationRulesCount()]);
     } finally {
       setLoading(false);
     }
@@ -923,6 +938,56 @@ export default function AdminPage() {
             )}
           </div>
         )}
+      </div>
+
+      {/* SEZIONE AUTOMAZIONI SENZA CODICE */}
+      <div
+        className="admin-section-card is-collapsed"
+        style={{
+          marginBottom: 8,
+          cursor: 'pointer'
+        }}
+        onClick={() => navigate('/admin/automations')}
+      >
+        <div
+          className="admin-section-header"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 16,
+            margin: 0,
+            padding: 0,
+            borderBottom: 0
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <AppIcon name="zap" /> Automazioni Senza Codice
+              </h2>
+              <span className="badge badge-primary" style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                {automationRulesCount.active} attive / {automationRulesCount.total} totali
+              </span>
+            </div>
+            <p className="admin-section-desc" style={{ margin: '4px 0 0 0' }}>
+              Regole automatiche su avanzamento fasi, consuntivi ore a budget e scadenze con creazione automatica TODO o alert.
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate('/admin/automations');
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+            >
+              <AppIcon name="zap" size={14} />
+              Gestisci Automazioni &rarr;
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* SEZIONE 1: UTENTI DI SISTEMA */}

@@ -1,7 +1,15 @@
 .conflicts-page {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 12px;
+}
+
+.conflicts-page .workload-heatmap-container {
+  margin-bottom: 0 !important;
 }
 
 .conflict-counter-badge,

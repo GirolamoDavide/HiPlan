@@ -12,6 +12,8 @@ class NotificationType(str, enum.Enum):
     TICKET = "ticket"
     VACATION = "vacation"
     COMMERCIAL = "commercial"
+    AUTOMATION = "automation"
+    RISK_RADAR = "risk_radar"
 
 
 class Notification(Base, TimestampMixin):

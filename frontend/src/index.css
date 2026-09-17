@@ -509,6 +509,8 @@ textarea.input {
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .badge-planning { background: var(--info-bg); color: var(--info); }

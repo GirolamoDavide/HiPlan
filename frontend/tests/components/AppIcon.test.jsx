@@ -29,4 +29,19 @@ describe('AppIcon Component', () => {
     const svg = container.querySelector('svg');
     expect(svg.classList.contains('custom-class')).toBe(true);
   });
+
+  it('renders all icons required for automations without fallback', () => {
+    const requiredIcons = [
+      'target', 'trendingUp', 'package', 'tool', 'eye', 'globe', 'activity',
+      'creditCard', 'zap', 'tag', 'calendar', 'bell', 'todo', 'sparkles',
+      'checkCircle', 'clock', 'alertTriangle', 'play', 'filter', 'edit', 'trash'
+    ];
+
+    for (const iconName of requiredIcons) {
+      const { container } = render(<AppIcon name={iconName} />);
+      const svg = container.querySelector('svg');
+      expect(svg).toBeInTheDocument();
+      expect(svg.children.length).toBeGreaterThan(0);
+    }
+  });
 });

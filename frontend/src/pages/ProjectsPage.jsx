@@ -398,7 +398,35 @@ export default function ProjectsPage() {
   return (
     <div className="projects-page animate-fadeIn">
       <div className="projects-command-stack">
-        <span className="page-result-count">{filtered.length} commesse</span>
+        {/* BARRA DI RICERCA CON ICONA HIWAY (Riga 1 - Sinistra) */}
+        <div className="hiway-search-bar" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <img
+            src="/hiway-icon.png"
+            alt="HiWay"
+            title="Cerca in HiWay GanttFlow"
+            style={{ position: 'absolute', left: 12, width: 20, height: 20, objectFit: 'contain', pointerEvents: 'none' }}
+          />
+          <input
+            type="text"
+            className="input"
+            style={{ width: '100%', paddingLeft: 40, paddingRight: 32, borderRadius: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border-default)' }}
+            placeholder="Cerca commessa, cliente o referente..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              aria-label="Cancella ricerca"
+              style={{ position: 'absolute', right: 10, background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 14 }}
+            >
+              <AppIcon name="close" size={15} />
+            </button>
+          )}
+        </div>
+
+        {/* GRUPPO AZIONI (Riga 1 - Destra) */}
         <div className="page-action-group">
           {canCreate && (
             <button
@@ -555,6 +583,7 @@ export default function ProjectsPage() {
           )}
         </div>
 
+        {/* FILTRI DI STATO (Riga 2 - Sinistra) */}
         <div className="projects-filters" style={{ marginBottom: 0 }}>
           {['my_projects', 'all', 'planning', 'active', 'completed', 'archived'].map((f) => (
             <button
@@ -568,32 +597,10 @@ export default function ProjectsPage() {
           ))}
         </div>
 
-        {/* BARRA DI RICERCA CON ICONA HIWAY */}
-        <div className="hiway-search-bar" style={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: 220, flex: '1 1 280px', maxWidth: 400 }}>
-          <img
-            src="/hiway-icon.png"
-            alt="HiWay"
-            title="Cerca in HiWay GanttFlow"
-            style={{ position: 'absolute', left: 12, width: 20, height: 20, objectFit: 'contain', pointerEvents: 'none' }}
-          />
-          <input
-            type="text"
-            className="input"
-            style={{ width: '100%', paddingLeft: 40, paddingRight: 32, borderRadius: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border-default)' }}
-            placeholder="Cerca commessa, cliente o referente..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              style={{ position: 'absolute', right: 10, background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 14 }}
-            >
-              <AppIcon name="close" size={15} />
-            </button>
-          )}
-        </div>
+        {/* CONTEGGIO COMMESSE (Riga 2 - Destra) */}
+        <span className="page-result-count">
+          {filtered.length} {filtered.length === 1 ? 'commessa' : 'commesse'}
+        </span>
       </div>
 
       {filtered.length === 0 ? (
@@ -620,7 +627,7 @@ export default function ProjectsPage() {
                   <th className="sortable" onClick={() => handleSort('client')} title="Ordina per cliente">
                     Cliente {sortConfig.key === 'client' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('status')} title="Ordina per stato">
+                  <th className="sortable" onClick={() => handleSort('status')} title="Ordina per stato" style={{ minWidth: 110, whiteSpace: 'nowrap' }}>
                     Stato {sortConfig.key === 'status' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
                   </th>
                   <th>Referente & Addetti</th>
@@ -684,8 +691,8 @@ export default function ProjectsPage() {
                         <span>{project.client || 'Non specificato'}</span>
                       </div>
                     </td>
-                    <td>
-                      <span className={`badge badge-${project.status}`}>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <span className={`badge badge-${project.status}`} style={{ whiteSpace: 'nowrap' }}>
                         {STATUS_LABELS_IT[project.status] || project.status}
                       </span>
                     </td>
@@ -772,7 +779,7 @@ export default function ProjectsPage() {
                     {project.name || 'Senza Titolo'}
                   </h3>
                 </div>
-                <span className={`badge badge-${project.status}`}>{STATUS_LABELS_IT[project.status] || project.status}</span>
+                <span className={`badge badge-${project.status}`} style={{ whiteSpace: 'nowrap' }}>{STATUS_LABELS_IT[project.status] || project.status}</span>
               </div>
 
               {/* Riga dedicata indicatori tipologia commessa: affiancati a piena larghezza con bordi arrotondati pill e spaziatura compatta */}

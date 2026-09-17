@@ -5,9 +5,11 @@
    ======================================================== */
 
 .rc-page {
-  padding: 24px;
-  width: min(100%, 1560px);
-  margin: 0 auto;
+  padding: 0 0 20px 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
 }
 
 /* ── Header ─────────────────────────────────────────────── */

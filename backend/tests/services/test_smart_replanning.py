@@ -512,7 +512,7 @@ async def test_smart_replanning_fs_dependency_and_independence(db_session: Async
     3. Fase 4, non dipendendo da Fase 3, NON deve essere spostata né ritardata dal ritardo di Fase 3.
     """
     p_start = date(2026, 8, 24)
-    p_end = date(2026, 9, 30)
+    p_end = date(2026, 10, 31)
 
     project = Project(
         name="Commessa TEST-REB-2026",

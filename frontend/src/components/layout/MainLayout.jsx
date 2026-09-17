@@ -176,6 +176,9 @@ function AppIcon({ name, size = 19 }) {
         <line x1="16" y1="16" x2="16.01" y2="16" />
       </>
     ),
+    zap: (
+      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+    ),
     messageSquare: (
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     ),
@@ -495,6 +498,7 @@ export default function MainLayout() {
       '/tickets': { title: 'Ticket', subtitle: 'Richieste e supporto operativo' },
       '/richieste-commerciali': { title: 'Preventivazione', subtitle: 'Coordinamento commerciale e acquisti' },
       '/admin': { title: 'Amministrazione', subtitle: 'Utenti e configurazione' },
+      '/admin/automations': { title: 'Automazioni Senza Codice', subtitle: 'Regole automatiche     sui workflow' },
       '/me': { title: 'Il mio profilo', subtitle: 'Profilo, reparto e ferie' },
       '/chat': { title: 'HiPlan AI', subtitle: 'Assistente Virtuale' },
     }[location.pathname] || { title: 'HiPlan', subtitle: 'Workspace operativo' };
