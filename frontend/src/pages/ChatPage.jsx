@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, User, Send, MessageSquarePlus, Bot, Download, Printer, ExternalLink, Mail } from 'lucide-react';
+import { Copy, User, Send, MessageSquarePlus, Bot, Download, Printer, ExternalLink, Mail, Paperclip, FileText, X, Image as ImageIcon } from 'lucide-react';
 
 export default function ChatPage() {
   const { user } = useAuth();
@@ -33,7 +33,10 @@ export default function ChatPage() {
   const [messages, setMessages] = useState(getInitialMessages);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [attachments, setAttachments] = useState([]);
+  const [isDragging, setIsDragging] = useState(false);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   const location = useLocation();
   const initialPromptSent = useRef(false);
 
@@ -43,7 +46,24 @@ export default function ChatPage() {
 
   useEffect(() => {
     scrollToBottom();
-    localStorage.setItem('hiplan-chat-messages', JSON.stringify(messages));
+    try {
+      const cleanMessages = messages.map(m => {
+        if (!m.attachments || m.attachments.length === 0) return m;
+        return {
+          ...m,
+          attachments: m.attachments.map(a => ({
+            name: a.name,
+            size: a.size,
+            type: a.type,
+            isImage: a.isImage,
+            preview: a.preview && a.preview.length < 50000 ? a.preview : null
+          }))
+        };
+      });
+      localStorage.setItem('hiplan-chat-messages', JSON.stringify(cleanMessages));
+    } catch (e) {
+      console.warn('Could not cache chat messages', e);
+    }
   }, [messages, isLoading]);
 
   const handleResetChat = () => {
@@ -165,25 +185,109 @@ export default function ChatPage() {
     }, 250);
   };
 
-  const sendText = async (text) => {
-    if (!text || !text.trim()) return;
+  const handleFileSelect = (files) => {
+    if (!files || files.length === 0) return;
+    const newFiles = Array.from(files);
+    if (attachments.length + newFiles.length > 5) {
+      addToast('Puoi allegare al massimo 5 file per messaggio', 'info');
+      return;
+    }
+
+    newFiles.forEach((file) => {
+      if (file.size > 15 * 1024 * 1024) {
+        addToast(`Il file "${file.name}" supera il limite di 15MB`, 'error');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        const isImage = file.type.startsWith('image/');
+        setAttachments((prev) => [
+          ...prev,
+          {
+            id: Date.now() + Math.random(),
+            name: file.name,
+            size: file.size,
+            type: file.type || 'application/octet-stream',
+            isImage,
+            data: dataUrl,
+            preview: isImage ? dataUrl : null
+          }
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeAttachment = (id) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      handleFileSelect(e.dataTransfer.files);
+    }
+  };
+
+  const sendText = async (text, attachedFiles = attachments) => {
+    const hasText = text && text.trim();
+    const hasAttachments = attachedFiles && attachedFiles.length > 0;
+    if (!hasText && !hasAttachments) return;
+
     const userMessage = {
       id: Date.now(),
       sender: 'user',
-      text: text.trim(),
+      text: (text || '').trim(),
+      attachments: hasAttachments ? attachedFiles.map(a => ({
+        name: a.name,
+        size: a.size,
+        type: a.type,
+        isImage: a.isImage,
+        preview: a.preview || (a.isImage ? a.data : null)
+      })) : []
     };
+
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
+    setAttachments([]);
+
     const recentHistory = messages
       .filter((m) => m.text && !m.text.startsWith('Ciao!'))
       .slice(-6)
       .map((m) => ({ sender: m.sender, text: m.text }));
 
+    const apiPayload = {
+      message: userMessage.text,
+      history: recentHistory,
+    };
+
+    if (hasAttachments) {
+      apiPayload.attachments = attachedFiles.map(a => ({
+        name: a.name,
+        type: a.type,
+        data: a.data,
+        size: a.size
+      }));
+    }
+
     try {
-      const response = await api.post('/chat', {
-        message: userMessage.text,
-        history: recentHistory,
-      });
+      const response = await api.post('/chat', apiPayload);
       const aiMessage = {
         id: Date.now() + 1,
         sender: 'ai',
@@ -198,7 +302,7 @@ export default function ChatPage() {
         {
           id: Date.now() + 1,
           sender: 'ai',
-          text: 'Scusa, si è verificato un errore di rete o di configurazione.',
+          text: 'Scusa, si è verificato un errore di rete o di elaborazione con gli allegati.',
         },
       ]);
     } finally {
@@ -216,10 +320,11 @@ export default function ChatPage() {
 
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() && attachments.length === 0) return;
     const textToSend = inputValue;
+    const filesToSend = [...attachments];
     setInputValue('');
-    await sendText(textToSend);
+    await sendText(textToSend, filesToSend);
   };
 
   return (
@@ -284,17 +389,208 @@ export default function ChatPage() {
         .dark .chat-copy-btn:hover {
           background: rgba(255,255,255,0.1);
         }
+        .chat-input-container {
+          display: flex;
+          flex-direction: column;
+          margin-top: auto;
+          position: relative;
+        }
+        .chat-attachments-tray {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding: 8px 12px;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: 16px;
+          margin-bottom: 8px;
+          animation: fadeSlideUp 0.2s ease-out;
+        }
+        .chat-attachment-chip {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: var(--bg-surface, rgba(0, 0, 0, 0.04));
+          border: 1px solid var(--border-subtle);
+          border-radius: 10px;
+          padding: 4px 8px;
+          font-size: 0.8rem;
+          color: var(--text-primary);
+          max-width: 260px;
+        }
+        .dark .chat-attachment-chip {
+          background: rgba(255, 255, 255, 0.06);
+          border-color: rgba(255, 255, 255, 0.1);
+        }
+        .chat-attachment-thumb {
+          width: 30px;
+          height: 30px;
+          border-radius: 6px;
+          object-fit: cover;
+          flex-shrink: 0;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .chat-attachment-doc-icon {
+          color: var(--accent-500);
+          flex-shrink: 0;
+        }
+        .chat-attachment-info {
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+          overflow: hidden;
+        }
+        .chat-attachment-name {
+          font-weight: 600;
+          font-size: 0.78rem;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .chat-attachment-size {
+          font-size: 0.7rem;
+          color: var(--text-muted);
+        }
+        .chat-attachment-remove {
+          background: transparent;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          padding: 2px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-left: auto;
+          transition: all 0.15s;
+        }
+        .chat-attachment-remove:hover {
+          background: rgba(239, 68, 68, 0.15);
+          color: #ef4444;
+        }
+        .chat-attach-btn {
+          background: transparent;
+          border: none;
+          color: var(--text-secondary);
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+          flex-shrink: 0;
+          align-self: center;
+          margin: 0;
+          padding: 0;
+        }
+        .chat-attach-btn:hover {
+          background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+          color: var(--accent-500);
+        }
+        .dark .chat-attach-btn:hover {
+          background: rgba(255, 255, 255, 0.1);
+        }
+        .chat-msg-attachments-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+        .chat-msg-img-preview {
+          display: block;
+          max-width: 220px;
+          max-height: 180px;
+          border-radius: 10px;
+          overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          transition: transform 0.15s;
+        }
+        .chat-msg-img-preview:hover {
+          transform: scale(1.02);
+        }
+        .chat-msg-img-preview img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+        .chat-msg-doc-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: rgba(255, 255, 255, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          color: #ffffff;
+          padding: 4px 10px;
+          border-radius: 12px;
+          font-size: 0.78rem;
+          font-weight: 500;
+        }
+        .chat-msg-doc-name {
+          max-width: 180px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .chat-msg-doc-size {
+          opacity: 0.8;
+          font-size: 0.72rem;
+        }
+        .chat-drag-overlay {
+          position: absolute;
+          inset: 0;
+          background: rgba(14, 165, 233, 0.15);
+          backdrop-filter: blur(4px);
+          z-index: 999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 2px dashed var(--accent-500);
+          border-radius: 16px;
+          margin: 10px;
+          pointer-events: none;
+          animation: fadeIn 0.15s ease-out;
+        }
+        .chat-drag-box {
+          background: var(--bg-surface, #ffffff);
+          color: var(--text-primary);
+          padding: 24px 36px;
+          border-radius: 16px;
+          box-shadow: 0 12px 36px rgba(0,0,0,0.15);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          text-align: center;
+        }
+        .dark .chat-drag-box {
+          background: var(--bg-secondary, #1e293b);
+        }
+        .chat-drag-icon {
+          color: var(--accent-500);
+          animation: bounce 1s infinite;
+        }
+        @keyframes bounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-8px); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
         .chat-input-wrapper {
           background: var(--bg-secondary);
           border: 1px solid var(--border-color);
-          border-radius: 24px;
-          padding: 12px;
+          border-radius: 28px;
+          padding: 8px 10px 8px 12px;
           display: flex;
-          gap: 12px;
-          align-items: flex-end;
+          gap: 8px;
+          align-items: center;
           box-shadow: 0 4px 20px rgba(0,0,0,0.05);
           transition: box-shadow 0.3s, border-color 0.3s;
-          margin-top: auto;
         }
         .chat-input-wrapper:focus-within {
           border-color: var(--accent-500);
@@ -360,8 +656,8 @@ export default function ChatPage() {
           color: var(--text-secondary);
         }
         .chat-send-btn {
-          width: 44px;
-          height: 44px;
+          width: 40px;
+          height: 40px;
           border-radius: 50%;
           border: none;
           display: flex;
@@ -369,7 +665,8 @@ export default function ChatPage() {
           justify-content: center;
           transition: all 0.2s;
           flex-shrink: 0;
-          margin-bottom: 2px;
+          align-self: center;
+          margin: 0;
         }
         .chat-send-btn.active {
           background: linear-gradient(135deg, var(--accent-500), var(--accent-600));
@@ -584,7 +881,21 @@ export default function ChatPage() {
           color: #f8fafc;
         }
       `}</style>
-      <div className="workspace-container chat-page-container">
+      <div
+        className="workspace-container chat-page-container"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragging && (
+          <div className="chat-drag-overlay">
+            <div className="chat-drag-box">
+              <Paperclip size={36} className="chat-drag-icon" />
+              <div style={{ fontSize: '1.15rem', fontWeight: 700 }}>Rilascia qui foto o documenti da allegare</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.85 }}>Supporta immagini (JPG, PNG, WebP), PDF, fogli Excel, Word e testo</div>
+            </div>
+          </div>
+        )}
         <header className="workspace-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
           <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Chat</h2>
           <div className="header-actions">
@@ -635,7 +946,40 @@ export default function ChatPage() {
                 {/* Bolla Messaggio */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '0' }}>
                   <div className={msg.sender === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai'}>
-                    {msg.sender === 'ai' ? (
+                    {msg.sender === 'user' ? (
+                      <div>
+                        {msg.attachments && msg.attachments.length > 0 && (
+                          <div className="chat-msg-attachments-list">
+                            {msg.attachments.map((att, idx) => (
+                              <div key={idx} className="chat-msg-attachment-item">
+                                {att.isImage && att.preview ? (
+                                  <a
+                                    href={att.preview}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="chat-msg-img-preview"
+                                    title="Visualizza immagine ingrandita"
+                                  >
+                                    <img src={att.preview} alt={att.name} />
+                                  </a>
+                                ) : (
+                                  <div className="chat-msg-doc-pill">
+                                    <FileText size={15} />
+                                    <span className="chat-msg-doc-name">{att.name}</span>
+                                    {att.size && (
+                                      <span className="chat-msg-doc-size">
+                                        ({Math.round(att.size / 1024)} KB)
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {msg.text && <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>}
+                      </div>
+                    ) : (
                       <div className="chat-markdown" id={`chat-msg-content-${msg.id}`}>
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
@@ -686,8 +1030,6 @@ export default function ChatPage() {
                           {msg.text}
                         </ReactMarkdown>
                       </div>
-                    ) : (
-                      msg.text
                     )}
 
                     {/* Azioni rapide sotto le risposte dell'AI: Esporta CSV, Stampa PDF, Copia */}
@@ -764,46 +1106,97 @@ export default function ChatPage() {
             ))}
           </div>
 
-          <form onSubmit={handleSendMessage} className="chat-input-wrapper">
-            <textarea
-              style={{
-                flex: 1,
-                padding: '12px 16px',
-                borderRadius: '16px',
-                border: 'none',
-                backgroundColor: 'transparent',
-                color: 'var(--text-primary)',
-                outline: 'none',
-                fontSize: '1rem',
-                resize: 'none',
-                minHeight: '48px',
-                maxHeight: '150px',
-                fontFamily: 'inherit'
-              }}
-              rows={inputValue.split('\n').length > 4 ? 4 : inputValue.split('\n').length || 1}
-              placeholder="Scrivi un messaggio per l'assistente... (Invio per inviare, Shift+Invio per a capo)"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage(e);
-                }
-              }}
-              disabled={isLoading}
-            />
-            <button
-              type="submit"
-              disabled={isLoading || !inputValue.trim()}
-              className={`chat-send-btn ${inputValue.trim() && !isLoading ? 'active' : 'disabled'}`}
-              title="Invia messaggio (Invio)"
-            >
-              <Send size={18} style={{ marginLeft: '-2px', color: 'inherit' }} />
-            </button>
-          </form>
+          <div className="chat-input-container">
+            {attachments.length > 0 && (
+              <div className="chat-attachments-tray">
+                {attachments.map((att) => (
+                  <div key={att.id} className="chat-attachment-chip">
+                    {att.isImage && att.preview ? (
+                      <img src={att.preview} alt={att.name} className="chat-attachment-thumb" />
+                    ) : (
+                      <FileText size={18} className="chat-attachment-doc-icon" />
+                    )}
+                    <div className="chat-attachment-info">
+                      <span className="chat-attachment-name" title={att.name}>{att.name}</span>
+                      <span className="chat-attachment-size">({Math.round(att.size / 1024)} KB)</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="chat-attachment-remove"
+                      onClick={() => removeAttachment(att.id)}
+                      title="Rimuovi allegato"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={handleSendMessage} className="chat-input-wrapper">
+              <button
+                type="button"
+                className="chat-attach-btn"
+                onClick={() => fileInputRef.current?.click()}
+                title="Allega foto o documento (PDF, Excel, Word, TXT, Immagini)"
+                disabled={isLoading}
+              >
+                <Paperclip size={19} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,.pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.json,.log"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  handleFileSelect(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <textarea
+                style={{
+                  flex: 1,
+                  padding: '10px 12px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-primary)',
+                  outline: 'none',
+                  fontSize: '0.98rem',
+                  lineHeight: '1.45',
+                  resize: 'none',
+                  minHeight: '40px',
+                  maxHeight: '150px',
+                  fontFamily: 'inherit',
+                  boxSizing: 'border-box'
+                }}
+                rows={inputValue.split('\n').length > 4 ? 4 : inputValue.split('\n').length || 1}
+                placeholder="Scrivi un messaggio per l'assistente o allega foto/documenti... (Invio per inviare)"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage(e);
+                  }
+                }}
+                disabled={isLoading}
+              />
+              <button
+                type="submit"
+                disabled={isLoading || (!inputValue.trim() && attachments.length === 0)}
+                className={`chat-send-btn ${(inputValue.trim() || attachments.length > 0) && !isLoading ? 'active' : 'disabled'}`}
+                title="Invia messaggio (Invio)"
+              >
+                <Send size={18} style={{ marginLeft: '-2px', color: 'inherit' }} />
+              </button>
+            </form>
+          </div>
 
         </div>
       </div>
     </>
   );
 }
+

@@ -1,7 +1,10 @@
 import os
+import io
+import base64
 import re
 import json
 from datetime import date, timedelta
+from langchain_core.messages import HumanMessage
 # pyrefly: ignore [missing-import]
 from sqlalchemy import create_engine, select
 # pyrefly: ignore [missing-import]
@@ -124,7 +127,7 @@ class ChatService:
         if settings.GEMINI_API_KEY:
             from langchain_google_genai import ChatGoogleGenerativeAI
             fallbacks.append(ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash",
+                model="gemini-3.6-flash",
                 google_api_key=settings.GEMINI_API_KEY,
                 temperature=temperature,
                 max_retries=1
@@ -145,6 +148,221 @@ class ChatService:
         elif fallbacks:
             return fallbacks[0].with_fallbacks(fallbacks[1:]) if len(fallbacks) > 1 else fallbacks[0]
         return None
+
+    def _build_vision_llm(self):
+        if settings.GEMINI_API_KEY:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            return ChatGoogleGenerativeAI(
+                model="gemini-3.6-flash",
+                google_api_key=settings.GEMINI_API_KEY,
+                temperature=0.2,
+                max_retries=1
+            )
+        return None
+
+    def _parse_attachments(self, attachments: list) -> tuple[list, str]:
+        """
+        Elabora gli allegati (immagini e documenti) mantenendo un utilizzo 100% gratuito:
+        - Immagini: preservate come base64 data URL per il modello multimodale gratuito (Gemini Flash).
+        - Documenti (PDF, DOCX, XLSX, TXT, CSV): testo estratto localmente con librerie open-source.
+        Ritorna: (images, docs_text)
+        """
+        if not attachments:
+            return [], ""
+
+        images = []
+        doc_texts = []
+
+        for att in attachments:
+            name = str(att.get("name", "allegato"))
+            raw_data = str(att.get("data", ""))
+            mime = str(att.get("type", "")).lower()
+
+            if not raw_data:
+                continue
+
+            b64_str = raw_data
+            if raw_data.startswith("data:"):
+                try:
+                    header, b64_str = raw_data.split(",", 1)
+                    if ";" in header:
+                        inferred_mime = header.split(";")[0].replace("data:", "").lower()
+                        if inferred_mime:
+                            mime = inferred_mime
+                except Exception:
+                    b64_str = raw_data
+
+            name_lower = name.lower()
+            is_image = (
+                mime.startswith("image/") or
+                name_lower.endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"))
+            )
+
+            if is_image:
+                img_mime = mime if mime.startswith("image/") else "image/jpeg"
+                if name_lower.endswith(".png"):
+                    img_mime = "image/png"
+                elif name_lower.endswith(".webp"):
+                    img_mime = "image/webp"
+                data_url = f"data:{img_mime};base64,{b64_str}"
+                images.append({"name": name, "data_url": data_url})
+                continue
+
+            # Decodifica bytes per documenti
+            try:
+                file_bytes = base64.b64decode(b64_str)
+            except Exception as e:
+                logger.error(f"Errore decodifica base64 file '{name}': {e}")
+                continue
+
+            # 1. PDF
+            if name_lower.endswith(".pdf") or "pdf" in mime:
+                try:
+                    # pyrefly: ignore [missing-import]
+                    import pypdf  # type: ignore
+                    reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                    pdf_lines = []
+                    max_pages = min(len(reader.pages), 30)
+                    for p_idx in range(max_pages):
+                        page_text = reader.pages[p_idx].extract_text() or ""
+                        if page_text.strip():
+                            pdf_lines.append(f"[Pagina {p_idx + 1}]\n{page_text.strip()}")
+                    full_pdf_text = "\n\n".join(pdf_lines)
+                    if len(full_pdf_text) > 35000:
+                        full_pdf_text = full_pdf_text[:35000] + "\n... [testo restante omesso per limiti di lunghezza]"
+                    doc_texts.append(f"=== DOCUMENTO PDF ALLEGATO: {name} ({len(reader.pages)} pagine) ===\n{full_pdf_text}\n")
+                except Exception as e:
+                    logger.error(f"Errore estrazione PDF '{name}': {e}")
+                    doc_texts.append(f"=== DOCUMENTO PDF ALLEGATO: {name} ===\n(Errore estrazione testo: {e})\n")
+                continue
+
+            # 2. DOCX (Word)
+            if name_lower.endswith((".docx", ".doc")) or "wordprocessingml" in mime or "msword" in mime:
+                try:
+                    # pyrefly: ignore [missing-import]
+                    import docx  # type: ignore
+                    doc = docx.Document(io.BytesIO(file_bytes))
+                    doc_lines = []
+                    for p in doc.paragraphs:
+                        if p.text.strip():
+                            doc_lines.append(p.text.strip())
+                    for tbl in doc.tables:
+                        for row in tbl.rows:
+                            row_cells = [c.text.strip() for c in row.cells]
+                            doc_lines.append(" | ".join(row_cells))
+                    full_doc_text = "\n".join(doc_lines)
+                    if len(full_doc_text) > 35000:
+                        full_doc_text = full_doc_text[:35000] + "\n... [testo restante omesso]"
+                    doc_texts.append(f"=== DOCUMENTO WORD ALLEGATO: {name} ===\n{full_doc_text}\n")
+                except Exception as e:
+                    logger.error(f"Errore estrazione DOCX '{name}': {e}")
+                    doc_texts.append(f"=== DOCUMENTO WORD ALLEGATO: {name} ===\n(Errore estrazione testo: {e})\n")
+                continue
+
+            # 3. EXCEL (.xlsx, .xls)
+            if name_lower.endswith((".xlsx", ".xls")) or "spreadsheetml" in mime or "excel" in mime:
+                try:
+                    # pyrefly: ignore [missing-import]
+                    import openpyxl  # type: ignore
+                    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+                    xl_lines = []
+                    for sheet_name in wb.sheetnames[:5]:
+                        ws = wb[sheet_name]
+                        xl_lines.append(f"[Foglio: {sheet_name}]")
+                        row_count = 0
+                        for row in ws.iter_rows(values_only=True):
+                            if row_count > 100:
+                                xl_lines.append("... [ulteriori righe omesse per brevità]")
+                                break
+                            cells = [str(c) if c is not None else "" for c in row]
+                            if any(cells):
+                                xl_lines.append(" | ".join(cells))
+                                row_count += 1
+                    full_xl_text = "\n".join(xl_lines)
+                    doc_texts.append(f"=== FOGLIO EXCEL ALLEGATO: {name} ===\n{full_xl_text}\n")
+                except Exception as e:
+                    logger.error(f"Errore estrazione Excel '{name}': {e}")
+                    doc_texts.append(f"=== FOGLIO EXCEL ALLEGATO: {name} ===\n(Errore estrazione testo: {e})\n")
+                continue
+
+            # 4. TESTO / CSV / JSON / LOG
+            try:
+                try:
+                    text_content = file_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    text_content = file_bytes.decode("latin-1", errors="replace")
+                if len(text_content) > 35000:
+                    text_content = text_content[:35000] + "\n... [testo restante omesso]"
+                doc_texts.append(f"=== FILE TESTUALE ALLEGATO: {name} ===\n{text_content}\n")
+            except Exception as e:
+                logger.error(f"Errore lettura testo '{name}': {e}")
+
+        return images, "\n\n".join(doc_texts)
+
+    async def _handle_vision_query(self, images: list, docs_text: str, user_message: str, current_user, history=None) -> str:
+        """
+        Gestisce le richieste con immagini/foto tramite il modello multimodale Gemini 3.6 Flash.
+        """
+        username = str(getattr(current_user, 'username', '') or '')
+        full_name = str(getattr(current_user, 'full_name', '') or username or 'Utente')
+        user_role = str(getattr(current_user.role, 'value', current_user.role)).upper() if (current_user and hasattr(current_user, 'role')) else "VIEWER"
+        user_dept = str(getattr(current_user, 'department', 'generale') or 'generale')
+        today_str = date.today().strftime('%d/%m/%Y (%Y-%m-%d)')
+
+        prompt_text = (
+            "Sei l'assistente virtuale ufficiale di HiPlan, la piattaforma aziendale di project management, diagrammi di Gantt e gestione commesse.\n"
+            f"Data odierna: {today_str}\n"
+            f"Utente collegato: **{full_name}** (@{username}), Ruolo: {user_role}, Reparto: {user_dept}.\n\n"
+        )
+
+        if docs_text:
+            prompt_text += f"CONTENUTO DEI DOCUMENTI ALLEGATI AL MESSAGGIO:\n{docs_text}\n\n"
+
+        clean_query = (user_message or '').strip()
+        if not clean_query:
+            clean_query = "Esamina l'immagine o foto allegata e descrivi dettagliatamente cosa contiene, estraendo codici, date, nomi, quantità o riferimenti utili per la gestione commesse e attività in HiPlan."
+
+        prompt_text += (
+            f"RICHIESTA DELL'UTENTE SULL'ALLEGATO:\n{clean_query}\n\n"
+            "Istruzioni per la risposta:\n"
+            "1. Analizza attentamente tutti gli elementi visivi dell'immagine o foto (testi, tabelle, numeri di commessa, schemi tecnici, date, cartellini o documenti fotografati).\n"
+            "2. Rispondi in italiano in modo chiaro, professionale ed esaustivo, formattando con markdown ed elenchi puntati.\n"
+            "3. Se l'immagine contiene riferimenti a commesse, articoli, codici, date di scadenza o ore, evidenziali chiaramente.\n"
+            "4. Se l'utente fa domande specifiche, rispondi puntualmente a quanto richiesto basandoti su ciò che è visibile nell'immagine."
+        )
+
+        content_parts = [{"type": "text", "text": prompt_text}]
+        for img in images:
+            content_parts.append({
+                "type": "image_url",
+                "image_url": img["data_url"]
+            })
+
+        vision_llm = self._build_vision_llm()
+        if not vision_llm:
+            return "Errore: Modello multimodale per l'analisi immagini non disponibile o chiave API GEMINI_API_KEY non configurata."
+
+        try:
+            message = HumanMessage(content=content_parts)
+            response = await vision_llm.ainvoke([message])
+            raw_content = response.content
+            if isinstance(raw_content, str):
+                return raw_content
+            elif isinstance(raw_content, list):
+                blocks = []
+                for b in raw_content:
+                    if isinstance(b, str):
+                        blocks.append(b)
+                    elif isinstance(b, dict) and "text" in b:
+                        blocks.append(str(b["text"]))
+                    else:
+                        blocks.append(str(b))
+                return "\n".join(blocks)
+            return str(raw_content)
+        except Exception as e:
+            logger.error(f"Errore durante l'analisi visiva multimodale: {e}", exc_info=True)
+            return f"Si è verificato un errore durante l'analisi dell'immagine: {e}"
+
 
     @property
     def db(self):
@@ -824,9 +1042,23 @@ class ChatService:
         # 10. Default: interrogazione database via SQL guidato
         return "sql"
 
-    async def get_response(self, user_message: str, current_user=None, history=None) -> str:
+    async def get_response(self, user_message: str, current_user=None, history=None, attachments=None) -> str:
+        # Se ci sono allegati, elaborali preventivamente in modo gratuito
+        images, docs_text = self._parse_attachments(attachments) if attachments else ([], "")
+
+        # Se sono presenti immagini/foto, attiva direttamente il modello multimodale gratuito (Gemini Flash)
+        if images:
+            return await self._handle_vision_query(images, docs_text, user_message, current_user, history)
+
+        # Se sono presenti documenti testuali (PDF, Word, Excel, CSV), inietta il testo estratto nel messaggio
+        if docs_text:
+            if user_message and user_message.strip():
+                user_message = f"{user_message.strip()}\n\n[DOCUMENTI ALLEGATI DALL'UTENTE]:\n{docs_text}"
+            else:
+                user_message = f"Ho allegato questi documenti. Esaminali attentamente ed estrai le informazioni principali:\n\n{docs_text}"
+
         intent = self._classify_intent(user_message)
-        logger.info(f"Chatbot Router: messaggio '{user_message}' classificato come INTENT '{intent}'")
+        logger.info(f"Chatbot Router: messaggio '{user_message[:60]}...' classificato come INTENT '{intent}'")
 
         # Esclusione prioritaria: Preventivazione / Richieste Commerciali (non richiede LLM)
         if intent == "preventivazione_restricted":

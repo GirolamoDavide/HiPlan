@@ -13,9 +13,16 @@ class MessageItem(BaseModel):
     sender: str
     text: str
 
+class AttachmentItem(BaseModel):
+    name: str
+    type: str
+    data: str
+    size: Optional[int] = None
+
 class ChatRequest(BaseModel):
     message: str
     history: Optional[List[MessageItem]] = None
+    attachments: Optional[List[AttachmentItem]] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -26,15 +33,16 @@ async def ask_chatbot(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Invia un messaggio al chatbot e ricevi una risposta basata sui dati del DB.
+    Invia un messaggio al chatbot e ricevi una risposta basata sui dati del DB ed eventuali allegati.
     """
-    if not request.message.strip():
-        raise HTTPException(status_code=400, detail="Il messaggio non può essere vuoto.")
+    if not request.message.strip() and not request.attachments:
+        raise HTTPException(status_code=400, detail="Il messaggio o gli allegati non possono essere vuoti.")
         
     answer = await chat_service.get_response(
         request.message,
         current_user=current_user,
-        history=[h.model_dump() for h in request.history] if request.history else None
+        history=[h.model_dump() for h in request.history] if request.history else None,
+        attachments=[a.model_dump() for a in request.attachments] if request.attachments else None
     )
     return ChatResponse(response=answer)
 
