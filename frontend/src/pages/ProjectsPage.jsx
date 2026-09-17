@@ -54,6 +54,22 @@ export default function ProjectsPage() {
   const [sortConfig, setSortConfig] = useState({ key: 'none', direction: 'asc' });
   const [showSortMenu, setShowSortMenu] = useState(false);
   const sortMenuRef = useRef(null);
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      return localStorage.getItem('projects_view_mode') || 'grid';
+    } catch {
+      return 'grid';
+    }
+  });
+
+  const handleSort = (key) => {
+    setSortConfig(prev => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: 'asc' };
+    });
+  };
 
   // Stato Cestino
   const [showTrashModal, setShowTrashModal] = useState(false);
@@ -322,6 +338,18 @@ export default function ProjectsPage() {
             valA = (a.name || '').toLowerCase();
             valB = (b.name || '').toLowerCase();
             break;
+          case 'client':
+            valA = (a.client || '').toLowerCase();
+            valB = (b.client || '').toLowerCase();
+            break;
+          case 'progress':
+            valA = a.progress || 0;
+            valB = b.progress || 0;
+            break;
+          case 'status':
+            valA = (a.status || '').toLowerCase();
+            valB = (b.status || '').toLowerCase();
+            break;
           default:
             return 0;
         }
@@ -386,6 +414,18 @@ export default function ProjectsPage() {
               )}
             </button>
           )}
+          <button
+            className="btn btn-secondary btn-icon"
+            onClick={() => setViewMode(prev => {
+              const next = prev === 'grid' ? 'list' : 'grid';
+              try { localStorage.setItem('projects_view_mode', next); } catch {}
+              return next;
+            })}
+            title={viewMode === 'grid' ? "Visualizza come elenco" : "Visualizza come griglia"}
+            aria-label={viewMode === 'grid' ? "Visualizza come elenco" : "Visualizza come griglia"}
+          >
+            <AppIcon name={viewMode === 'grid' ? 'list' : 'grid'} />
+          </button>
           <div style={{ position: 'relative' }} ref={sortMenuRef}>
             <button
               className="btn btn-secondary btn-icon"
@@ -567,6 +607,152 @@ export default function ProjectsPage() {
               Vedi tutte le commesse
             </button>
           )}
+        </div>
+      ) : viewMode === 'list' ? (
+        <div className="projects-list-card">
+          <div className="projects-table-responsive">
+            <table className="projects-table">
+              <thead>
+                <tr>
+                  <th className="sortable" onClick={() => handleSort('name')} title="Ordina per titolo o codice">
+                    Commessa {sortConfig.key === 'name' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                  </th>
+                  <th className="sortable" onClick={() => handleSort('client')} title="Ordina per cliente">
+                    Cliente {sortConfig.key === 'client' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                  </th>
+                  <th className="sortable" onClick={() => handleSort('status')} title="Ordina per stato">
+                    Stato {sortConfig.key === 'status' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                  </th>
+                  <th>Referente & Addetti</th>
+                  <th className="sortable" onClick={() => handleSort('end_date')} title="Ordina per data fine">
+                    Data Fine {sortConfig.key === 'end_date' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                  </th>
+                  <th className="sortable" onClick={() => handleSort('progress')} title="Ordina per avanzamento" style={{ minWidth: 150 }}>
+                    Avanzamento {sortConfig.key === 'progress' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}
+                  </th>
+                  <th style={{ textAlign: 'right' }}>Azioni</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((project) => (
+                  <tr
+                    key={project.id}
+                    className="projects-table-row"
+                    onClick={() => navigate(`/projects/${project.id}`)}
+                  >
+                    <td>
+                      <div className="projects-table__title-cell">
+                        <div
+                          className="projects-table__color-bar"
+                          style={{ background: project.color || '#185FA5' }}
+                        />
+                        <div className="projects-table__info">
+                          <div className="projects-table__header-row">
+                            <span className="projects-table__code">
+                              {project.code || 'UT-COMM'}
+                            </span>
+                            {project.is_atex && (
+                              <span className="badge badge-atex" title="Conforme Direttiva ATEX" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                                ATEX
+                              </span>
+                            )}
+                            {project.is_alimentare && (
+                              <span className="badge badge-alimentare" title="Conforme Settore Alimentare / Food Grade" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                                Alimentare
+                              </span>
+                            )}
+                            {!project.is_atex && !project.is_alimentare && (
+                              <span className="badge badge-standard" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                                Standard
+                              </span>
+                            )}
+                          </div>
+                          <div className="projects-table__name">
+                            {project.name || 'Senza Titolo'}
+                          </div>
+                          {project.description && (
+                            <div className="projects-table__desc" title={project.description}>
+                              {project.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 500, color: 'var(--text-primary)' }}>
+                        <AppIcon name="building" size={14} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                        <span>{project.client || 'Non specificato'}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`badge badge-${project.status}`}>
+                        {STATUS_LABELS_IT[project.status] || project.status}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '0.8rem' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-primary)', fontWeight: 500 }}>
+                          <AppIcon name="user" size={13} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                          <span>{project.responsible_name || project.responsible_username || (project.owner_id === user?.id ? user?.username : 'Non specificato')}</span>
+                        </div>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--text-secondary)', fontSize: '0.76rem' }}>
+                          <AppIcon name="users" size={13} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                          <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={project.assigned_workers?.join(', ')}>
+                            {project.assigned_workers?.length > 0 ? project.assigned_workers.join(', ') : 'Vedi fasi'}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                        <AppIcon name="calendar" size={13} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                        <span>{project.end_date ? new Date(project.end_date).toISOString().split('T')[0].split('-').reverse().join('/') : 'Non specificato'}</span>
+                      </div>
+                    </td>
+                    <td style={{ minWidth: 140 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div className="progress-bar" style={{ flex: 1, height: 6, background: 'var(--bg-tertiary)', borderRadius: 3, overflow: 'hidden' }}>
+                          <div
+                            className="progress-bar-fill"
+                            style={{ width: `${(project.progress || 0) * 100}%`, background: project.color || '#185FA5', height: '100%', borderRadius: 3 }}
+                          />
+                        </div>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--accent-500)', minWidth: 32, textAlign: 'right' }}>
+                          {Math.round((project.progress || 0) * 100)}%
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><AppIcon name="list" size={11} /> {project.task_count} fasi</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><AppIcon name="users" size={11} /> {project.member_count} addetti</span>
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                      {(user?.role === 'admin' || user?.role === 'editor' || project.owner_id === user?.id || project.responsible_id === user?.id || project.responsible_username === user?.username) && (
+                        <div className="projects-table-actions">
+                          <button
+                            className="btn-ghost btn-sm"
+                            onClick={(e) => openEditProject(project, e)}
+                            title="Modifica commessa (titolo, cliente, codice, referente, addetti)"
+                          >
+                            <AppIcon name="edit" size={15} />
+                          </button>
+                          {(user?.role === 'admin' || user?.role === 'editor') && (
+                            <button
+                              className="btn-ghost btn-sm project-delete-btn"
+                              onClick={(e) => handleDelete(project.id, e)}
+                              title="Elimina commessa"
+                            >
+                              <AppIcon name="trash" size={15} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <div className="projects-grid">

@@ -124,7 +124,7 @@ function AssigneeInput({ selected, onChange, users }) {
     !selected.includes(u.username) &&
     ((u.full_name || '').toLowerCase().includes(query.toLowerCase()) ||
       u.username.toLowerCase().includes(query.toLowerCase()))
-  ).slice(0, 8);
+  );
 
   function add(username) {
     onChange([...selected, username]);

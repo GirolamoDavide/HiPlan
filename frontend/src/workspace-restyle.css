@@ -1773,13 +1773,7 @@
   color: var(--text-secondary);
 }
 
-.todo-modal {
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-lg);
-}
-
+.todo-modal,
 .tickets-modal {
   width: 100% !important;
   max-width: 860px !important;
@@ -1789,13 +1783,7 @@
   box-shadow: var(--shadow-xl) !important;
 }
 
-.todo-modal-header {
-  min-height: 58px;
-  padding: 14px 18px;
-  border-color: var(--border-subtle);
-  background: var(--bg-card);
-}
-
+.todo-modal-header,
 .tickets-modal-header {
   padding: 20px 28px !important;
   border-bottom: 1px solid var(--border-subtle) !important;
@@ -1821,21 +1809,13 @@
   background: var(--bg-hover);
 }
 
-.todo-modal-body {
-  padding: 18px;
-}
-
+.todo-modal-body,
 .tickets-modal-body {
   padding: 24px 28px 28px !important;
   gap: 18px !important;
 }
 
-.todo-modal-footer {
-  gap: 8px;
-  padding: 14px 18px;
-  border-top: 1px solid var(--border-subtle);
-}
-
+.todo-modal-footer,
 .tkt-modal-footer {
   padding: 16px 28px !important;
   gap: 12px !important;

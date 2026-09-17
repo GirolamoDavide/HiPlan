@@ -1,11 +1,12 @@
 .assignee-tags-box {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  padding: 9px 12px;
+  gap: 6px;
+  padding: 8px 12px;
   min-height: 42px;
   box-sizing: border-box;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm, 8px);
   border: 1px solid var(--border-default);
   background: var(--bg-input);
   cursor: text;
@@ -21,13 +22,14 @@
 .assignee-tag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   background: var(--accent-glow);
   color: var(--accent-500);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 20px;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 600;
+  border: 1px solid rgba(var(--accent-rgb, 14, 165, 233), 0.2);
 }
 
 .assignee-tag button {
@@ -40,6 +42,9 @@
   line-height: 1;
   opacity: 0.7;
   font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .assignee-tag button:hover {
@@ -47,42 +52,89 @@
 }
 
 .assignee-input-wrap {
-  position: relative;
   flex: 1;
-  min-width: 100px;
+  min-width: 120px;
 }
 
 .assignee-input {
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
-  padding: 2px 4px !important;
-  min-width: 100px;
+  padding: 4px 6px !important;
+  min-width: 120px;
   width: 100%;
   font-size: 0.84rem;
   outline: none;
+  color: var(--text-primary);
 }
 
 .assignee-dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 6px);
   left: 0;
-  background: var(--bg-secondary);
+  right: 0;
+  width: 100%;
+  min-width: 280px;
+  background: var(--bg-surface, var(--bg-secondary));
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  min-width: 200px;
-  max-height: 200px;
-  overflow-y: auto;
-  z-index: 999;
-  margin-top: 4px;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+  z-index: 1050;
+  overflow: hidden;
+  animation: assigneeDropdownFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .assignee-dropdown.assignee-dropdown-up {
   top: auto;
-  bottom: 100%;
-  margin-top: 0;
-  margin-bottom: 4px;
+  bottom: calc(100% + 6px);
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.18), 0 -2px 8px rgba(0, 0, 0, 0.08);
+  animation: assigneeDropdownFadeInUp 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes assigneeDropdownFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes assigneeDropdownFadeInUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.assignee-dropdown-header {
+  padding: 8px 14px;
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.02));
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.assignee-dropdown-list {
+  max-height: 270px;
+  overflow-y: auto;
+  padding: 4px;
+  overscroll-behavior: contain;
+}
+
+/* Styled scrollbar for visible discovery of all items */
+.assignee-dropdown-list::-webkit-scrollbar {
+  width: 6px;
+}
+.assignee-dropdown-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.assignee-dropdown-list::-webkit-scrollbar-thumb {
+  background: var(--border-default, #cbd5e1);
+  border-radius: 4px;
+}
+.assignee-dropdown-list::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover, #94a3b8);
 }
 
 .assignee-option {
@@ -101,34 +153,37 @@
   background: var(--bg-tertiary);
 }
 
-/* Beautiful Avatar Styles */
+/* Beautiful Avatar & Item Styles */
 .assignee-dropdown-item {
-  padding: 8px 12px;
+  padding: 7px 10px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.84rem;
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 8px;
-  transition: background var(--transition-fast);
+  gap: 10px;
+  transition: background 0.12s ease;
+  user-select: none;
 }
 
 .assignee-dropdown-item:hover {
-  background: var(--bg-hover);
+  background: var(--bg-hover, rgba(59, 130, 246, 0.08));
 }
 
 .assignee-item-avatar {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-600), var(--accent-700));
+  background: linear-gradient(135deg, var(--accent-600, #0284c7), var(--accent-700, #2563eb));
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
+  font-size: 0.72rem;
   font-weight: 700;
   flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .assignee-item-info {
@@ -136,12 +191,34 @@
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  flex: 1;
+}
+
+.assignee-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .assignee-item-name {
-  font-size: 0.83rem;
+  font-size: 0.84rem;
   font-weight: 600;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assignee-dept-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(14, 165, 233, 0.12);
+  color: var(--accent-500, #0284c7);
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
 }
 
 .assignee-item-username {

@@ -157,3 +157,144 @@
 .project-card:hover .project-delete {
   opacity: 1;
 }
+
+/* ======================================
+   PROJECTS LIST VIEW (TABLE)
+   ====================================== */
+
+.projects-list-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg, 12px);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.projects-table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.projects-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.86rem;
+}
+
+.projects-table th {
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.projects-table th.sortable {
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.projects-table th.sortable:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.projects-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+.projects-table-row {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.projects-table-row:hover {
+  background: var(--bg-hover);
+}
+
+.projects-table-row:last-child td {
+  border-bottom: none;
+}
+
+.projects-table__title-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.projects-table__color-bar {
+  width: 4px;
+  min-height: 42px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.projects-table__info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.projects-table__header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.projects-table__code {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent-500);
+  letter-spacing: 0.02em;
+}
+
+.projects-table__name {
+  font-size: 0.94rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.projects-table__desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projects-table-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.projects-table-actions .btn-ghost {
+  padding: 5px 7px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.projects-table-actions .btn-ghost:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.projects-table-actions .btn-ghost.project-delete-btn:hover {
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.12);
+}

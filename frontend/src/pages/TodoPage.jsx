@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import AppIcon from '../components/ui/AppIcon';
 import AssigneeInput from '../components/ui/AssigneeInput';
+import { CheckSquare, CloudUpload } from 'lucide-react';
 import './TodoPage.css';
 
 const BACKEND_URL = import.meta.env.VITE_API_URL
@@ -192,6 +193,7 @@ export default function TodoPage() {
 
   // ---- Create / Edit ----
   function openCreate() {
+    loadUsers();
     setEditMode(false);
     setPendingFiles([]);
     setForm({ ...emptyForm, assignees: [user?.id] });
@@ -199,6 +201,7 @@ export default function TodoPage() {
   }
 
   function openEdit(todo) {
+    loadUsers();
     setEditMode(true);
     setPendingFiles([]);
     setForm({
@@ -727,19 +730,38 @@ export default function TodoPage() {
             }}
           >
             <div className="todo-modal-header">
-              <h2>{editMode ? 'Modifica TODO' : 'Nuovo TODO'}</h2>
-              <button className="todo-modal-close" onClick={closeModal} aria-label="Chiudi">
-                <AppIcon name="close" />
+              <div className="todo-modal-header-left">
+                <div className="todo-modal-icon-badge">
+                  <CheckSquare size={22} />
+                </div>
+                <div>
+                  <h2 className="todo-modal-title">{editMode ? 'Modifica TODO' : 'Nuovo TODO'}</h2>
+                  <div className="todo-modal-subtitle">
+                    {editMode ? 'Aggiorna i dettagli dell\'attività e gli assegnatari' : 'Compila i dati per creare e assegnare una nuova attività'}
+                  </div>
+                </div>
+              </div>
+              <button type="button" className="todo-modal-close" onClick={closeModal} aria-label="Chiudi">
+                <AppIcon name="close" size={16} />
               </button>
             </div>
 
-            <div className="todo-modal-body">
+            <form
+              className="todo-modal-body"
+              onSubmit={e => {
+                e.preventDefault();
+                saveTodo();
+              }}
+            >
               {/* Titolo */}
-              <div className="todo-form-group">
-                <label className="todo-form-label">Titolo *</label>
+              <div className="todo-field">
+                <label className="todo-label">
+                  <span>Titolo</span>
+                  <span className="todo-required">*</span>
+                </label>
                 <input
-                  className="todo-form-input"
                   type="text"
+                  className="todo-input"
                   placeholder="Descrivi brevemente il TODO..."
                   value={form.title}
                   onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
@@ -747,74 +769,89 @@ export default function TodoPage() {
                 />
               </div>
 
-              {/* Contenuto */}
-              <div className="todo-form-group">
-                <label className="todo-form-label">Descrizione</label>
+              {/* Descrizione */}
+              <div className="todo-field">
+                <label className="todo-label">
+                  <span>Descrizione</span>
+                  <span className="todo-optional">(opzionale)</span>
+                </label>
                 <textarea
-                  className="todo-form-input"
-                  placeholder="Aggiungi dettagli, link, istruzioni..."
+                  className="todo-textarea"
+                  placeholder="Dettagli aggiuntivi, link, istruzioni, contesto utile..."
                   value={form.content}
                   onChange={e => setForm(p => ({ ...p, content: e.target.value }))}
                 />
               </div>
 
-              {/* Allegati nel modal */}
-              <div className="todo-form-group">
-                <label className="todo-form-label"><AppIcon name="paperclip" size={13} />Allegati{pendingFiles.length > 0 ? ` (${pendingFiles.length})` : ''}</label>
+              {/* Allegati */}
+              <div className="todo-field">
+                <label className="todo-label">
+                  <span>Allegati</span>
+                  <span className="todo-optional">(documenti, immagini o log)</span>
+                </label>
                 <div
                   ref={dropZoneRef}
-                  className={`todo-modal-dropzone ${dragOver ? 'active' : ''}`}
-                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                  onDragLeave={(e) => {
+                  className={`todo-dropzone ${dragOver ? 'active' : ''}`}
+                  onDragEnter={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={e => {
                     if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false);
                   }}
                   onDrop={handleModalDrop}
+                  onClick={() => modalFileRef.current?.click()}
                 >
-                  <span className="inline-detail-row" style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                    <AppIcon name="folder" size={15} />
-                    {dragOver ? 'Rilascia i file qui' : 'Trascina i file qui oppure'}
-                  </span>
-                  {!dragOver && (
-                    <>
-                      <input
-                        type="file"
-                        ref={modalFileRef}
-                        style={{ display: 'none' }}
-                        multiple
-                        onChange={e => { Array.from(e.target.files).forEach(addPendingFile); e.target.value = ''; }}
-                      />
-                      <button
-                        type="button"
-                        className="todo-upload-btn"
-                        style={{ width: 'auto', padding: '6px 14px' }}
-                        onClick={() => modalFileRef.current?.click()}
-                      >
-                        <AppIcon name="plus" size={14} />
-                        Seleziona file
-                      </button>
-                    </>
-                  )}
+                  <div className="todo-dropzone-icon">
+                    <CloudUpload size={22} />
+                  </div>
+                  <div className="todo-dropzone-content">
+                    <span className="todo-dropzone-title">
+                      Trascina qui i file oppure <strong className="todo-dropzone-link">sfoglia dal computer</strong>
+                    </span>
+                    <span className="todo-dropzone-hint">Supporta qualsiasi formato (immagini, PDF, archivi ZIP, log)</span>
+                  </div>
+                  <input
+                    type="file"
+                    ref={modalFileRef}
+                    style={{ display: 'none' }}
+                    multiple
+                    onChange={e => {
+                      Array.from(e.target.files || []).forEach(addPendingFile);
+                      e.target.value = '';
+                    }}
+                  />
                 </div>
                 {pendingFiles.length > 0 && (
-                  <div className="todo-attachment-list" style={{ marginTop: 6 }}>
+                  <div className="todo-pending-files">
                     {pendingFiles.map((f, i) => (
-                      <div key={i} className="todo-attachment-item">
-                        <span className="todo-attachment-name"><AppIcon name="paperclip" size={13} />{f.name}</span>
-                        <button className="todo-attachment-del" onClick={() => removePendingFile(i)} aria-label="Rimuovi allegato">
-                          <AppIcon name="close" size={13} />
+                      <span key={i} className="todo-pending-chip">
+                        <AppIcon name="paperclip" size={13} />
+                        <span className="todo-pending-chip-name" title={f.name}>{f.name}</span>
+                        <span className="todo-pending-chip-size">({Math.round(f.size / 1024)} KB)</span>
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            removePendingFile(i);
+                          }}
+                          aria-label="Rimuovi file"
+                        >
+                          <AppIcon name="close" size={12} />
                         </button>
-                      </div>
+                      </span>
                     ))}
                   </div>
                 )}
               </div>
 
               {/* Date */}
-              <div className="todo-form-row">
-                <div className="todo-form-group">
-                  <label className="todo-form-label"><AppIcon name="bell" size={13} />Data e ora notifica</label>
+              <div className="todo-field-row">
+                <div className="todo-field">
+                  <label className="todo-label">
+                    <span>Data e ora notifica</span>
+                    <span className="todo-optional">(opzionale)</span>
+                  </label>
                   <input
-                    className="todo-form-input"
+                    className="todo-input"
                     type="datetime-local"
                     value={form.notify_date ? form.notify_date.substring(0, 16) : ''}
                     onChange={e => {
@@ -826,10 +863,13 @@ export default function TodoPage() {
                     }}
                   />
                 </div>
-                <div className="todo-form-group">
-                  <label className="todo-form-label"><AppIcon name="calendar" size={13} />Data e ora scadenza</label>
+                <div className="todo-field">
+                  <label className="todo-label">
+                    <span>Data e ora scadenza</span>
+                    <span className="todo-optional">(opzionale)</span>
+                  </label>
                   <input
-                    className="todo-form-input"
+                    className="todo-input"
                     type="datetime-local"
                     value={form.due_date ? form.due_date.substring(0, 16) : ''}
                     onChange={e => {
@@ -840,42 +880,40 @@ export default function TodoPage() {
                       setForm(p => ({ ...p, due_date: v }));
                     }}
                   />
-
                 </div>
-
               </div>
 
               {/* Assegnati */}
-              <div className="todo-form-group">
-                <label className="todo-form-label">
-                  <AppIcon name="users" size={13} />
-                  Assegnati * ({form.assignees.length})
+              <div className="todo-field">
+                <label className="todo-label">
+                  <span>Assegnati</span>
+                  <span className="todo-required">*</span>
+                  <span className="todo-optional">({form.assignees.length})</span>
                 </label>
-                <div style={{ marginTop: 8 }}>
-                  <AssigneeInput
-                    selected={form.assignees}
-                    onChange={(newAssignees) => setForm(f => ({ ...f, assignees: newAssignees }))}
-                    users={sortedUsers}
-                    valueKey="id"
-                    placeholder="Aggiungi addetto..."
-                    direction="up"
-                  />
-                </div>
+                <AssigneeInput
+                  selected={form.assignees}
+                  onChange={newAssignees => setForm(f => ({ ...f, assignees: newAssignees }))}
+                  users={sortedUsers}
+                  valueKey="id"
+                  placeholder="Nessuno (lascia vuoto) o cerca utente..."
+                  direction="up"
+                />
               </div>
-            </div>
 
-            <div className="todo-modal-footer">
-              <button className="btn btn-ghost" onClick={closeModal}>
-                Annulla
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={saveTodo}
-                disabled={saving}
-              >
-                {saving ? 'Salvataggio...' : editMode ? 'Aggiorna' : 'Crea TODO'}
-              </button>
-            </div>
+              <div className="todo-modal-footer">
+                <button type="button" className="btn btn-ghost btn-md" onClick={closeModal}>
+                  Annulla
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-md"
+                  disabled={saving}
+                  style={{ minWidth: 140 }}
+                >
+                  {saving ? 'Salvataggio...' : editMode ? 'Salva modifiche' : '+ Crea TODO'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
