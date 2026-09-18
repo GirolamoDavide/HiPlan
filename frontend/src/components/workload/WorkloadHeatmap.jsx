@@ -218,8 +218,6 @@ export default function WorkloadHeatmap() {
     return d + '/' + m + '/' + y;
   };
 
-  if (loading) return <div>Caricamento...</div>;
-
   return (
     <div className={`workload-heatmap-container ${!isWorkloadOpen ? 'is-collapsed' : ''}`}>
       <div 
@@ -379,7 +377,12 @@ export default function WorkloadHeatmap() {
       </div>
 
       {isWorkloadOpen && (
-        <div className="heatmap-grid" ref={gridRef} style={{ gridTemplateColumns: `${leftColWidth}px repeat(` + columns.length + ', 90px)' }}>
+        loading ? (
+          <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
+            Caricamento carichi di lavoro...
+          </div>
+        ) : (
+          <div className="heatmap-grid" ref={gridRef} style={{ gridTemplateColumns: `${leftColWidth}px repeat(` + columns.length + ', 90px)' }}>
 
         {/* Header (Columns) */}
         <div className="heatmap-header-cell sticky-col sticky-header-col" style={{ position: 'relative' }}>
@@ -944,6 +947,7 @@ export default function WorkloadHeatmap() {
           );
         })}
       </div>
+        )
       )}
 
       {/* Modale Dettagli Giorno (Visualizzazione al click) */}
