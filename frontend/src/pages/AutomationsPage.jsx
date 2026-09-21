@@ -797,7 +797,7 @@ export default function AutomationsPage() {
       fetchLogs(),
       api.get('/users').then((res) => {
         if (Array.isArray(res.data)) setUsersList(res.data);
-      }).catch(() => {}),
+      }).catch(() => { }),
     ]);
     setLoading(false);
   };
@@ -1233,7 +1233,7 @@ export default function AutomationsPage() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '15.5px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                Motore Workflow Se / Allora
+                Regole Automatiche
               </span>
               <span
                 style={{
@@ -1311,10 +1311,9 @@ export default function AutomationsPage() {
             style={{
               position: 'absolute',
               top: 0,
+              bottom: 0,
               left: 0,
-              right: 0,
-              height: '3px',
-              background: 'linear-gradient(90deg, #10b981, rgba(16, 185, 129, 0.2))',
+              width: '4px'
             }}
           />
           <div
@@ -1368,10 +1367,9 @@ export default function AutomationsPage() {
             style={{
               position: 'absolute',
               top: 0,
+              bottom: 0,
               left: 0,
-              right: 0,
-              height: '3px',
-              background: 'linear-gradient(90deg, #0284c7, rgba(2, 132, 199, 0.2))',
+              width: '4px'
             }}
           />
           <div
@@ -1422,10 +1420,9 @@ export default function AutomationsPage() {
             style={{
               position: 'absolute',
               top: 0,
+              bottom: 0,
               left: 0,
-              right: 0,
-              height: '3px',
-              background: 'linear-gradient(90deg, #8b5cf6, rgba(139, 92, 246, 0.2))',
+              width: '4px'
             }}
           />
           <div
@@ -1476,10 +1473,9 @@ export default function AutomationsPage() {
             style={{
               position: 'absolute',
               top: 0,
+              bottom: 0,
               left: 0,
-              right: 0,
-              height: '3px',
-              background: 'linear-gradient(90deg, #10b981, rgba(16, 185, 129, 0.4))',
+              width: '4px'
             }}
           />
           <div
@@ -1507,7 +1503,7 @@ export default function AutomationsPage() {
           </div>
           <div>
             <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-              Stato Motore
+              Stato
             </div>
             <div style={{ fontSize: '15px', fontWeight: '700', color: '#10b981', lineHeight: 1.2, marginTop: '2px' }}>
               Operativo in background
@@ -1723,7 +1719,7 @@ export default function AutomationsPage() {
                   style={{
                     background: 'var(--bg-secondary)',
                     border: `1px solid ${rule.is_active ? 'var(--border-color)' : 'rgba(150, 150, 150, 0.25)'}`,
-                    borderTop: `4px solid ${accentColor}`,
+                    borderLeft: `4px solid ${accentColor}`,
                     borderRadius: '14px',
                     padding: '20px 22px',
                     display: 'flex',
@@ -3252,10 +3248,10 @@ export default function AutomationsPage() {
                       <div style={{ marginTop: '6px', display: 'flex', gap: '12px', fontSize: '11px', color: 'var(--text-muted)', alignItems: 'center' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                           <AppIcon name="user" size={12} /> Assegnato: <strong>{
-                          formData.assignee_department === 'specific_workers'
-                            ? `${formData.assignee_ids?.length || 0} addett${formData.assignee_ids?.length === 1 ? 'o' : 'i'} specific${formData.assignee_ids?.length === 1 ? 'o' : 'i'}`
-                            : (DEPARTMENT_LABELS[formData.assignee_department] || formData.assignee_department)
-                        }</strong></span>
+                            formData.assignee_department === 'specific_workers'
+                              ? `${formData.assignee_ids?.length || 0} addett${formData.assignee_ids?.length === 1 ? 'o' : 'i'} specific${formData.assignee_ids?.length === 1 ? 'o' : 'i'}`
+                              : (DEPARTMENT_LABELS[formData.assignee_department] || formData.assignee_department)
+                          }</strong></span>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                           <AppIcon name="calendar" size={12} /> Scadenza: <strong>+{formData.due_days} gg</strong>
                         </span>
@@ -3277,14 +3273,14 @@ export default function AutomationsPage() {
                       <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                           <AppIcon name="bell" size={12} /> Destinatari: <strong>{
-                          formData.recipient_role === 'specific_workers'
-                            ? `${formData.recipient_ids?.length || 0} addett${formData.recipient_ids?.length === 1 ? 'o' : 'i'} specific${formData.recipient_ids?.length === 1 ? 'o' : 'i'}`
-                            : formData.recipient_role === 'pm'
-                            ? 'Project Manager'
-                            : formData.recipient_role === 'pm_and_workers'
-                            ? 'PM + Addetti fase'
-                            : 'Solo addetti fase'
-                        }</strong></span>
+                            formData.recipient_role === 'specific_workers'
+                              ? `${formData.recipient_ids?.length || 0} addett${formData.recipient_ids?.length === 1 ? 'o' : 'i'} specific${formData.recipient_ids?.length === 1 ? 'o' : 'i'}`
+                              : formData.recipient_role === 'pm'
+                                ? 'Project Manager'
+                                : formData.recipient_role === 'pm_and_workers'
+                                  ? 'PM + Addetti fase'
+                                  : 'Solo addetti fase'
+                          }</strong></span>
                       </div>
                     </div>
                   )}
@@ -3303,18 +3299,18 @@ export default function AutomationsPage() {
                       <div style={{ marginTop: '6px', display: 'flex', gap: '14px', fontSize: '11px', color: 'var(--text-muted)', flexWrap: 'wrap', alignItems: 'center' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                           <AppIcon name="calendar" size={12} /> Riferimento: <strong>{
-                          formData.event_date_type === 'task_start_date' ? 'Data inizio fase' : formData.event_date_type === 'today' ? 'Data odierna' : 'Data fine fase'
-                        } {Number(formData.event_days_offset) !== 0 ? `(${formData.event_days_offset > 0 ? '+' : ''}${formData.event_days_offset} gg)` : '(stesso giorno)'}</strong></span>
+                            formData.event_date_type === 'task_start_date' ? 'Data inizio fase' : formData.event_date_type === 'today' ? 'Data odierna' : 'Data fine fase'
+                          } {Number(formData.event_days_offset) !== 0 ? `(${formData.event_days_offset > 0 ? '+' : ''}${formData.event_days_offset} gg)` : '(stesso giorno)'}</strong></span>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                           <AppIcon name="users" size={12} /> Partecipanti: <strong>{
-                          formData.calendar_attendees === 'specific_workers'
-                            ? `${formData.calendar_attendee_ids?.length || 0} addett${formData.calendar_attendee_ids?.length === 1 ? 'o' : 'i'} specific${formData.calendar_attendee_ids?.length === 1 ? 'o' : 'i'}`
-                            : formData.calendar_attendees === 'pm'
-                            ? 'Project Manager'
-                            : formData.calendar_attendees === 'workers'
-                            ? 'Addetti della fase'
-                            : 'PM + Addetti fase'
-                        }</strong></span>
+                            formData.calendar_attendees === 'specific_workers'
+                              ? `${formData.calendar_attendee_ids?.length || 0} addett${formData.calendar_attendee_ids?.length === 1 ? 'o' : 'i'} specific${formData.calendar_attendee_ids?.length === 1 ? 'o' : 'i'}`
+                              : formData.calendar_attendees === 'pm'
+                                ? 'Project Manager'
+                                : formData.calendar_attendees === 'workers'
+                                  ? 'Addetti della fase'
+                                  : 'PM + Addetti fase'
+                          }</strong></span>
                         {formData.notify_attendees && (
                           <span style={{ color: '#0284c7', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                             <AppIcon name="bell" size={12} /> Con notifica automatica
