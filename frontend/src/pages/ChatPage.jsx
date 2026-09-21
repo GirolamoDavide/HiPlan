@@ -719,6 +719,33 @@ export default function ChatPage() {
           opacity: 0.5;
           cursor: not-allowed;
         }
+        .chat-new-chat-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 13px;
+          border-radius: 20px;
+          font-size: 0.8125rem;
+          font-weight: 600;
+          white-space: nowrap;
+          background: linear-gradient(135deg, var(--accent-500), var(--accent-700));
+          color: #ffffff;
+          border: 1px solid transparent;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          user-select: none;
+          box-shadow: 0 2px 8px rgba(7, 127, 186, 0.22);
+          flex-shrink: 0;
+          line-height: normal;
+        }
+        .chat-new-chat-btn:hover {
+          background: linear-gradient(135deg, var(--accent-600), var(--accent-800));
+          box-shadow: 0 4px 12px rgba(7, 127, 186, 0.32);
+          transform: translateY(-1px);
+        }
+        .chat-new-chat-btn:active {
+          transform: translateY(0);
+        }
 
         /* STILI TABELLE CHAT (Larghezza generosa, scroll orizzontale, zero spezzamenti sgradevoli) */
         .chat-table-wrapper {
@@ -896,21 +923,7 @@ export default function ChatPage() {
             </div>
           </div>
         )}
-        <header className="workspace-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
-          <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Chat</h2>
-          <div className="header-actions">
-            <button
-              onClick={handleResetChat}
-              className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: '8px' }}
-            >
-              <MessageSquarePlus size={18} />
-              Nuova Chat
-            </button>
-          </div>
-        </header>
-
-        <div className="workspace-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '0 20px 20px 20px', gap: '14px', backgroundColor: 'var(--bg-primary)' }}>
+        <div className="workspace-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '16px 20px 20px 20px', gap: '14px', backgroundColor: 'var(--bg-primary)' }}>
 
           <div className="chat-messages" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px', paddingRight: '10px' }}>
             {messages.map((msg) => (
@@ -1081,29 +1094,40 @@ export default function ChatPage() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* QUICK ACTION CHIPS (Domande Rapide) */}
-          <div className="chat-quick-chips">
-            {[
-              { icon: '☀️', label: 'Briefing di oggi', text: 'Dammi il mio briefing operativo del giorno con priorità e scadenze' },
-              { icon: '🎯', label: 'Le mie attività', text: 'Quali sono le mie attività e fasi in corso?' },
-              { icon: '📊', label: 'Stato commesse', text: 'Mostrami una panoramica dello stato delle commesse attive' },
-              { icon: '⏱️', label: 'Budget & Ore', text: 'Analizza il consumo ore e gli scostamenti di budget delle commesse' },
-              { icon: '👥', label: 'Carico addetti', text: 'Chi ha il maggior carico di lavoro tra gli addetti?' },
-              { icon: '📅', label: 'Scadenze 30gg', text: 'Quali fasi o commesse scadono questo mese?' },
-              { icon: '⚠️', label: 'Verifica ritardi', text: 'Ci sono attività in ritardo o criticità sui tempi di commessa?' },
-            ].map((chip, idx) => (
-              <button
-                key={idx}
-                type="button"
-                className="chat-chip-btn"
-                disabled={isLoading}
-                onClick={() => sendText(chip.text)}
-                title={chip.text}
-              >
-                <span>{chip.icon}</span>
-                <span>{chip.label}</span>
-              </button>
-            ))}
+          {/* QUICK ACTION CHIPS (Domande Rapide) + NUOVA CHAT */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', width: '100%' }}>
+            <div className="chat-quick-chips" style={{ flex: 1, minWidth: 0 }}>
+              {[
+                { icon: '☀️', label: 'Briefing di oggi', text: 'Dammi il mio briefing operativo del giorno con priorità e scadenze' },
+                { icon: '🎯', label: 'Le mie attività', text: 'Quali sono le mie attività e fasi in corso?' },
+                { icon: '📊', label: 'Stato commesse', text: 'Mostrami una panoramica dello stato delle commesse attive' },
+                { icon: '⏱️', label: 'Budget & Ore', text: 'Analizza il consumo ore e gli scostamenti di budget delle commesse' },
+                { icon: '👥', label: 'Carico addetti', text: 'Chi ha il maggior carico di lavoro tra gli addetti?' },
+                { icon: '📅', label: 'Scadenze 30gg', text: 'Quali fasi o commesse scadono questo mese?' },
+                { icon: '⚠️', label: 'Verifica ritardi', text: 'Ci sono attività in ritardo o criticità sui tempi di commessa?' },
+              ].map((chip, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  className="chat-chip-btn"
+                  disabled={isLoading}
+                  onClick={() => sendText(chip.text)}
+                  title={chip.text}
+                >
+                  <span>{chip.icon}</span>
+                  <span>{chip.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={handleResetChat}
+              className="chat-new-chat-btn"
+              title="Avvia una nuova sessione di chat"
+            >
+              <MessageSquarePlus size={14} />
+              <span>Nuova Chat</span>
+            </button>
           </div>
 
           <div className="chat-input-container">
