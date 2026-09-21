@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import AppIcon from '../components/ui/AppIcon';
 import AssigneeInput from '../components/ui/AssigneeInput';
-import { Type, Heading1, Heading2, Bold, Italic, List, ListTodo, Quote, Code, Eraser, Calendar, ArrowUpDown, ChevronDown, Mic, Sparkles } from 'lucide-react';
+import { Type, Heading1, Heading2, Bold, Italic, List, ListTodo, Quote, Code, Eraser, Calendar, ArrowUpDown, ChevronDown, Mic, Sparkles, Undo2, Redo2 } from 'lucide-react';
 import { SpeechTranscriber, isSpeechRecognitionSupported } from '../utils/speechRecognition';
 import MeetingAssistantModal from '../components/notes/MeetingAssistantModal';
 import './NotesPage.css';
@@ -1295,6 +1295,12 @@ export default function NotesPage() {
     }
 
     switch (formatType) {
+      case 'undo':
+        document.execCommand('undo', false, null);
+        break;
+      case 'redo':
+        document.execCommand('redo', false, null);
+        break;
       case 'h1': {
         const selectedChecklist = getSelectedChecklistItems();
         if (selectedChecklist.length > 0) {
@@ -1937,6 +1943,32 @@ export default function NotesPage() {
             <div className="notion-formatting-bar">
               {/* Sezione Sinistra: Strumenti di Formattazione */}
               <div className="format-toolbar-left">
+                {/* Gruppo 0: Undo & Redo */}
+                <div className="format-group">
+                  <button
+                    type="button"
+                    className="format-btn format-btn--icon"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('undo')}
+                    title="Annulla (Ctrl+Z / ⌘Z)"
+                    aria-label="Annulla"
+                  >
+                    <Undo2 size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="format-btn format-btn--icon"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('redo')}
+                    title="Ripristina (Ctrl+Y / ⌘Shift+Z)"
+                    aria-label="Ripristina"
+                  >
+                    <Redo2 size={14} />
+                  </button>
+                </div>
+
+                <div className="format-divider" />
+
                 {/* Gruppo 1: Intestazioni e Testo */}
                 <div className="format-group">
                   <button
