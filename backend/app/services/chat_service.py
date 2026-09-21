@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import os
 import io
 import base64
 import re
 import json
+from typing import Optional, Union, Dict, Any, List
 from datetime import date, timedelta
 from langchain_core.messages import HumanMessage
 # pyrefly: ignore [missing-import]
@@ -454,7 +457,7 @@ class ChatService:
             for task_obj, p_code, p_name, p_id in sorted(user_tasks, key=get_sort_key):
                 p_label = f"[**{p_code}**](/projects/{p_id})" if p_code else f"[**{p_name}**](/projects/{p_id})"
                 raw_end = getattr(task_obj, 'end_date', None)
-                end_d: date | None = raw_end.date() if (raw_end and hasattr(raw_end, 'date')) else raw_end
+                end_d: Optional[date] = raw_end.date() if (raw_end and hasattr(raw_end, 'date')) else raw_end
                 end_str = end_d.strftime("%d/%m/%Y") if end_d else "N/D"
                 prog_val = normalize_progress(getattr(task_obj, 'progress', 0))
                 prog = f"{prog_val}%"
@@ -530,7 +533,7 @@ class ChatService:
                 tot_prog = sum(normalize_progress(getattr(t, 'progress', 0)) for t in progress_tasks)
                 avg_prog = round(tot_prog / tot_t) if tot_t > 0 else 0
                 raw_end = getattr(p, 'end_date', None)
-                end_d: date | None = raw_end.date() if (raw_end and hasattr(raw_end, 'date')) else raw_end
+                end_d: Optional[date] = raw_end.date() if (raw_end and hasattr(raw_end, 'date')) else raw_end
                 end_str = end_d.strftime("%d/%m/%Y") if end_d else "N/D"
                 
                 st_val = getattr(p.status, 'value', p.status)
@@ -589,7 +592,7 @@ class ChatService:
                 prog_val = normalize_progress(getattr(t, 'progress', 0))
                 is_done = bool(getattr(t, 'completed', False)) or prog_val >= 100
                 raw_end = getattr(t, 'end_date', None)
-                end_d: date | None = raw_end.date() if (raw_end and hasattr(raw_end, 'date')) else raw_end
+                end_d: Optional[date] = raw_end.date() if (raw_end and hasattr(raw_end, 'date')) else raw_end
                 t_hours = float(getattr(t, 'planned_hours', 0) or 0)
                 
                 for w in workers:
@@ -668,7 +671,7 @@ class ChatService:
             upcoming = []
             for t, p_name, p_code, p_id, p_atex, p_alim in rows:
                 raw_end = getattr(t, 'end_date', None)
-                end_d: date | None = raw_end.date() if (raw_end and hasattr(raw_end, 'date')) else raw_end
+                end_d: Optional[date] = raw_end.date() if (raw_end and hasattr(raw_end, 'date')) else raw_end
                 if end_d and today <= end_d <= cutoff:
                     tipi = []
                     if p_atex:
@@ -1484,7 +1487,7 @@ SQLQuery:"""
             
             clean_sql_runnable = RunnableLambda(clean_sql)
 
-            def check_sql_security(query: str) -> str | None:
+            def check_sql_security(query: str) -> Optional[str]:
                 """Valida la query SQL per bloccare accessi non autorizzati a sezioni riservate."""
                 # Blocco di sicurezza rigoroso su dati di preventivazione
                 if re.search(r'\b(richieste_commerciali|articoli_richiesta)\b', query, re.IGNORECASE):
@@ -2009,7 +2012,7 @@ SQLQuery:"""
             "generated_timestamp": int(datetime.now().timestamp() * 1000)
         }
 
-    async def generate_meeting_minutes(self, transcript: str, meeting_type: str = "general", title: str | None = None) -> dict:
+    async def generate_meeting_minutes(self, transcript: str, meeting_type: str = "general", title: Optional[str] = None) -> dict:
         """
         Elabora una trascrizione di riunione (in presenza o videochiamata) e genera una minuta strutturata.
         Restituisce un dizionario con titolo, HTML pulito, markdown, punti chiave, decisioni e action items.
