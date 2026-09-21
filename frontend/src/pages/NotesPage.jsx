@@ -815,6 +815,147 @@ export default function NotesPage() {
     return [];
   }
 
+  function getSelectedBlockquotes() {
+    if (!editorRef.current) return [];
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return [];
+    const range = sel.getRangeAt(0);
+
+    const allQuotes = Array.from(editorRef.current.querySelectorAll('blockquote'));
+    if (allQuotes.length === 0) return [];
+
+    const matched = allQuotes.filter(item => {
+      if (item.contains(range.startContainer) || item.contains(range.endContainer)) {
+        return true;
+      }
+      try {
+        return range.intersectsNode(item);
+      } catch {
+        return false;
+      }
+    });
+
+    if (matched.length > 0) return matched;
+
+    const closest = getSelectionClosest('blockquote');
+    if (closest && editorRef.current.contains(closest)) return [closest];
+
+    return [];
+  }
+
+  function unwrapBlockquote(quoteEl) {
+    if (!quoteEl || !quoteEl.parentNode) return null;
+    const parent = quoteEl.parentNode;
+    const fragment = document.createDocumentFragment();
+
+    // Rimuovi eventuali blockquote annidati all'interno estraendone i nodi
+    const nestedQuotes = Array.from(quoteEl.querySelectorAll('blockquote'));
+    nestedQuotes.reverse().forEach(nested => {
+      while (nested.firstChild) {
+        nested.parentNode.insertBefore(nested.firstChild, nested);
+      }
+      nested.remove();
+    });
+
+    const childNodes = Array.from(quoteEl.childNodes);
+    let currentP = null;
+
+    childNodes.forEach(node => {
+      const isBlock = node.nodeType === Node.ELEMENT_NODE && /^(P|DIV|H1|H2|H3|H4|H5|H6|UL|OL|PRE)$/i.test(node.tagName);
+      if (isBlock) {
+        if (currentP) {
+          fragment.appendChild(currentP);
+          currentP = null;
+        }
+        fragment.appendChild(node);
+      } else {
+        if (!currentP) {
+          currentP = document.createElement('p');
+        }
+        currentP.appendChild(node);
+      }
+    });
+
+    if (currentP) {
+      if (!currentP.hasChildNodes() || currentP.textContent.trim() === '') {
+        currentP.innerHTML = '<br>';
+      }
+      fragment.appendChild(currentP);
+    }
+
+    if (!fragment.hasChildNodes()) {
+      const p = document.createElement('p');
+      p.innerHTML = '<br>';
+      fragment.appendChild(p);
+    }
+
+    const nodesToInsert = Array.from(fragment.childNodes);
+    const lastNode = nodesToInsert[nodesToInsert.length - 1];
+    parent.replaceChild(fragment, quoteEl);
+    return lastNode;
+  }
+
+  function getSelectedCodeBlocks() {
+    if (!editorRef.current) return [];
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return [];
+    const range = sel.getRangeAt(0);
+
+    const allCodeBlocks = Array.from(editorRef.current.querySelectorAll('.note-code-block, pre'));
+    if (allCodeBlocks.length === 0) return [];
+
+    const matched = allCodeBlocks.filter(item => {
+      if (item.contains(range.startContainer) || item.contains(range.endContainer)) {
+        return true;
+      }
+      try {
+        return range.intersectsNode(item);
+      } catch {
+        return false;
+      }
+    });
+
+    if (matched.length > 0) return matched;
+
+    const closest = getSelectionClosest('.note-code-block, pre');
+    if (closest && editorRef.current.contains(closest)) return [closest];
+
+    return [];
+  }
+
+  function unwrapCodeBlock(codeBlockEl) {
+    if (!codeBlockEl || !codeBlockEl.parentNode) return null;
+    const parent = codeBlockEl.parentNode;
+    const text = codeBlockEl.textContent || '';
+
+    const lines = text.split('\n');
+    const fragment = document.createDocumentFragment();
+
+    lines.forEach((line, idx) => {
+      if (idx === lines.length - 1 && line === '' && lines.length > 1) {
+        return;
+      }
+      const p = document.createElement('p');
+      if (line.trim()) {
+        p.textContent = line;
+      } else {
+        p.innerHTML = '<br>';
+      }
+      fragment.appendChild(p);
+    });
+
+    if (!fragment.hasChildNodes()) {
+      const p = document.createElement('p');
+      p.innerHTML = '<br>';
+      fragment.appendChild(p);
+    }
+
+    const nodesToInsert = Array.from(fragment.childNodes);
+    const lastNode = nodesToInsert[nodesToInsert.length - 1];
+    parent.replaceChild(fragment, codeBlockEl);
+    return lastNode;
+  }
+
   function placeCaretAt(node, atEnd = false) {
     if (!node) return;
     const sel = window.getSelection();
@@ -1269,7 +1410,7 @@ export default function NotesPage() {
       const isBullet = Boolean(document.queryCommandState('insertUnorderedList'));
       const block = (document.queryCommandValue('formatBlock') || '').toLowerCase();
       const isTodo = selectionIsInside('.note-checklist-item');
-      const isCode = selectionIsInside('.note-code-block');
+      const isCode = selectionIsInside('.note-code-block') || selectionIsInside('pre');
       const isQuote = block.includes('blockquote') || selectionIsInside('blockquote');
       const isH1 = block.includes('h1') || selectionIsInside('h1');
       const isH2 = block.includes('h2') || selectionIsInside('h2');
@@ -1421,17 +1562,61 @@ export default function NotesPage() {
         }
         break;
       }
-      case 'quote':
-        document.execCommand('formatBlock', false, getCurrentBlock() === 'blockquote' ? '<p>' : 'blockquote');
-        break;
-      case 'code':
-        if (selectionIsInside('.note-code-block')) return;
-        {
-          const sel = window.getSelection();
-          const text = sel && sel.toString() ? sel.toString() : 'inserisci qui il codice';
-          document.execCommand('insertHTML', false, `<pre class="note-code-block"><code>${escapeHtmlText(text)}</code></pre><p><br></p>`);
+      case 'quote': {
+        const selectedQuotes = getSelectedBlockquotes();
+        if (selectedQuotes.length > 0) {
+          // TOGGLE OFF: Era già una citazione, la trasformiamo in testo normale (<p>)
+          const topQuotes = selectedQuotes.filter(q => !selectedQuotes.some(other => other !== q && other.contains(q)));
+          let lastNode = null;
+          topQuotes.forEach(q => {
+            const res = unwrapBlockquote(q);
+            if (res) lastNode = res;
+          });
+          if (lastNode) {
+            placeCaretAt(lastNode, true);
+          }
+          break;
         }
+
+        // Se era un checklist item, convertiamolo prima in <p>
+        const selectedChecklist = getSelectedChecklistItems();
+        if (selectedChecklist.length > 0) {
+          selectedChecklist.forEach(item => {
+            const textEl = item.querySelector('.checklist-text');
+            const text = textEl ? textEl.textContent : item.textContent;
+            const p = document.createElement('p');
+            p.textContent = text && text.trim() ? text : '';
+            if (!text.trim()) p.innerHTML = '<br>';
+            if (item.parentNode) item.parentNode.replaceChild(p, item);
+          });
+        }
+
+        // TOGGLE ON: Applica blockquote
+        document.execCommand('formatBlock', false, '<blockquote>');
         break;
+      }
+      case 'code': {
+        const selectedCodeBlocks = getSelectedCodeBlocks();
+        if (selectedCodeBlocks.length > 0) {
+          // TOGGLE OFF: se siamo già dentro un blocco di codice, lo riconvertiamo in testo normale (<p>)
+          const topCodeBlocks = selectedCodeBlocks.filter(b => !selectedCodeBlocks.some(other => other !== b && other.contains(b)));
+          let lastNode = null;
+          topCodeBlocks.forEach(b => {
+            const res = unwrapCodeBlock(b);
+            if (res) lastNode = res;
+          });
+          if (lastNode) {
+            placeCaretAt(lastNode, true);
+          }
+          break;
+        }
+
+        // TOGGLE ON: inserisci blocco codice
+        const sel = window.getSelection();
+        const text = sel && sel.toString() ? sel.toString() : 'inserisci qui il codice';
+        document.execCommand('insertHTML', false, `<pre class="note-code-block"><code>${escapeHtmlText(text)}</code></pre><p><br></p>`);
+        break;
+      }
       case 'normal': {
         // Se la selezione interseca una o più checklist, le rimuove tutte convertendole in <p>
         const selectedChecklist = getSelectedChecklistItems();
@@ -1456,13 +1641,32 @@ export default function NotesPage() {
           }
         }
 
-        // Se siamo dentro un blocco di codice, lo rimuoviamo
-        const codeBlock = getSelectionClosest('.note-code-block');
-        if (codeBlock) {
-          const p = document.createElement('p');
-          p.textContent = codeBlock.textContent;
-          if (codeBlock.parentNode) codeBlock.parentNode.replaceChild(p, codeBlock);
-          placeCaretAt(p, true);
+        // Se siamo dentro o intersecano blocchi di codice, li convertiamo in <p>
+        const selectedCodeBlocks = getSelectedCodeBlocks();
+        if (selectedCodeBlocks.length > 0) {
+          const topCodeBlocks = selectedCodeBlocks.filter(b => !selectedCodeBlocks.some(other => other !== b && other.contains(b)));
+          let lastNode = null;
+          topCodeBlocks.forEach(b => {
+            const res = unwrapCodeBlock(b);
+            if (res) lastNode = res;
+          });
+          if (lastNode) {
+            placeCaretAt(lastNode, true);
+          }
+        }
+
+        // Se siamo dentro una o più citazioni, le rimuoviamo convertendole in <p>
+        const selectedQuotes = getSelectedBlockquotes();
+        if (selectedQuotes.length > 0) {
+          const topQuotes = selectedQuotes.filter(q => !selectedQuotes.some(other => other !== q && other.contains(q)));
+          let lastNode = null;
+          topQuotes.forEach(q => {
+            const res = unwrapBlockquote(q);
+            if (res) lastNode = res;
+          });
+          if (lastNode) {
+            placeCaretAt(lastNode, true);
+          }
         }
 
         // Reset standard formattazione
