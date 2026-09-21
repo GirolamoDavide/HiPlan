@@ -1,7 +1,7 @@
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 import os
 import uuid
 # pyrefly: ignore [missing-import]
@@ -14,6 +14,8 @@ from app.core.dependencies import get_db, get_current_user
 from app.models.user import User, UserRole
 from app.models.note import Note
 from app.schemas.note import NoteCreate, NoteUpdate, NoteOut
+from app.schemas.meeting import MeetingMinutesRequest, MeetingMinutesResponse, AudioTranscriptionResponse
+from app.services.chat_service import chat_service
 
 import json
 
@@ -70,7 +72,7 @@ def _serialize_note(note: Note) -> dict:
 
 async def purge_expired_note_trash(db: AsyncSession):
     """Elimina definitivamente le note nel cestino da più di 90 giorni."""
-    cutoff = datetime.utcnow() - timedelta(days=90)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
     res = await db.execute(select(Note).where(Note.deleted_at.isnot(None), Note.deleted_at <= cutoff))
     expired = res.scalars().all()
     for n in expired:
@@ -111,11 +113,13 @@ async def list_trash_notes(
         .order_by(Note.deleted_at.desc())
     )
     trashed = result.scalars().all()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     items = []
     for n in trashed:
         deleted_dt = n.deleted_at or now
+        if deleted_dt.tzinfo is None:
+            deleted_dt = deleted_dt.replace(tzinfo=timezone.utc)
         elapsed_days = (now - deleted_dt).days
         s = _serialize_note(n)
         s["days_left"] = max(0, 90 - elapsed_days)
@@ -345,7 +349,7 @@ async def delete_note(
         if current_user.role != UserRole.ADMIN:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo l'autore o un amministratore può eliminare questa nota")
 
-    note.deleted_at = datetime.utcnow()
+    note.deleted_at = datetime.now(timezone.utc)
     await db.commit()
     return None
 
@@ -450,4 +454,60 @@ async def delete_note_attachment(
     note.attachments = json.dumps(new_attachments)
     await db.commit()
     return {"status": "ok"}
+
+
+@router.post("/meeting-minutes", response_model=MeetingMinutesResponse)
+async def generate_meeting_minutes_endpoint(
+    req: MeetingMinutesRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Riceve la trascrizione vocale di una riunione o videochiamata e genera
+    una minuta/verbale strutturata con sintesi, punti chiave, decisioni e action items.
+    """
+    try:
+        res = await chat_service.generate_meeting_minutes(
+            transcript=req.transcript,
+            meeting_type=req.meeting_type or "general",
+            title=req.context_title
+        )
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore generazione minuta: {str(e)}")
+
+
+@router.post("/transcribe-audio", response_model=AudioTranscriptionResponse)
+async def transcribe_meeting_audio_endpoint(
+    file: UploadFile = File(...),
+    language: str = Form("it"),
+    include_timestamps: bool = Form(False),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Riceve un file audio registrato (es. cattura mista microfono + audio videochiamata da Google Meet / Teams / Zoom)
+    e lo trascrive ad altissima fedeltà tramite Groq Whisper Large V3.
+    """
+    try:
+        file_bytes = await file.read()
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="Il file audio inviato è vuoto.")
+
+        result = await chat_service.transcribe_audio(
+            file_bytes=file_bytes,
+            filename=file.filename or "recording.webm",
+            content_type=file.content_type or "audio/webm",
+            language=language,
+            include_timestamps=include_timestamps
+        )
+        return result
+    except HTTPException:
+        raise
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore trascrizione audio: {str(e)}")
+
+
 

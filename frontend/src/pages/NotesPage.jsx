@@ -5,7 +5,9 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import AppIcon from '../components/ui/AppIcon';
 import AssigneeInput from '../components/ui/AssigneeInput';
-import { Type, Heading1, Heading2, Bold, Italic, List, ListTodo, Quote, Code, Eraser, Calendar, ArrowUpDown, ChevronDown } from 'lucide-react';
+import { Type, Heading1, Heading2, Bold, Italic, List, ListTodo, Quote, Code, Eraser, Calendar, ArrowUpDown, ChevronDown, Mic, Sparkles } from 'lucide-react';
+import { SpeechTranscriber, isSpeechRecognitionSupported } from '../utils/speechRecognition';
+import MeetingAssistantModal from '../components/notes/MeetingAssistantModal';
 import './NotesPage.css';
 
 const BACKEND_URL = import.meta.env.VITE_API_URL
@@ -68,6 +70,29 @@ export default function NotesPage() {
   const editorRef = useRef(null);
   const saveTimeoutRef = useRef(null);
   const uploadingAttachmentsRef = useRef(false);
+
+  // Dettatura vocale inline e Assistente riunione / Minuta AI
+  const [isDictating, setIsDictating] = useState(false);
+  const [isTranscribingDictation, setIsTranscribingDictation] = useState(false);
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
+  const dictationRecognizerRef = useRef(null);
+  const dictationMediaRecorderRef = useRef(null);
+  const dictationStreamRef = useRef(null);
+  const dictationAudioChunksRef = useRef([]);
+  const hasWebSpeechInsertedRef = useRef(false);
+  const lastEditorRangeRef = useRef(null);
+
+  const saveCurrentSelection = useCallback(() => {
+    try {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && editorRef.current) {
+        const range = sel.getRangeAt(0);
+        if (editorRef.current.contains(range.commonAncestorContainer)) {
+          lastEditorRangeRef.current = range.cloneRange();
+        }
+      }
+    } catch {}
+  }, []);
 
   // Formati attivi nella selezione corrente per evidenziare i tasti della barra
   const [activeFormats, setActiveFormats] = useState({
@@ -332,6 +357,413 @@ export default function NotesPage() {
       saveNoteToBackend(activeNoteId, title, newHtml);
     }, 1000);
   }
+
+  // ─── Dettatura Vocale Continua & Gestione Minuta AI ──────────────────────
+
+  // ─── Dettatura Vocale in Tempo Reale & Fallback AI ──────────────────────
+
+  function placeCaretAfter(node) {
+    if (!node) return;
+    const sel = window.getSelection();
+    if (!sel) return;
+    const range = document.createRange();
+    range.setStartAfter(node);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  function insertElementAtCursor(element) {
+    if (!editorRef.current) return;
+    editorRef.current.focus();
+
+    let range = null;
+    try {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && editorRef.current.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+        range = sel.getRangeAt(0);
+      } else if (lastEditorRangeRef.current && editorRef.current.contains(lastEditorRangeRef.current.commonAncestorContainer)) {
+        range = lastEditorRangeRef.current;
+      }
+    } catch {}
+
+    if (range) {
+      // Non cancellare MAI il testo preesistente della nota: collassa sempre alla fine
+      range.collapse(false);
+      range.insertNode(element);
+      placeCaretAfter(element);
+      return;
+    }
+
+    editorRef.current.appendChild(element);
+    placeCaretAfter(element);
+  }
+
+  function insertTextAtCursor(text) {
+    if (!editorRef.current || !text) return;
+    editorRef.current.focus();
+    // Rimuovi categoricamente qualsiasi timestamp come [00:00] o [01:23]
+    const cleanText = text.replace(/\[\d{1,2}:\d{2}\]\s*/g, '');
+    if (!cleanText) return;
+
+    let range = null;
+    try {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && editorRef.current.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+        range = sel.getRangeAt(0);
+      } else if (lastEditorRangeRef.current && editorRef.current.contains(lastEditorRangeRef.current.commonAncestorContainer)) {
+        range = lastEditorRangeRef.current;
+      }
+    } catch {}
+
+    if (range) {
+      range.collapse(false);
+      const textNode = document.createTextNode(cleanText);
+      range.insertNode(textNode);
+      placeCaretAfter(textNode);
+      return;
+    }
+
+    const p = document.createElement('p');
+    p.textContent = cleanText;
+    editorRef.current.appendChild(p);
+    placeCaretAfter(p);
+  }
+
+  // Inserimento / Aggiornamento in TEMPO REALE del testo parlato direttamente nella nota
+  // preservando categoricamente tutto ciò che è stato detto o scritto prima e salvando progressivamente
+  const updateRealtimeDictation = useCallback((transcript, isFinal) => {
+    if (!editorRef.current) return;
+
+    // Rimuovi categoricamente qualsiasi timestamp come [00:00] o [01:23]
+    const cleanChunk = (transcript || '').replace(/\[\d{1,2}:\d{2}\]\s*/g, '').trim();
+    if (!cleanChunk && isFinal) return;
+
+    // Trova o crea la sessione di dettatura attiva
+    let sessionWrapper = editorRef.current.querySelector('#dictation-active-session');
+    if (!sessionWrapper || !editorRef.current.contains(sessionWrapper)) {
+      sessionWrapper = document.createElement('span');
+      sessionWrapper.id = 'dictation-active-session';
+      sessionWrapper.innerHTML = '<span class="dictation-committed"></span><span class="dictation-interim" style="opacity: 0.85;"></span>';
+      insertElementAtCursor(sessionWrapper);
+    }
+
+    let committedSpan = sessionWrapper.querySelector('.dictation-committed');
+    let interimSpan = sessionWrapper.querySelector('.dictation-interim');
+
+    if (!committedSpan) {
+      committedSpan = document.createElement('span');
+      committedSpan.className = 'dictation-committed';
+      sessionWrapper.insertBefore(committedSpan, interimSpan);
+    }
+    if (!interimSpan) {
+      interimSpan = document.createElement('span');
+      interimSpan.className = 'dictation-interim';
+      interimSpan.style.opacity = '0.85';
+      sessionWrapper.appendChild(interimSpan);
+    }
+
+    if (isFinal) {
+      if (cleanChunk) {
+        // Aggiungi in modo permanente la nuova frase consolidata senza MAI rimuovere ciò che è stato detto prima!
+        const currentCommitted = committedSpan.textContent || '';
+        const needsSpace = currentCommitted.length > 0 && !currentCommitted.endsWith(' ');
+        committedSpan.textContent = currentCommitted + (needsSpace ? ' ' : '') + cleanChunk + ' ';
+        interimSpan.textContent = '';
+        placeCaretAfter(committedSpan);
+        hasWebSpeechInsertedRef.current = true;
+        // Salva progressivamente man mano che si parla
+        handleEditorInput();
+      }
+    } else {
+      // In tempo reale man mano che si parla: mostra le parole provvisorie direttamente dopo quelle già consolidate
+      if (cleanChunk) {
+        const currentCommitted = committedSpan.textContent || '';
+        const needsSpace = currentCommitted.length > 0 && !currentCommitted.endsWith(' ');
+        interimSpan.textContent = (needsSpace ? ' ' : '') + cleanChunk;
+        placeCaretAfter(interimSpan);
+        hasWebSpeechInsertedRef.current = true;
+        // Salva progressivamente man mano che si parla
+        handleEditorInput();
+      } else {
+        interimSpan.textContent = '';
+      }
+    }
+  }, [handleEditorInput]);
+
+  const insertDictatedText = useCallback((text) => {
+    if (!text || !editorRef.current) return;
+    editorRef.current.focus();
+
+    // Rimuovi categoricamente qualsiasi timestamp come [00:00] o [00:03]
+    const clean = text.replace(/\[\d{1,2}:\d{2}\]\s*/g, '').trim();
+    if (!clean) return;
+
+    insertTextAtCursor(clean + ' ');
+    hasWebSpeechInsertedRef.current = true;
+    handleEditorInput();
+  }, [handleEditorInput]);
+
+  // Arresto pulito della dettatura con trascrizione Whisper AI di fallback se necessario
+  const stopDictation = useCallback(async () => {
+    setIsDictating(false);
+
+    // 1. Finalizza la sessione di dettatura e trasforma in testo normale permanente
+    if (editorRef.current) {
+      const sessionWrapper = editorRef.current.querySelector('#dictation-active-session');
+      if (sessionWrapper && sessionWrapper.parentNode) {
+        const committedSpan = sessionWrapper.querySelector('.dictation-committed');
+        const interimSpan = sessionWrapper.querySelector('.dictation-interim');
+        const committedText = committedSpan ? committedSpan.textContent : '';
+        const interimText = interimSpan ? interimSpan.textContent : '';
+        const fullDictated = (committedText + ' ' + interimText)
+          .replace(/\[\d{1,2}:\d{2}\]\s*/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        if (fullDictated) {
+          const textNode = document.createTextNode(fullDictated + ' ');
+          sessionWrapper.parentNode.replaceChild(textNode, sessionWrapper);
+          placeCaretAfter(textNode);
+          hasWebSpeechInsertedRef.current = true;
+        } else {
+          sessionWrapper.parentNode.removeChild(sessionWrapper);
+        }
+      }
+
+      // Salvataggio immediato sul backend del testo finale senza attendere timer
+      if (activeNoteId) {
+        const finalHtml = editorRef.current.innerHTML;
+        setContent(finalHtml);
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveNoteToBackend(activeNoteId, title, finalHtml);
+      }
+    }
+
+    // 2. Ferma Web Speech API se attivo
+    if (dictationRecognizerRef.current) {
+      try {
+        dictationRecognizerRef.current.stop();
+      } catch {}
+      dictationRecognizerRef.current = null;
+    }
+
+    // 3. Preleva e finalizza registrazione audio da MediaRecorder se era in corso
+    const mediaRecorder = dictationMediaRecorderRef.current;
+    let audioBlob = null;
+
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      audioBlob = await new Promise((resolve) => {
+        mediaRecorder.onstop = () => {
+          const chunks = dictationAudioChunksRef.current || [];
+          const mimeType = mediaRecorder.mimeType || 'audio/webm';
+          const blob = new Blob(chunks, { type: mimeType });
+          resolve(blob);
+        };
+        try {
+          mediaRecorder.stop();
+        } catch {
+          resolve(null);
+        }
+      });
+    }
+
+    dictationMediaRecorderRef.current = null;
+
+    if (dictationStreamRef.current) {
+      try {
+        dictationStreamRef.current.getTracks().forEach(t => t.stop());
+      } catch {}
+      dictationStreamRef.current = null;
+    }
+
+    // Se il testo è già stato inserito in tempo reale mentre parlavi, terminato!
+    if (hasWebSpeechInsertedRef.current) {
+      toast.success('Dettatura vocale completata!');
+      return;
+    }
+
+    // Fallback Whisper AI se Web Speech non ha potuto inserire testo
+    if (audioBlob && audioBlob.size > 1500) {
+      setIsTranscribingDictation(true);
+      toast.info('Trascrizione voce con Whisper AI…');
+      try {
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'dettatura.webm');
+        formData.append('language', 'it');
+        formData.append('include_timestamps', 'false');
+
+        const { data } = await api.post('/notes/transcribe-audio', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        if (data && data.transcript && data.transcript.trim()) {
+          const cleanTranscript = data.transcript.replace(/\[\d{1,2}:\d{2}\]\s*/g, '').trim();
+          insertDictatedText(cleanTranscript);
+          toast.success('Dettatura vocale inserita!');
+        } else {
+          toast.info('Nessun parlato rilevato nella registrazione.');
+        }
+      } catch (err) {
+        console.error('Errore trascrizione Whisper:', err);
+        toast.error('Errore trascrizione audio: ' + (err.response?.data?.detail || err.message));
+      } finally {
+        setIsTranscribingDictation(false);
+      }
+    } else {
+      toast.info('Dettatura vocale terminata');
+    }
+  }, [insertDictatedText, handleEditorInput, toast]);
+
+  // Avvio registrazione fallback MediaRecorder (solo per browser senza Web Speech o in caso di errore)
+  const startWhisperRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      dictationStreamRef.current = stream;
+
+      const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+      const supportedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+      const recorder = supportedMime ? new MediaRecorder(stream, { mimeType: supportedMime }) : new MediaRecorder(stream);
+
+      dictationAudioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          dictationAudioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(500);
+      dictationMediaRecorderRef.current = recorder;
+      setIsDictating(true);
+      toast.success('Registrazione vocale attiva: parla vicino al microfono (clicca di nuovo per inserire)');
+    } catch (err) {
+      console.error('Permesso microfono non concesso:', err);
+      toast.error('Impossibile accedere al microfono. Verifica i permessi nelle impostazioni del browser.');
+    }
+  }, [toast]);
+
+  const toggleDictation = useCallback(async () => {
+    if (isDictating) {
+      await stopDictation();
+      return;
+    }
+
+    if (!activeNoteId) {
+      toast.warning('Apri o seleziona una nota prima di avviare la dettatura');
+      return;
+    }
+
+    if (editorRef.current) {
+      editorRef.current.focus();
+    }
+
+    hasWebSpeechInsertedRef.current = false;
+    dictationAudioChunksRef.current = [];
+
+    // Priorità 1: Se Web Speech API è supportata dal browser (Chrome, Edge, Safari):
+    // Scrittura streaming IN TEMPO REALE nel testo della nota senza bloccare il microfono con MediaRecorder!
+    if (isSpeechRecognitionSupported()) {
+      try {
+        const transcriber = new SpeechTranscriber({
+          lang: 'it-IT',
+          continuous: true,
+          interimResults: true,
+          onResult: ({ transcript, isFinal }) => {
+            if (transcript && transcript.trim()) {
+              updateRealtimeDictation(transcript.trim(), isFinal);
+            }
+          },
+          onError: (errCode) => {
+            console.warn('Web Speech API error:', errCode);
+            if (errCode === 'not-allowed') {
+              toast.error('Permesso microfono negato per il riconoscimento vocale.');
+              setIsDictating(false);
+            } else if (errCode === 'network' || errCode === 'audio-capture') {
+              // Se Google Speech API fallisce per rete/adblocker, passa a Whisper
+              startWhisperRecording();
+            }
+          },
+          onEnd: () => {}
+        });
+
+        transcriber.start();
+        dictationRecognizerRef.current = transcriber;
+        setIsDictating(true);
+        toast.success('Dettatura vocale attiva: parla e il testo apparirà in tempo reale!');
+        return;
+      } catch (speechErr) {
+        console.warn('Web Speech API non avviabile, fallback su registrazione audio Whisper:', speechErr);
+      }
+    }
+
+    // Priorità 2: Fallback su MediaRecorder + Whisper AI (Firefox, Brave, ecc.)
+    await startWhisperRecording();
+  }, [isDictating, activeNoteId, stopDictation, updateRealtimeDictation, startWhisperRecording, toast]);
+
+  // Arresta la dettatura vocale e rilascia il microfono allo smontaggio del componente
+  useEffect(() => {
+    return () => {
+      if (dictationRecognizerRef.current) {
+        try { dictationRecognizerRef.current.stop(); } catch {}
+        dictationRecognizerRef.current = null;
+      }
+      if (dictationMediaRecorderRef.current && dictationMediaRecorderRef.current.state !== 'inactive') {
+        try { dictationMediaRecorderRef.current.stop(); } catch {}
+        dictationMediaRecorderRef.current = null;
+      }
+      if (dictationStreamRef.current) {
+        try { dictationStreamRef.current.getTracks().forEach(t => t.stop()); } catch {}
+        dictationStreamRef.current = null;
+      }
+    };
+  }, []);
+
+  // Creazione di una nuova nota da minuta AI (esclude la trascrizione grezza per mantenere la nota pulita ed esecutiva)
+  const handleCreateNoteFromMinutes = useCallback(async (minutesData) => {
+    try {
+      const formattedTitle = minutesData.title || `Minuta Riunione ${new Date().toLocaleDateString('it-IT')}`;
+      const rawHtml = minutesData.html_content || minutesData.summary_html || '';
+      const cleanHtml = rawHtml.replace(/<details\b[^>]*>[\s\S]*?<\/details>/gi, '').trim();
+      const { data } = await api.post('/notes', {
+        title: formattedTitle,
+        content: cleanHtml,
+        visibility: 'private',
+        shared_with: [],
+        is_shared: false
+      });
+      setNotes(prev => [data, ...prev]);
+      selectNote(data);
+      toast.success('Nuovo blocco note creato con la Minuta AI!');
+    } catch (err) {
+      console.error('Errore creazione nota da minuta:', err);
+      toast.error('Errore durante la creazione della nota');
+    }
+  }, [toast]);
+
+  // Inserimento della minuta nella nota attiva (esclude la trascrizione integrale)
+  const handleInsertMinutesIntoActiveNote = useCallback((htmlContent, minutesTitle) => {
+    const cleanHtml = (htmlContent || '').replace(/<details\b[^>]*>[\s\S]*?<\/details>/gi, '').trim();
+
+    if (!activeNoteId || !editorRef.current) {
+      handleCreateNoteFromMinutes({ title: minutesTitle, html_content: cleanHtml });
+      return;
+    }
+
+    const currentHtml = editorRef.current.innerHTML.trim();
+    const divider = currentHtml ? '<p><br></p><hr class="note-meeting-hr" /><p><br></p>' : '';
+    const updatedHtml = currentHtml + divider + cleanHtml;
+
+    editorRef.current.innerHTML = updatedHtml;
+    setContent(updatedHtml);
+    saveNoteToBackend(activeNoteId, title, updatedHtml);
+    toast.success('Minuta AI inserita nella nota attiva!');
+  }, [activeNoteId, title, saveNoteToBackend, handleCreateNoteFromMinutes, toast]);
 
   // ─── Supporto e Gestione Avanzata Checklist ──────────────────────────────
 
@@ -1501,146 +1933,175 @@ export default function NotesPage() {
               </div>
             </div>
 
+            {/* TOOLBAR DI FORMATTAZIONE STYLE NOTION – SEMPRE VISIBILE (fuori dallo scroll) */}
+            <div className="notion-formatting-bar">
+              {/* Sezione Sinistra: Strumenti di Formattazione */}
+              <div className="format-toolbar-left">
+                {/* Gruppo 1: Intestazioni e Testo */}
+                <div className="format-group">
+                  <button
+                    type="button"
+                    className={`format-btn ${!activeFormats.h1 && !activeFormats.h2 && !activeFormats.quote && !activeFormats.todo && !activeFormats.code ? 'active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('normal')}
+                    title="Testo normale (Paragrafo)"
+                    aria-label="Testo normale"
+                  >
+                    <Type size={14} />
+                    <span>Testo</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`format-btn ${activeFormats.h1 ? 'active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('h1')}
+                    title="Titolo principale (H1)"
+                    aria-label="Titolo principale (H1)"
+                  >
+                    <Heading1 size={14} />
+                    <span>Titolo</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`format-btn ${activeFormats.h2 ? 'active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('h2')}
+                    title="Sottotitolo (H2)"
+                    aria-label="Sottotitolo (H2)"
+                  >
+                    <Heading2 size={14} />
+                    <span>Sottotitolo</span>
+                  </button>
+                </div>
+
+                <div className="format-divider" />
+
+                {/* Gruppo 2: Inline Styles */}
+                <div className="format-group">
+                  <button
+                    type="button"
+                    className={`format-btn format-btn--icon ${activeFormats.bold ? 'active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('bold')}
+                    title="Grassetto (Ctrl+B)"
+                    aria-label="Grassetto"
+                  >
+                    <Bold size={14} strokeWidth={2.4} />
+                  </button>
+                  <button
+                    type="button"
+                    className={`format-btn format-btn--icon ${activeFormats.italic ? 'active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('italic')}
+                    title="Corsivo (Ctrl+I)"
+                    aria-label="Corsivo"
+                  >
+                    <Italic size={14} strokeWidth={2.4} />
+                  </button>
+                </div>
+
+                <div className="format-divider" />
+
+                {/* Gruppo 3: Elenchi e Blocchi */}
+                <div className="format-group">
+                  <button
+                    type="button"
+                    className={`format-btn ${activeFormats.bullet ? 'active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('bullet')}
+                    title="Elenco puntato"
+                    aria-label="Elenco puntato"
+                  >
+                    <List size={14} />
+                    <span>Elenco</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`format-btn ${activeFormats.todo ? 'active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('todo')}
+                    title="Check-list interattiva"
+                    aria-label="Check-list interattiva"
+                  >
+                    <ListTodo size={14} />
+                    <span>Check-list</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`format-btn ${activeFormats.quote ? 'active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('quote')}
+                    title="Citazione"
+                    aria-label="Citazione"
+                  >
+                    <Quote size={13} />
+                    <span className="fmt-label-optional">Citazione</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`format-btn ${activeFormats.code ? 'active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyFormatting('code')}
+                    title="Blocco di codice"
+                    aria-label="Blocco di codice"
+                  >
+                    <Code size={14} />
+                    <span className="fmt-label-optional">Codice</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sezione Destra: Dettatura vocale e Reset Formattazione */}
+              <div className="format-toolbar-right">
+                <button
+                  type="button"
+                  className={`format-btn format-btn--mic ${isDictating ? 'active is-recording' : ''}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={toggleDictation}
+                  title={isDictating ? "Clicca per terminare la dettatura e inserire il testo" : "Avvia dettatura vocale con microfono"}
+                  aria-label="Dettatura vocale"
+                  disabled={isTranscribingDictation}
+                >
+                  {isTranscribingDictation ? (
+                    <>
+                      <Sparkles size={14} className="pulse-mic" style={{ color: '#8b5cf6' }} />
+                      <span>Trascrizione AI…</span>
+                    </>
+                  ) : isDictating ? (
+                    <>
+                      <Mic size={14} className="pulse-mic" />
+                      <span>In ascolto…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Mic size={14} />
+                      <span>Dettatura</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="format-divider" />
+
+                <button
+                  type="button"
+                  className="format-btn format-btn--clear"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => applyFormatting('normal')}
+                  title="Rimuovi ogni formattazione"
+                  aria-label="Rimuovi ogni formattazione"
+                >
+                  <Eraser size={14} />
+                  <span>Pulisci</span>
+                </button>
+              </div>
+            </div>
+
             {/* AREA SCROLLABILE CON SUPPORTO DRAG & DROP GLOBALE */}
             <div
               className="notes-editor-scroll"
               onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
               onDrop={handleDropAttachment}
             >
-              {/* TOOLBAR DI FORMATTAZIONE STYLE NOTION (A TUTTA LARGHEZZA) */}
-              <div className="notion-formatting-bar">
-                {/* Sezione Sinistra: Strumenti di Formattazione */}
-                <div className="format-toolbar-left">
-                  {/* Gruppo 1: Intestazioni e Testo */}
-                  <div className="format-group">
-                    <button
-                      type="button"
-                      className={`format-btn ${!activeFormats.h1 && !activeFormats.h2 && !activeFormats.quote && !activeFormats.todo && !activeFormats.code ? 'active' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyFormatting('normal')}
-                      title="Testo normale (Paragrafo)"
-                      aria-label="Testo normale"
-                    >
-                      <Type size={14} />
-                      <span>Testo</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`format-btn ${activeFormats.h1 ? 'active' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyFormatting('h1')}
-                      title="Titolo principale (H1)"
-                      aria-label="Titolo principale (H1)"
-                    >
-                      <Heading1 size={14} />
-                      <span>Titolo</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`format-btn ${activeFormats.h2 ? 'active' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyFormatting('h2')}
-                      title="Sottotitolo (H2)"
-                      aria-label="Sottotitolo (H2)"
-                    >
-                      <Heading2 size={14} />
-                      <span>Sottotitolo</span>
-                    </button>
-                  </div>
-
-                  <div className="format-divider" />
-
-                  {/* Gruppo 2: Inline Styles */}
-                  <div className="format-group">
-                    <button
-                      type="button"
-                      className={`format-btn format-btn--icon ${activeFormats.bold ? 'active' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyFormatting('bold')}
-                      title="Grassetto (Ctrl+B)"
-                      aria-label="Grassetto"
-                    >
-                      <Bold size={14} strokeWidth={2.4} />
-                    </button>
-                    <button
-                      type="button"
-                      className={`format-btn format-btn--icon ${activeFormats.italic ? 'active' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyFormatting('italic')}
-                      title="Corsivo (Ctrl+I)"
-                      aria-label="Corsivo"
-                    >
-                      <Italic size={14} strokeWidth={2.4} />
-                    </button>
-                  </div>
-
-                  <div className="format-divider" />
-
-                  {/* Gruppo 3: Elenchi e Blocchi */}
-                  <div className="format-group">
-                    <button
-                      type="button"
-                      className={`format-btn ${activeFormats.bullet ? 'active' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyFormatting('bullet')}
-                      title="Elenco puntato"
-                      aria-label="Elenco puntato"
-                    >
-                      <List size={14} />
-                      <span>Elenco</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`format-btn ${activeFormats.todo ? 'active' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyFormatting('todo')}
-                      title="Check-list interattiva"
-                      aria-label="Check-list interattiva"
-                    >
-                      <ListTodo size={14} />
-                      <span>Check-list</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`format-btn ${activeFormats.quote ? 'active' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyFormatting('quote')}
-                      title="Citazione"
-                      aria-label="Citazione"
-                    >
-                      <Quote size={13} />
-                      <span className="fmt-label-optional">Citazione</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`format-btn ${activeFormats.code ? 'active' : ''}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => applyFormatting('code')}
-                      title="Blocco di codice"
-                      aria-label="Blocco di codice"
-                    >
-                      <Code size={14} />
-                      <span className="fmt-label-optional">Codice</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Sezione Destra: Reset Formattazione */}
-                <div className="format-toolbar-right">
-                  <button
-                    type="button"
-                    className="format-btn format-btn--clear"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => applyFormatting('normal')}
-                    title="Rimuovi ogni formattazione"
-                    aria-label="Rimuovi ogni formattazione"
-                  >
-                    <Eraser size={14} />
-                    <span>Pulisci</span>
-                  </button>
-                </div>
-              </div>
-
               <div style={{ display: 'flex', gap: '32px', minHeight: '100%' }}>
 
                 {/* COLONNA SINISTRA: EDITOR TESTUALE */}
@@ -1663,8 +2124,13 @@ export default function NotesPage() {
                     onClick={(e) => {
                       handleEditorClick(e);
                       setTimeout(updateActiveFormats, 10);
+                      saveCurrentSelection();
                     }}
-                    onKeyUp={() => setTimeout(updateActiveFormats, 10)}
+                    onKeyUp={() => {
+                      setTimeout(updateActiveFormats, 10);
+                      saveCurrentSelection();
+                    }}
+                    onMouseUp={saveCurrentSelection}
                     onKeyDown={handleEditorKeyDown}
                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                     onDrop={(e) => {
@@ -1730,6 +2196,26 @@ export default function NotesPage() {
                         Nessun allegato presente
                       </div>
                     )}
+
+                    {/* SEZIONE MINUTA AI (IN BASSO NELLA COLONNA ALLEGATI) */}
+                    <div style={{ marginTop: 'auto', paddingTop: '24px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-meeting-ai-trigger"
+                        onClick={() => setShowMeetingModal(true)}
+                        title="Registra audio o incolla conversazione riunione e genera Minuta AI"
+                        style={{
+                          width: '100%',
+                          justifyContent: 'center',
+                          padding: '10px 14px',
+                          borderRadius: '10px',
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        <Sparkles size={16} style={{ color: '#8b5cf6' }} />
+                        <span>Minuta AI</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2049,6 +2535,17 @@ export default function NotesPage() {
           </div>
         </div>
       )}
+
+      {/* MODALE ASSISTENTE RIUNIONE VOCALE & MINUTA AI */}
+      <MeetingAssistantModal
+        isOpen={showMeetingModal}
+        onClose={() => setShowMeetingModal(false)}
+        onInsertIntoActiveNote={handleInsertMinutesIntoActiveNote}
+        onCreateNewNote={handleCreateNoteFromMinutes}
+        hasActiveNote={!!activeNoteId}
+        activeNote={activeNote}
+      />
     </div>
   );
 }
+

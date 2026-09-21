@@ -223,6 +223,7 @@ async def test_chat_database_excludes_richieste_tables():
     assert "richieste_commerciali" not in usable_tables
     assert "articoli_richiesta" not in usable_tables
     assert "activity_logs" not in usable_tables
+    assert "notes" not in usable_tables
 
 
 @pytest.mark.asyncio
@@ -238,6 +239,8 @@ async def test_chat_intents_routing_standard():
     assert chat_service._classify_intent("Chi ha il maggior carico addetti?") == "team_workload"
     assert chat_service._classify_intent("Quali fasi sono in scadenza questo mese?") == "deadlines"
     assert chat_service._classify_intent("Rileva conflitti e ritardi nelle commesse") == "alarms"
+    assert chat_service._classify_intent("Mostrami le mie note") == "notes_restricted"
+    assert chat_service._classify_intent("Cosa ho annotato nei miei appunti?") == "notes_restricted"
 
 
 @pytest.mark.asyncio

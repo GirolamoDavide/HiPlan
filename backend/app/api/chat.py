@@ -30,7 +30,8 @@ class ChatResponse(BaseModel):
 @router.post("/", response_model=ChatResponse)
 async def ask_chatbot(
     request: ChatRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Invia un messaggio al chatbot e ricevi una risposta basata sui dati del DB ed eventuali allegati.
@@ -42,7 +43,8 @@ async def ask_chatbot(
         request.message,
         current_user=current_user,
         history=[h.model_dump() for h in request.history] if request.history else None,
-        attachments=[a.model_dump() for a in request.attachments] if request.attachments else None
+        attachments=[a.model_dump() for a in request.attachments] if request.attachments else None,
+        db=db
     )
     return ChatResponse(response=answer)
 

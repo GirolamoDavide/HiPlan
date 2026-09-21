@@ -943,7 +943,7 @@ class ChatService:
     def _classify_intent(self, user_message: str) -> str:
         m = user_message.strip().lower()
         
-        # 0. Esclusione tassativa: Preventivazione / Richieste Commerciali
+        # 0. Esclusioni tassative: Preventivazione e Note Personali
         preventivazione_keys = [
             "preventiv", "richieste commercial", "richiesta commercial",
             "articoli richiest", "articolo richiest", "offerte commercial",
@@ -953,6 +953,29 @@ class ChatService:
         ]
         if any(k in m for k in preventivazione_keys):
             return "preventivazione_restricted"
+
+        # Esclusione tassativa: Note Personali e Verbali (privacy assoluta)
+        is_project_note = any(k in m for k in [
+            "note commessa", "note della commessa", "note delle commesse",
+            "note progetto", "note del progetto", "note dei progetti"
+        ])
+        if not is_project_note:
+            notes_restricted_keys = [
+                "mie note", "miei appunti", "mia nota", "mio appunto",
+                "le mie note", "i miei appunti", "cerca nelle mie note",
+                "cerca nei miei appunti", "cercami nelle note", "trova nelle mie note",
+                "cosa ho scritto nelle mie note", "cosa ho annotato", "cosa c'è scritto nella mia nota",
+                "cosa c'è scritto nelle mie note", "cosa dicono le mie note", "riassumi le mie note",
+                "riassunto delle mie note", "elenco delle mie note", "mostrami le mie note",
+                "appunti personali", "note personali", "taccuino", "promemoria personali",
+                "note salvate", "le note che ho salvato", "le mie annotazioni", "verbale", "verbali",
+                "verbale riunione", "verbali riunione", "mie riunioni", "note di ", "note dell'",
+                "note degli altri", "note altrui", "tutte le note", "note di tutti", "note dei colleghi",
+                "note degli addetti", "note degli utenti", "note aziendali", "note globali",
+                "modulo note", "pagina note", "sezione note", "tabella note", "tabella notes", "appunti"
+            ]
+            if any(k in m for k in notes_restricted_keys):
+                return "notes_restricted"
 
         # 1. Chat generica / Saluti / Aiuto / Ringraziamenti
         greetings = ["ciao", "salve", "buongiorno", "buonasera", "buondi", "buondì", "hey", "hello", "buon pomeriggio"]
@@ -979,7 +1002,7 @@ class ChatService:
             "assegnate a me", "miei lavori", "a cosa devo lavorare",
             "a cosa sto lavorando", "quali sono le mie"
         ]
-        if any(k in m for k in my_tasks_keys):
+        if any(k in m for k in my_tasks_keys) and not any(k in m for k in ["note", "appunt"]):
             return "my_tasks"
 
         # 4. Tool dedicato: Budget / Ore consuntivate vs Stimate
@@ -1042,7 +1065,7 @@ class ChatService:
         # 10. Default: interrogazione database via SQL guidato
         return "sql"
 
-    async def get_response(self, user_message: str, current_user=None, history=None, attachments=None) -> str:
+    async def get_response(self, user_message: str, current_user=None, history=None, attachments=None, db=None) -> str:
         # Se ci sono allegati, elaborali preventivamente in modo gratuito
         images, docs_text = self._parse_attachments(attachments) if attachments else ([], "")
 
@@ -1069,6 +1092,18 @@ class ChatService:
                 "---\n"
                 "💡 **Azione consigliata:** Per visualizzare, inserire o gestire i preventivi e le richieste commerciali, "
                 "accedi direttamente alla sezione dedicata nel menu laterale (**Coordinamento ➔ Preventivazione**)."
+            )
+
+        # Esclusione prioritaria: Note Personali e Verbali (privacy assoluta)
+        if intent == "notes_restricted":
+            return (
+                "🔒 **Sezione Riservata: Note Personali**\n\n"
+                "Per garantire la massima tutela della riservatezza e della privacy aziendale, "
+                "tutti i contenuti, gli appunti e i verbali della sezione **Note** sono strettamente confidenziali e sono stati **completamente esclusi** dall'assistente virtuale.\n\n"
+                "Nessun utente (inclusi gli amministratori) può accedere, consultare o ricercare le note tramite il chatbot.\n\n"
+                "---\n"
+                "💡 **Azione consigliata:** Per visualizzare, inserire o gestire le tue note personali e i tuoi verbali, "
+                "accedi direttamente alla sezione dedicata nel menu laterale (**[Personale ➔ Note](/notes)**)."
             )
 
         # Contesto utente
@@ -1118,7 +1153,7 @@ class ChatService:
 
         try:
             # ==========================================
-            # INTENT 0: ESCLUSIONE PREVENTIVAZIONE / RICHIESTE COMMERCIALI
+            # INTENT 0: ESCLUSIONE PREVENTIVAZIONE / RICHIESTE COMMERCIALI & NOTE
             # ==========================================
             if intent == "preventivazione_restricted":
                 return (
@@ -1128,6 +1163,17 @@ class ChatService:
                     "---\n"
                     "💡 **Azione consigliata:** Per visualizzare, inserire o gestire i preventivi e le richieste commerciali, "
                     "accedi direttamente alla sezione dedicata nel menu laterale (**Coordinamento ➔ Preventivazione**)."
+                )
+
+            if intent == "notes_restricted":
+                return (
+                    "🔒 **Sezione Riservata: Note Personali**\n\n"
+                    "Per garantire la massima tutela della riservatezza e della privacy aziendale, "
+                    "tutti i contenuti, gli appunti e i verbali della sezione **Note** sono strettamente confidenziali e sono stati **completamente esclusi** dall'assistente virtuale.\n\n"
+                    "Nessun utente (inclusi gli amministratori) può accedere, consultare o ricercare le note tramite il chatbot.\n\n"
+                    "---\n"
+                    "💡 **Azione consigliata:** Per visualizzare, inserire o gestire le tue note personali e i tuoi verbali, "
+                    "accedi direttamente alla sezione dedicata nel menu laterale (**[Personale ➔ Note](/notes)**)."
                 )
 
             # ==========================================
@@ -1285,9 +1331,9 @@ DIZIONARIO DEL DOMINIO E REGOLE CRITICHE SULLE TABELLE:
 3. Tabella 'tickets' (Ticket di supporto e commessa):
    * {ticket_permission_rule}
    * 'status' contiene: 'DA_GESTIRE', 'IN_ATTESA', 'COMPLETATO'. I ticket aperti sono: `status IN ('DA_GESTIRE', 'IN_ATTESA')`.
-4. ESCLUSIONE TASSATIVA SEZIONE PREVENTIVAZIONE:
-   * Le tabelle 'richieste_commerciali' e 'articoli_richiesta' e qualsiasi informazione su preventivi, prezzi fornitore, margini o richieste commerciali sono RISERVATE ed ESCLUSE dal chatbot.
-   * NON generare MAI query che coinvolgono preventivi o richieste commerciali.
+4. ESCLUSIONE TASSATIVA SEZIONI RISERVATE (PREVENTIVAZIONE E NOTE PERSONALI):
+   * Le tabelle 'notes', 'richieste_commerciali' e 'articoli_richiesta' e qualsiasi informazione su note personali, appunti, verbali, preventivi, prezzi fornitore o margini sono RIGOROSAMENTE RISERVATE ed ESCLUSE dal chatbot.
+   * NON generare MAI query che coinvolgono la tabella 'notes' o le tabelle di preventivazione.
 5. Per ricerche testuali usa sempre `LIKE '%...%' COLLATE NOCASE`.
 
 ESEMPI DI QUERY SQL CORRETTE (FEW-SHOT EXAMPLES):
@@ -1341,13 +1387,27 @@ SQLQuery:"""
                 return cleaned
             
             clean_sql_runnable = RunnableLambda(clean_sql)
+
+            def check_sql_security(query: str) -> str | None:
+                """Valida la query SQL per bloccare accessi non autorizzati a sezioni riservate."""
+                # Blocco di sicurezza rigoroso su dati di preventivazione
+                if re.search(r'\b(richieste_commerciali|articoli_richiesta)\b', query, re.IGNORECASE):
+                    logger.warning(f"Bloccato tentativo di query su tabelle di preventivazione: {query}")
+                    return "ACCESSO_NEGATO_PREVENTIVAZIONE: I dati della pagina Preventivazione sono riservati ed esclusi dal chatbot."
+
+                # Blocco di sicurezza rigoroso su dati di note personali
+                if re.search(r'\bnotes\b', query, re.IGNORECASE):
+                    logger.warning(f"Bloccato tentativo di query su tabella notes: {query}")
+                    return "ACCESSO_NEGATO_NOTE: La tabella delle note personali è strettamente riservata ed esclusa dal chatbot per motivi di privacy."
+
+                return None
             
             def execute_and_log(sql_query: str) -> str:
                 """Esegue la query SQL e, in caso di errore, esegue il Self-Correction Loop automatico."""
-                # Blocco di sicurezza rigoroso su dati di preventivazione
-                if re.search(r'\b(richieste_commerciali|articoli_richiesta)\b', sql_query, re.IGNORECASE):
-                    logger.warning(f"Bloccato tentativo di query su tabelle di preventivazione: {sql_query}")
-                    return "ACCESSO_NEGATO_PREVENTIVAZIONE: I dati della pagina Preventivazione sono riservati ed esclusi dal chatbot."
+                sec_err = check_sql_security(sql_query)
+                if sec_err:
+                    return sec_err
+
                 try:
                     res = self.db.run(sql_query)
                     logger.info(f"Risultato SQL (1° tentativo riuscito): {res}")
@@ -1371,6 +1431,11 @@ SQLQuery:"""
                         })
                         fixed_clean = clean_sql(fixed_raw)
                         logger.info(f"Query SQL corretta dal Self-Correction Loop: {fixed_clean}")
+
+                        sec_err_fixed = check_sql_security(fixed_clean)
+                        if sec_err_fixed:
+                            return sec_err_fixed
+
                         res_fixed = self.db.run(fixed_clean)
                         logger.info(f"Risultato SQL riuscito dopo auto-correzione: {res_fixed}")
                         return str(res_fixed)
@@ -1400,9 +1465,9 @@ SQLQuery:"""
                 "     💡 **Azione consigliata:** [Raccomandazione PUNTUALE e NOMINATIVA citando date, commesse o persone specifiche. NON dare MAI consigli banali o generalisti come 'verificare', 'monitorare', 'fare attenzione', 'sollecitare'. Se tutto è regolare scrivi semplicemente che la situazione è allineata.]\n"
                 "4. TRADUZIONE CODICI:\n"
                 "   * Non mostrare ID numerici o valori grezzi ('ACTIVE' -> 'Attiva', 'HIGH' -> 'Alta', 'DA_GESTIRE' -> 'Da gestire').\n"
-                "5. ESCLUSIONE CONTENUTI PREVENTIVAZIONE:\n"
-                "   * I contenuti della pagina Preventivazione (richieste commerciali, articoli di preventivo, offerte, prezzi fornitore) sono rigorosamente esclusi dal chatbot.\n"
-                "   * Se il risultato estratto o la domanda fa riferimento a preventivi o richieste commerciali, rispondi spiegando chiaramente che tali dati sono riservati e consultabili unicamente nella pagina Preventivazione di HiPlan.\n\n"
+                "5. ESCLUSIONE CONTENUTI RISERVATI (PREVENTIVAZIONE E NOTE PERSONALI):\n"
+                "   * I contenuti della pagina Preventivazione e della sezione Note (appunti personali, verbali) sono rigorosamente esclusi dal chatbot per motivi di riservatezza.\n"
+                "   * Se il risultato estratto o la domanda fa riferimento a preventivi, richieste commerciali o note personali, rispondi spiegando chiaramente che tali dati sono riservati, confidenziali ed esclusi dall'assistente virtuale, e sono consultabili unicamente nelle rispettive sezioni di HiPlan.\n\n"
                 "{history_context}"
                 "Domanda dell'utente: {question}\n"
                 "Dati estratti dal sistema: {result}\n\n"
@@ -1832,6 +1897,207 @@ SQLQuery:"""
             "generated_at": datetime.now().strftime("%d/%m/%Y alle %H:%M"),
             "generated_timestamp": int(datetime.now().timestamp() * 1000)
         }
+
+    async def generate_meeting_minutes(self, transcript: str, meeting_type: str = "general", title: str | None = None) -> dict:
+        """
+        Elabora una trascrizione di riunione (in presenza o videochiamata) e genera una minuta strutturata.
+        Restituisce un dizionario con titolo, HTML pulito, markdown, punti chiave, decisioni e action items.
+        """
+        if not transcript or not transcript.strip():
+            raise ValueError("La trascrizione non può essere vuota.")
+
+        from datetime import datetime
+        type_labels = {
+            "general": "Riunione Generale",
+            "operativa": "Riunione Operativa / SAL Commessa",
+            "commerciale": "Incontro Commerciale / Trattativa Cliente",
+            "tecnica": "Briefing Tecnico / Progettazione",
+        }
+        meeting_label = type_labels.get(meeting_type, "Riunione")
+        today_str = datetime.now().strftime("%d/%m/%Y")
+
+        system_prompt = f"""Sei un assistente esecutivo aziendale per HiPlan.
+Il tuo compito è analizzare la seguente trascrizione cronologica di una riunione o videochiamata (che include in sequenza temporale sia gli interventi al microfono sia le risposte e l'audio del computer) e redigere una minuta/verbale impeccabile, professionale, chiara e azionabile.
+
+Tipo di Riunione: {meeting_label}
+Data: {today_str}
+Titolo/Contesto fornito: {title or 'Non specificato'}
+
+Trascrizione (in ordine cronologico reale della discussione):
+\"\"\"
+{transcript}
+\"\"\"
+
+IMPORTANTE SULL'ALTERNANZA DELLA CONVERSAZIONE:
+- La trascrizione rispetta l'ordine temporale esatto dello scambio verbale tra i partecipanti.
+- Presta particolare attenzione all'alternanza del dialogo: chi pone domande, chi risponde, quali dubbi o obiezioni vengono sollevati e quali accordi vengono raggiunti tra le parti.
+- Evidenzia nel testo e negli Action Items l'assegnazione dei compiti a chi si è assunto la responsabilità durante la conversazione.
+
+Devi rispondere ESCLUSIVAMENTE con un oggetto JSON valido (senza testo prima o dopo, senza commenti) con questa struttura esatta:
+{{
+  "title": "Titolo chiaro e professionale della riunione (es: Minuta: Riunione Avanzamento Commessa XYZ)",
+  "key_points": [
+    "Punto chiave 1 (con riferimento a chi ha proposto o concordato)...",
+    "Punto chiave 2..."
+  ],
+  "decisions": [
+    "Decisione o accordo 1...",
+    "Decisione o accordo 2..."
+  ],
+  "action_items": [
+    "[Chi] Azione da fare - eventuale scadenza o commessa",
+    "[Chi] Seconda azione..."
+  ],
+  "summary_html": "<h1>...</h1><p>...</p>...",
+  "summary_markdown": "# ..."
+}}
+
+Linee guida per `summary_html`:
+- Utilizza tag HTML puliti: <h1> per il titolo della minuta, <h2> per le sezioni principali, <p> per i paragrafi, <ul> e <li> per gli elenchi, <strong> per enfasi sui nomi, ruoli o scadenze.
+- Sezioni da includere nel summary_html:
+  1. <h1>Titolo Minuta</h1>
+  2. <p><em>Data: {today_str} | Tipologia: {meeting_label}</em></p>
+  3. <h2>📌 Sintesi Esecutiva</h2> con un riassunto discorsivo che descrive lo sviluppo e l'esito del confronto tra le parti.
+  4. <h2>📋 Argomenti e Punti Chiave</h2> con lista puntata degli argomenti trattati in ordine di discussione.
+  5. <h2>⚖️ Decisioni Prese</h2> con lista puntata dei punti fermi concordati.
+- IMPORTANTE: NON inserire in summary_html la trascrizione integrale della riunione (niente blocchi <details> né sezioni con la trascrizione grezza). Includi ESCLUSIVAMENTE la sintesi esecutiva, gli argomenti e punti chiave, le decisioni prese e il piano di azione (TODO).
+- Stile elegante, italiano formale e preciso, orientato all'efficienza operativa.
+"""
+
+        try:
+            if hasattr(self, 'llm') and self.llm:
+                response = await self.llm.ainvoke(system_prompt)
+                content = response.content if hasattr(response, 'content') else str(response)
+                
+                # Pulisci eventuale wrapping markdown ```json ... ```
+                clean_content = content.strip()
+                if clean_content.startswith("```"):
+                    clean_content = re.sub(r"^```(?:json)?\s*", "", clean_content)
+                    clean_content = re.sub(r"\s*```$", "", clean_content)
+                clean_content = clean_content.strip()
+
+                parsed = json.loads(clean_content)
+                if isinstance(parsed, dict) and "title" in parsed and "summary_html" in parsed:
+                    # Assicurati che non vi siano blocchi details di trascrizione
+                    parsed["summary_html"] = re.sub(r'<details\b[^>]*>[\s\S]*?<\/details>', '', parsed["summary_html"]).strip()
+                    return parsed
+        except Exception as e:
+            logger.warning(f"Errore durante invocazione LLM per minuta: {e}. Genero fallback strutturato.")
+
+        # Fallback deterministico intelligente se LLM fallisce o non disponibile
+        generated_title = title if title and title.strip() else f"Minuta: {meeting_label} - {today_str}"
+        paragraphs = [p.strip() for p in transcript.split("\n") if p.strip()]
+        key_points = [p[:100] + "..." if len(p) > 100 else p for p in paragraphs[:4]] or ["Discussione generale dei punti all'ordine del giorno."]
+        
+        fallback_html = f"""<h1>{generated_title}</h1>
+<p><em>Data: {today_str} | Tipologia: {meeting_label}</em></p>
+<h2>📌 Sintesi Esecutiva</h2>
+<p>Riassunto degli argomenti trattati durante la sessione di lavoro e allineamento operativo.</p>
+<h2>📋 Argomenti Trattati</h2>
+<ul>
+{''.join(f'<li>{kp}</li>' for kp in key_points)}
+</ul>
+<h2>⚖️ Decisioni Prese</h2>
+<ul>
+<li>Allineamento operativo sulle attività correnti e verifica delle priorità concordate.</li>
+</ul>
+"""
+
+        fallback_md = f"""# {generated_title}
+- Data: {today_str} | Tipologia: {meeting_label}
+
+## 📌 Sintesi Esecutiva
+Riassunto degli argomenti trattati durante la sessione di lavoro e allineamento operativo.
+
+## 📋 Argomenti Trattati
+""" + "\n".join(f"- {kp}" for kp in key_points) + """
+
+## ⚖️ Decisioni Prese
+- Allineamento operativo sulle attività correnti e verifica delle priorità concordate.
+"""
+
+        return {
+            "title": generated_title,
+            "key_points": key_points,
+            "decisions": ["Allineamento operativo sulle attività correnti e verifica delle priorità concordate."],
+            "action_items": ["Verificare avanzamento delle attività pianificate con gli addetti incaricati."],
+            "summary_html": fallback_html,
+            "summary_markdown": fallback_md
+        }
+
+    async def transcribe_audio(
+        self,
+        file_bytes: bytes,
+        filename: str = "recording.webm",
+        content_type: str = "audio/webm",
+        language: str = "it",
+        include_timestamps: bool = False
+    ) -> dict:
+        """
+        Trascrive un file audio (es. registrazione mista microfono + audio videochiamata PC)
+        utilizzando Whisper Large V3 tramite Groq per una trascrizione ad altissima velocità e precisione.
+        """
+        if not file_bytes:
+            raise ValueError("Il file audio fornito è vuoto.")
+
+        if not settings.GROQ_API_KEY:
+            raise ValueError("GROQ_API_KEY non configurata sul server per la trascrizione con Whisper.")
+
+        try:
+            from groq import Groq
+            client = Groq(api_key=settings.GROQ_API_KEY)
+
+            # Assicura estensione supportata da Whisper
+            clean_name = filename or "recording.webm"
+            base, ext = os.path.splitext(clean_name)
+            if not ext or ext.lower() not in [".webm", ".mp3", ".mp4", ".m4a", ".wav", ".ogg", ".flac"]:
+                clean_name = f"{base}.webm"
+
+            # Invocazione Whisper su Groq con prompt per formattazione e punteggiatura
+            prompt_text = (
+                "Trascrizione accurata di una riunione o videochiamata in lingua italiana con alternanza di interlocutori. "
+                "Mantieni maiuscole, punteggiatura e corretta separazione delle frasi e dei cambi di voce."
+            )
+            transcription = client.audio.transcriptions.create(
+                file=(clean_name, file_bytes, content_type or "audio/webm"),
+                model="whisper-large-v3",
+                language=language or "it",
+                prompt=prompt_text,
+                response_format="verbose_json"
+            )
+
+            text = transcription.text if hasattr(transcription, "text") else str(transcription)
+            duration = getattr(transcription, "duration", None)
+
+            # Estrai i segmenti cronologici per preservare l'alternanza naturale e ordinata della conversazione
+            formatted_lines = []
+            segments = getattr(transcription, "segments", None)
+            if segments is None and isinstance(transcription, dict):
+                segments = transcription.get("segments")
+
+            if segments:
+                for seg in segments:
+                    s_start = getattr(seg, "start", None) if not isinstance(seg, dict) else seg.get("start")
+                    s_text = getattr(seg, "text", "") if not isinstance(seg, dict) else seg.get("text", "")
+                    s_text = (s_text or "").strip()
+                    if not s_text:
+                        continue
+                    if include_timestamps and s_start is not None:
+                        m = int(float(s_start) // 60)
+                        s = int(float(s_start) % 60)
+                        formatted_lines.append(f"[{m:02d}:{s:02d}] {s_text}")
+                    else:
+                        formatted_lines.append(s_text)
+
+            final_transcript = ("\n".join(formatted_lines) if include_timestamps else " ".join(formatted_lines)) if formatted_lines else text.strip()
+
+            return {
+                "transcript": final_transcript,
+                "duration": duration
+            }
+        except Exception as e:
+            logger.error(f"Errore durante la trascrizione audio con AI: {e}", exc_info=True)
+            raise RuntimeError(f"Errore trascrizione audio: {str(e)}")
 
 chat_service = ChatService()
 
