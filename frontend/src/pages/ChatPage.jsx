@@ -1090,7 +1090,7 @@ export default function ChatPage() {
               { icon: '⏱️', label: 'Budget & Ore', text: 'Analizza il consumo ore e gli scostamenti di budget delle commesse' },
               { icon: '👥', label: 'Carico addetti', text: 'Chi ha il maggior carico di lavoro tra gli addetti?' },
               { icon: '📅', label: 'Scadenze 30gg', text: 'Quali fasi o commesse scadono questo mese?' },
-              { icon: '⚠️', label: 'Verifica ritardi', text: 'Ci sono attività in ritardo o problemi di calendario?' },
+              { icon: '⚠️', label: 'Verifica ritardi', text: 'Ci sono attività in ritardo o criticità sui tempi di commessa?' },
             ].map((chip, idx) => (
               <button
                 key={idx}

@@ -132,3 +132,108 @@ async def test_chat_database_excludes_notes_table():
     """Verifica che la tabella notes non sia esposta al motore SQL del chatbot."""
     usable_tables = chat_service.db.get_usable_table_names()
     assert "notes" not in usable_tables
+
+
+@pytest.mark.asyncio
+async def test_todo_intent_and_blocks(db_session: AsyncSession):
+    """Verifica che qualsiasi richiesta sui TODO o checklist venga bloccata."""
+    # 1. Intent classification
+    assert chat_service._classify_intent("Quali sono i miei todo?") == "todo_restricted"
+    assert chat_service._classify_intent("Mostrami la lista todo") == "todo_restricted"
+    assert chat_service._classify_intent("Ho dei to-do in sospeso?") == "todo_restricted"
+    assert chat_service._classify_intent("Cosa c'è nella mia checklist?") == "todo_restricted"
+    assert chat_service._classify_intent("Mostrami i todo di Mario") == "todo_restricted"
+
+    # 2. Risposta immediata
+    user = User(
+        email="user_todo@example.com",
+        username="user_todo",
+        hashed_password="dummy_hash",
+        full_name="User Todo",
+        role=UserRole.ADMIN,
+        is_active=True
+    )
+    res = await chat_service.get_response("Mostrami i miei todo", current_user=user, db=db_session)
+    assert "🔒" in res or "Riservata" in res
+    assert "TODO" in res
+    assert "Personale ➔ TODO" in res
+    assert "/todo" in res
+
+    # 3. Esclusione SQL
+    usable_tables = chat_service.db.get_usable_table_names()
+    assert "todos" not in usable_tables
+
+    # 4. Regex SQL Guard
+    assert bool(re.search(r'\btodos\b', "SELECT * FROM todos", re.IGNORECASE))
+
+
+@pytest.mark.asyncio
+async def test_ticket_intent_and_blocks(db_session: AsyncSession):
+    """Verifica che qualsiasi richiesta sui ticket di assistenza venga bloccata."""
+    # 1. Intent classification
+    assert chat_service._classify_intent("Quali sono i ticket aperti?") == "ticket_restricted"
+    assert chat_service._classify_intent("Mostrami i ticket di assistenza") == "ticket_restricted"
+    assert chat_service._classify_intent("Ci sono ticket ad alta priorità?") == "ticket_restricted"
+    assert chat_service._classify_intent("Elenco dei miei ticket") == "ticket_restricted"
+    assert chat_service._classify_intent("Stato dei ticket del cliente Alfa") == "ticket_restricted"
+
+    # 2. Risposta immediata
+    user = User(
+        email="user_ticket@example.com",
+        username="user_ticket",
+        hashed_password="dummy_hash",
+        full_name="User Ticket",
+        role=UserRole.ADMIN,
+        is_active=True
+    )
+    res = await chat_service.get_response("Mostrami i ticket aperti", current_user=user, db=db_session)
+    assert "🔒" in res or "Riservata" in res
+    assert "Ticket" in res
+    assert "Coordinamento ➔ Ticket" in res
+    assert "/tickets" in res
+
+    # 3. Esclusione SQL
+    usable_tables = chat_service.db.get_usable_table_names()
+    assert "tickets" not in usable_tables
+    assert "ticket_replies" not in usable_tables
+
+    # 4. Regex SQL Guard
+    assert bool(re.search(r'\b(tickets|ticket_replies)\b', "SELECT * FROM tickets", re.IGNORECASE))
+    assert bool(re.search(r'\b(tickets|ticket_replies)\b', "SELECT * FROM ticket_replies", re.IGNORECASE))
+
+
+@pytest.mark.asyncio
+async def test_calendar_intent_and_blocks(db_session: AsyncSession):
+    """Verifica che qualsiasi richiesta sul calendario personale venga bloccata."""
+    # 1. Intent classification
+    assert chat_service._classify_intent("Cosa ho in calendario oggi?") == "calendar_restricted"
+    assert chat_service._classify_intent("Mostrami il mio calendario personale") == "calendar_restricted"
+    assert chat_service._classify_intent("Quali sono i miei appuntamenti?") == "calendar_restricted"
+    assert chat_service._classify_intent("Cosa ho in agenda questa settimana?") == "calendar_restricted"
+    assert chat_service._classify_intent("Eventi personali in calendario") == "calendar_restricted"
+
+    # Calendario di commessa/progetto non bloccato da calendario personale
+    assert chat_service._classify_intent("Qual è il calendario della commessa COM-01?") != "calendar_restricted"
+
+    # 2. Risposta immediata
+    user = User(
+        email="user_cal@example.com",
+        username="user_cal",
+        hashed_password="dummy_hash",
+        full_name="User Calendar",
+        role=UserRole.ADMIN,
+        is_active=True
+    )
+    res = await chat_service.get_response("Cosa ho in calendario oggi?", current_user=user, db=db_session)
+    assert "🔒" in res or "Riservata" in res
+    assert "Calendario" in res
+    assert "Personale ➔ Calendario" in res
+    assert "/calendar" in res
+
+    # 3. Esclusione SQL
+    usable_tables = chat_service.db.get_usable_table_names()
+    assert "calendar_events" not in usable_tables
+
+    # 4. Regex SQL Guard
+    assert bool(re.search(r'\bcalendar_events\b', "SELECT * FROM calendar_events", re.IGNORECASE))
+

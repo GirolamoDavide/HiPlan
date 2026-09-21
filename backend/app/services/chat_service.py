@@ -373,7 +373,8 @@ class ChatService:
             
             to_ignore = [
                 "activity_logs", "agent_logs", "email_logs", "replan_logs", "planning_runs",
-                "notes", "todos", "calendar_events", "richieste_commerciali", "articoli_richiesta"
+                "notes", "todos", "calendar_events", "tickets", "ticket_replies",
+                "richieste_commerciali", "articoli_richiesta"
             ]
             ignore_existing = [t for t in to_ignore if t in existing_tables]
 
@@ -954,6 +955,50 @@ class ChatService:
         if any(k in m for k in preventivazione_keys):
             return "preventivazione_restricted"
 
+        # Esclusione tassativa: TODO & Checklist (privacy e gestione separata)
+        todo_restricted_keys = [
+            "todo", "todos", "to-do", "to-dos", "to do", "checklist", "check-list", "check list",
+            "miei todo", "i miei todo", "lista todo", "miei task todo", "promemoria todo",
+            "mostrami i todo", "elenco todo", "trova i todo", "cerca nei todo", "cerca nel todo",
+            "cosa c'è nel todo", "cosa ho nei todo", "sezione todo", "modulo todo", "pagina todo",
+            "tabella todo", "tabella todos", "attività del todo", "cose da fare nel todo",
+            "mie checklist", "le mie checklist", "mia checklist", "le checklist", "i to do"
+        ]
+        if any(re.search(r'\b' + re.escape(k) + r'\b', m) for k in ["todo", "todos", "to-do", "to-dos", "checklist"]) or any(k in m for k in todo_restricted_keys):
+            return "todo_restricted"
+
+        # Esclusione tassativa: Ticket di Assistenza e Supporto (gestione separata)
+        ticket_restricted_keys = [
+            "ticket", "tickets", "assistenza ticket", "ticket assistenza",
+            "supporto ticket", "ticket supporto", "ticket cliente", "ticket clienti",
+            "miei ticket", "i miei ticket", "elenco ticket", "mostrami i ticket",
+            "cerca nei ticket", "trova i ticket", "apri ticket", "risolvi ticket",
+            "ticket aperti", "ticket chiusi", "ticket in attesa", "stato dei ticket",
+            "modulo ticket", "pagina ticket", "sezione ticket", "tabella ticket", "tabella tickets"
+        ]
+        if any(re.search(r'\b' + re.escape(k) + r'\b', m) for k in ["ticket", "tickets"]) or any(k in m for k in ticket_restricted_keys):
+            return "ticket_restricted"
+
+        # Esclusione tassativa: Calendario Personale ed Eventi (privacy assoluta)
+        is_project_calendar = any(k in m for k in [
+            "calendario commessa", "calendario della commessa", "calendario delle commesse",
+            "calendario progetto", "calendario del progetto", "calendario dei progetti"
+        ])
+        if not is_project_calendar:
+            calendar_restricted_keys = [
+                "calendario", "calendar", "eventi calendario", "evento calendario",
+                "mio calendario", "il mio calendario", "calendario personale", "eventi personali",
+                "evento personale", "agenda personale", "mia agenda", "la mia agenda",
+                "appuntamenti", "appuntamento", "miei appuntamenti", "i miei appuntamenti",
+                "impegni personali", "miei impegni", "i miei impegni", "impegni di oggi",
+                "cosa ho in calendario", "cosa c'è in calendario", "cosa ho oggi in calendario",
+                "eventi in calendario", "riunioni in calendario", "appuntamenti di oggi",
+                "modulo calendario", "pagina calendario", "sezione calendario",
+                "tabella calendar", "tabella calendar_events"
+            ]
+            if any(re.search(r'\b' + re.escape(k) + r'\b', m) for k in ["calendario", "calendar", "appuntamenti", "appuntamento", "agenda"]) or any(k in m for k in calendar_restricted_keys):
+                return "calendar_restricted"
+
         # Esclusione tassativa: Note Personali e Verbali (privacy assoluta)
         is_project_note = any(k in m for k in [
             "note commessa", "note della commessa", "note delle commesse",
@@ -974,7 +1019,7 @@ class ChatService:
                 "note degli addetti", "note degli utenti", "note aziendali", "note globali",
                 "modulo note", "pagina note", "sezione note", "tabella note", "tabella notes", "appunti"
             ]
-            if any(k in m for k in notes_restricted_keys):
+            if any(re.search(r'\b' + re.escape(k) + r'\b', m) for k in ["nota", "note", "appunti", "appunto", "verbale", "verbali", "taccuino"]) or any(k in m for k in notes_restricted_keys):
                 return "notes_restricted"
 
         # 1. Chat generica / Saluti / Aiuto / Ringraziamenti
@@ -1002,7 +1047,7 @@ class ChatService:
             "assegnate a me", "miei lavori", "a cosa devo lavorare",
             "a cosa sto lavorando", "quali sono le mie"
         ]
-        if any(k in m for k in my_tasks_keys) and not any(k in m for k in ["note", "appunt"]):
+        if any(k in m for k in my_tasks_keys) and not any(k in m for k in ["note", "appunt", "todo", "ticket", "calendar", "calendari"]):
             return "my_tasks"
 
         # 4. Tool dedicato: Budget / Ore consuntivate vs Stimate
@@ -1106,6 +1151,43 @@ class ChatService:
                 "accedi direttamente alla sezione dedicata nel menu laterale (**[Personale ➔ Note](/notes)**)."
             )
 
+        # Esclusione prioritaria: TODO & Checklist (privacy e gestione separata)
+        if intent == "todo_restricted":
+            return (
+                "🔒 **Sezione Riservata: TODO & Checklist**\n\n"
+                "Per garantire la riservatezza delle attività interne e delle checklist personali, "
+                "tutti gli elementi e le attività della sezione **TODO** sono strettamente riservati e sono stati **completamente esclusi** dall'assistente virtuale.\n\n"
+                "Nessun utente (inclusi gli amministratori) può consultare o ricercare i TODO tramite il chatbot.\n\n"
+                "---\n"
+                "💡 **Azione consigliata:** Per visualizzare, inserire o gestire le tue checklist e i tuoi TODO personali o condivisi, "
+                "accedi direttamente alla sezione dedicata nel menu laterale (**[Personale ➔ TODO](/todo)**)."
+            )
+
+        # Esclusione prioritaria: Ticket di Assistenza (riservatezza e gestione separata)
+        if intent == "ticket_restricted":
+            return (
+                "🔒 **Sezione Riservata: Ticket di Assistenza**\n\n"
+                "Tutti i ticket di assistenza, supporto tecnico e richieste clienti sono gestiti separatamente e sono stati **completamente esclusi** dall'assistente virtuale "
+                "per motivi di riservatezza e conformità operativa.\n\n"
+                "Nessun utente può consultare o ricercare i ticket tramite il chatbot.\n\n"
+                "---\n"
+                "💡 **Azione consigliata:** Per visualizzare, gestire o aprire i ticket di supporto e assistenza, "
+                "accedi direttamente alla sezione dedicata nel menu laterale (**[Coordinamento ➔ Ticket](/tickets)**)."
+            )
+
+        # Esclusione prioritaria: Calendario Personale (privacy assoluta)
+        if intent == "calendar_restricted":
+            return (
+                "🔒 **Sezione Riservata: Calendario Personale**\n\n"
+                "Per tutelare la riservatezza di impegni, appuntamenti ed eventi personali, "
+                "la sezione **Calendario** è strettamente riservata ed è stata **completamente esclusa** dall'assistente virtuale.\n\n"
+                "Nessun utente può accedere o consultare gli eventi del calendario personale tramite il chatbot.\n\n"
+                "---\n"
+                "💡 **Azione consigliata:** Per visualizzare, programmare o consultare i tuoi impegni e appuntamenti personali, "
+                "accedi direttamente alla sezione dedicata nel menu laterale (**[Personale ➔ Calendario](/calendar)**).\n\n"
+                "*(Nota: per verificare l'avanzamento, le scadenze e le milestone di commessa, puoi invece richiedere direttamente le \"scadenze commesse\" o \"avanzamento progetti\").*"
+            )
+
         # Contesto utente
         username = str(getattr(current_user, 'username', '') or '')
         full_name = str(getattr(current_user, 'full_name', '') or username or 'Utente')
@@ -1176,6 +1258,40 @@ class ChatService:
                     "accedi direttamente alla sezione dedicata nel menu laterale (**[Personale ➔ Note](/notes)**)."
                 )
 
+            if intent == "todo_restricted":
+                return (
+                    "🔒 **Sezione Riservata: TODO & Checklist**\n\n"
+                    "Per garantire la riservatezza delle attività interne e delle checklist personali, "
+                    "tutti gli elementi e le attività della sezione **TODO** sono strettamente riservati e sono stati **completamente esclusi** dall'assistente virtuale.\n\n"
+                    "Nessun utente (inclusi gli amministratori) può consultare o ricercare i TODO tramite il chatbot.\n\n"
+                    "---\n"
+                    "💡 **Azione consigliata:** Per visualizzare, inserire o gestire le tue checklist e i tuoi TODO personali o condivisi, "
+                    "accedi direttamente alla sezione dedicata nel menu laterale (**[Personale ➔ TODO](/todo)**)."
+                )
+
+            if intent == "ticket_restricted":
+                return (
+                    "🔒 **Sezione Riservata: Ticket di Assistenza**\n\n"
+                    "Tutti i ticket di assistenza, supporto tecnico e richieste clienti sono gestiti separatamente e sono stati **completamente esclusi** dall'assistente virtuale "
+                    "per motivi di riservatezza e conformità operativa.\n\n"
+                    "Nessun utente può consultare o ricercare i ticket tramite il chatbot.\n\n"
+                    "---\n"
+                    "💡 **Azione consigliata:** Per visualizzare, gestire o aprire i ticket di supporto e assistenza, "
+                    "accedi direttamente alla sezione dedicata nel menu laterale (**[Coordinamento ➔ Ticket](/tickets)**)."
+                )
+
+            if intent == "calendar_restricted":
+                return (
+                    "🔒 **Sezione Riservata: Calendario Personale**\n\n"
+                    "Per tutelare la riservatezza di impegni, appuntamenti ed eventi personali, "
+                    "la sezione **Calendario** è strettamente riservata ed è stata **completamente esclusa** dall'assistente virtuale.\n\n"
+                    "Nessun utente può accedere o consultare gli eventi del calendario personale tramite il chatbot.\n\n"
+                    "---\n"
+                    "💡 **Azione consigliata:** Per visualizzare, programmare o consultare i tuoi impegni e appuntamenti personali, "
+                    "accedi direttamente alla sezione dedicata nel menu laterale (**[Personale ➔ Calendario](/calendar)**).\n\n"
+                    "*(Nota: per verificare l'avanzamento, le scadenze e le milestone di commessa, puoi invece richiedere direttamente le \"scadenze commesse\" o \"avanzamento progetti\").*"
+                )
+
             # ==========================================
             # INTENT 1: STRUMENTI DETERMINISTICI (AGENTIC TOOLS)
             # ==========================================
@@ -1212,7 +1328,7 @@ class ChatService:
                     "Se l'utente saluta o chiede chi sei/cosa puoi fare, presenta brevemente i tuoi compiti:\n"
                     "- Consultare e riepilogare commesse, fasi e stati di avanzamento Gantt\n"
                     "- Mostrare le attività personali assegnate al profilo utente\n"
-                    "- Rilevare conflitti di calendario, ferie concomitanti, ritardi e carichi addetti\n"
+                    "- Rilevare sovrapposizioni temporali di commessa, ferie concomitanti, ritardi e carichi addetti\n"
                     "- Controllare ore a budget vs consuntivate e scostamenti\n"
                     "- Effettuare simulazioni predittive 'What-If' e redigere bozze di email formali\n\n"
                     "Messaggio dell'utente: {message}\n\n"
@@ -1251,34 +1367,26 @@ class ChatService:
                                 clean_suggs.append(clean_s)
                             suggestions_text = json.dumps(clean_suggs, ensure_ascii=False, indent=2)
 
-                        users_res = await session.execute(select(User))
-                        users = users_res.scalars().all()
-                        users_list_str = "\n".join([f"- {u.full_name or u.username} ({u.role.value if hasattr(u.role, 'value') else u.role})" for u in users])
-                except Exception as e:
-                    logger.error(f"Errore recupero suggerimenti/utenti per chatbot: {e}")
+                        u_res = await session.execute(select(User.username, User.full_name, User.department).where(User.is_active == True))
+                        users_list = u_res.all()
+                        users_list_str = ", ".join([f"{u.full_name or u.username} ({u.department or 'generale'})" for u in users_list])
+                except Exception as ex:
+                    logger.error(f"Errore caricamento suggerimenti replanning: {ex}")
 
                 alarms_prompt = PromptTemplate.from_template(
-                    "Sei l'assistente virtuale ufficiale di HiPlan per la gestione commesse, Gantt e conflitti aziendali.\n"
-                    "Data di oggi: {today_str}\n"
-                    "Utente interlocutore: {full_name} (@{username}) | Ruolo: {user_role}\n\n"
-                    "ANOMALIE E SUGGERIMENTI RILEVATI DAL MOTORE GANTT:\n"
+                    "Sei l'assistente esperto di coordinamento operativo di HiPlan.\n"
+                    "Data odierna: {today_str}\n"
+                    "Utente: {full_name} (@{username}) | Ruolo: {user_role}\n\n"
+                    "Ecco la lista dei conflitti, colli di bottiglia e ritardi attuali rilevati dal sistema Gantt:\n"
                     "{suggestions_text}\n\n"
-                    "COLLABORATORI AZIENDALI:\n"
-                    "{users_list_str}\n\n"
-                    "RICHIESTA DELL'UTENTE:\n"
-                    "{message}\n\n"
-                    "ISTRUZIONI OBBLIGATORIE:\n"
-                    "1. TABELLE:\n"
-                    "   * Se l'utente chiede una lista o riepilogo delle criticità/ritardi, genera SEMPRE una tabella Markdown chiara e compatta.\n"
-                    "   * Usa colonne sintetiche: | Commessa | Fase / Area | Tipo Criticità | Periodo | Addetti | Note |\n"
-                    "   * Non mostrare MAI array JSON per gli addetti (es. NON scrivere mai `[\"anna_uff\"]`, scrivi solo `anna_uff`).\n"
-                    "2. BOZZE EMAIL:\n"
-                    "   * Se l'utente chiede di avvisare, scrivere o inviare un'email, redigi una bozza formale completa con: Oggetto, Destinatario, Testo professionale, Firma.\n"
-                    "   * Includi sempre una riga: `[✉️ Invia bozza email](mailto:destinatario@azienda.it?subject=...&body=...)` per consentire l'invio istantaneo.\n"
-                    "3. RACCOMANDAZIONE FINALE:\n"
-                    "   * Concludi sempre con:\n"
-                    "     ---\n"
-                    "     💡 **Azione consigliata:** [consiglio pratico chiaro per risolvere la criticità]\n\n"
+                    "Personale aziendale attivo: {users_list_str}\n\n"
+                    "COMPITO:\n"
+                    "1. Se l'utente chiede lo stato di ritardi, anomalie o sovraccarichi, analizza la lista sopra e fornisci un riassunto chiaro e professionale evidenziando le criticità maggiori.\n"
+                    "2. Se l'utente chiede esplicitamente di **scrivere o preparare una mail / email di sollecito o rinvio**, redigi una bozza di email formale ed impeccabile pronta per essere inviata al cliente o al capocommessa, con Oggetto, Saluti formali, dettaglio della commessa e proposta di nuova data concordata.\n"
+                    "3. Concludi sempre con una raccomandazione operativa pratica in questo formato:\n"
+                    "   ---\n"
+                    "   💡 **Azione consigliata:** [consiglio operativo chiaro]\n\n"
+                    "Richiesta dell'utente: {message}\n\n"
                     "{history_context}"
                     "Risposta:"
                 )
@@ -1299,12 +1407,6 @@ class ChatService:
             # ==========================================
             # INTENT 4: SQL GUIDATO + SELF-CORRECTION RETRY LOOP
             # ==========================================
-            ticket_permission_rule = (
-                "L'utente ha accesso a TUTTI i ticket."
-                if user_role in ["ADMIN", "EDITOR"]
-                else f"L'utente può vedere SOLO i ticket creati da lui o assegnati a lui: `WHERE (tickets.created_by = '{user_id}' OR tickets.assigned_to = '{user_id}')`."
-            )
-
             sql_query_template = """Sei un data analyst esperto di database SQLite e PostgreSQL per HiPlan.
 Data odierna di riferimento: {today_str}
 UTENTE CONNESSO: {full_name} (username: '{username}', ID: '{user_id}', Ruolo: {user_role}, Reparto: {user_dept})
@@ -1328,13 +1430,10 @@ DIZIONARIO DEL DOMINIO E REGOLE CRITICHE SULLE TABELLE:
    * 'completed' è 1 per completata, 0 per in corso. 'progress' è memorizzato come decimale da 0.0 a 1.0 (es. 0.70 è 70%, 0.97 è 97%, 1.0 è 100%). Per la percentuale calcola `ROUND(t.progress * 100)`.
    * 'type' identifica le milestone ('milestone') che non hanno avanzamento.
    * 'start_date' e 'end_date' sono date ISO. Per confrontare con la data odierna usa `date('now')` o `'{today_str}'`.
-3. Tabella 'tickets' (Ticket di supporto e commessa):
-   * {ticket_permission_rule}
-   * 'status' contiene: 'DA_GESTIRE', 'IN_ATTESA', 'COMPLETATO'. I ticket aperti sono: `status IN ('DA_GESTIRE', 'IN_ATTESA')`.
-4. ESCLUSIONE TASSATIVA SEZIONI RISERVATE (PREVENTIVAZIONE E NOTE PERSONALI):
-   * Le tabelle 'notes', 'richieste_commerciali' e 'articoli_richiesta' e qualsiasi informazione su note personali, appunti, verbali, preventivi, prezzi fornitore o margini sono RIGOROSAMENTE RISERVATE ed ESCLUSE dal chatbot.
-   * NON generare MAI query che coinvolgono la tabella 'notes' o le tabelle di preventivazione.
-5. Per ricerche testuali usa sempre `LIKE '%...%' COLLATE NOCASE`.
+3. ESCLUSIONE TASSATIVA SEZIONI RISERVATE (NOTE, TODO, TICKET, CALENDARIO PERSONALE, PREVENTIVAZIONE):
+   * Le tabelle 'notes', 'todos', 'tickets', 'ticket_replies', 'calendar_events', 'richieste_commerciali' e 'articoli_richiesta' e qualsiasi informazione su note personali, checklist todo, ticket di assistenza, eventi di calendario personale, preventivi, prezzi fornitore o margini sono RIGOROSAMENTE RISERVATE ed ESCLUSE dal chatbot.
+   * NON generare MAI query che coinvolgono 'notes', 'todos', 'tickets', 'ticket_replies', 'calendar_events' o le tabelle di preventivazione.
+4. Per ricerche testuali usa sempre `LIKE '%...%' COLLATE NOCASE`.
 
 ESEMPI DI QUERY SQL CORRETTE (FEW-SHOT EXAMPLES):
 - Domanda: "Quali sono le commesse attive del cliente Alfa?"
@@ -1347,8 +1446,6 @@ ESEMPI DI QUERY SQL CORRETTE (FEW-SHOT EXAMPLES):
   SQL: SELECT t.text, p.name AS project_name, t.end_date, t.progress, t.workers FROM tasks t JOIN projects p ON t.project_id = p.id WHERE p.deleted_at IS NULL AND t.completed = 0 AND strftime('%Y-%m', t.end_date) = strftime('%Y-%m', 'now');
 - Domanda: "Quali attività sono assegnate all'utente connesso?"
   SQL: SELECT t.text, p.name AS project_name, t.start_date, t.end_date, t.progress, t.completed FROM tasks t JOIN projects p ON t.project_id = p.id WHERE p.deleted_at IS NULL AND (t.workers LIKE '%{username}%' OR t.assigned_to = '{user_id}') AND t.completed = 0;
-- Domanda: "Mostrami i ticket aperti ad alta priorità"
-  SQL: SELECT t.id, t.title, t.priority, t.status, p.name AS project_name FROM tickets t LEFT JOIN projects p ON t.project_id = p.id WHERE t.status IN ('DA_GESTIRE', 'IN_ATTESA') AND t.priority = 'HIGH';
 
 {history_context}Schema database:
 {table_info}
@@ -1363,7 +1460,6 @@ SQLQuery:"""
                 user_id=user_id,
                 user_role=user_role,
                 user_dept=user_dept,
-                ticket_permission_rule=ticket_permission_rule,
                 history_context=history_context
             )
 
@@ -1399,6 +1495,21 @@ SQLQuery:"""
                 if re.search(r'\bnotes\b', query, re.IGNORECASE):
                     logger.warning(f"Bloccato tentativo di query su tabella notes: {query}")
                     return "ACCESSO_NEGATO_NOTE: La tabella delle note personali è strettamente riservata ed esclusa dal chatbot per motivi di privacy."
+
+                # Blocco di sicurezza rigoroso su TODO
+                if re.search(r'\btodos\b', query, re.IGNORECASE):
+                    logger.warning(f"Bloccato tentativo di query su tabella todos: {query}")
+                    return "ACCESSO_NEGATO_TODO: La tabella dei TODO è strettamente riservata ed esclusa dal chatbot per motivi di privacy."
+
+                # Blocco di sicurezza rigoroso su Ticket
+                if re.search(r'\b(tickets|ticket_replies)\b', query, re.IGNORECASE):
+                    logger.warning(f"Bloccato tentativo di query su tabella tickets: {query}")
+                    return "ACCESSO_NEGATO_TICKETS: La gestione dei ticket di assistenza è riservata ed esclusa dal chatbot."
+
+                # Blocco di sicurezza rigoroso su Calendario Personale
+                if re.search(r'\bcalendar_events\b', query, re.IGNORECASE):
+                    logger.warning(f"Bloccato tentativo di query su tabella calendar_events: {query}")
+                    return "ACCESSO_NEGATO_CALENDARIO: La tabella degli eventi di calendario personale è strettamente riservata ed esclusa dal chatbot."
 
                 return None
             
@@ -1452,7 +1563,7 @@ SQLQuery:"""
                 "Rispondi alla richiesta dell'utente in italiano in modo chiaro, discorsivo, rigoroso ed elegante.\n\n"
                 "REGOLE OBBLIGATORIE DI FORMATTAZIONE:\n"
                 "1. TABELLE MARKDOWN:\n"
-                "   * Se la risposta contiene 2 o più elementi (commesse, fasi, addetti o ticket), DEVI SEMPRE impaginare i dati in una TABELLA MARKDOWN pulita.\n"
+                "   * Se la risposta contiene 2 o più elementi (commesse, fasi, addetti), DEVI SEMPRE impaginare i dati in una TABELLA MARKDOWN pulita.\n"
                 "   * Esempio: `| Stato | Nome | Commessa | Scadenza | Avanzamento |`.\n"
                 "2. BADGE ED EMOJI DI STATO:\n"
                 "   * 🟢 Completata / In tempo\n"
@@ -1464,10 +1575,10 @@ SQLQuery:"""
                 "     ---\n"
                 "     💡 **Azione consigliata:** [Raccomandazione PUNTUALE e NOMINATIVA citando date, commesse o persone specifiche. NON dare MAI consigli banali o generalisti come 'verificare', 'monitorare', 'fare attenzione', 'sollecitare'. Se tutto è regolare scrivi semplicemente che la situazione è allineata.]\n"
                 "4. TRADUZIONE CODICI:\n"
-                "   * Non mostrare ID numerici o valori grezzi ('ACTIVE' -> 'Attiva', 'HIGH' -> 'Alta', 'DA_GESTIRE' -> 'Da gestire').\n"
-                "5. ESCLUSIONE CONTENUTI RISERVATI (PREVENTIVAZIONE E NOTE PERSONALI):\n"
-                "   * I contenuti della pagina Preventivazione e della sezione Note (appunti personali, verbali) sono rigorosamente esclusi dal chatbot per motivi di riservatezza.\n"
-                "   * Se il risultato estratto o la domanda fa riferimento a preventivi, richieste commerciali o note personali, rispondi spiegando chiaramente che tali dati sono riservati, confidenziali ed esclusi dall'assistente virtuale, e sono consultabili unicamente nelle rispettive sezioni di HiPlan.\n\n"
+                "   * Non mostrare ID numerici o valori grezzi ('ACTIVE' -> 'Attiva', 'PLANNING' -> 'Pianificazione').\n"
+                "5. ESCLUSIONE CONTENUTI RISERVATI (NOTE, TODO, TICKET, CALENDARIO PERSONALE, PREVENTIVAZIONE):\n"
+                "   * I contenuti di Preventivazione, Note personali, TODO/Checklist, Ticket di assistenza e Calendario personale sono rigorosamente esclusi dal chatbot per motivi di riservatezza.\n"
+                "   * Se il risultato estratto o la domanda fa riferimento a preventivi, richieste commerciali, note personali, TODO, ticket o eventi di calendario, rispondi spiegando chiaramente che tali dati sono riservati, confidenziali ed esclusi dall'assistente virtuale, e sono consultabili unicamente nelle rispettive sezioni di HiPlan.\n\n"
                 "{history_context}"
                 "Domanda dell'utente: {question}\n"
                 "Dati estratti dal sistema: {result}\n\n"
