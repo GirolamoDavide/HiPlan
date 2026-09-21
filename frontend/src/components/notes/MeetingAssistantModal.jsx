@@ -421,15 +421,6 @@ export default function MeetingAssistantModal({
                 <span>Microfono + Audio PC</span>
               </button>
             </div>
-
-            {isSafari && audioMode === 'mixed' && !isRecording && (
-              <div className="meeting-safari-audio-tip">
-                <Headphones size={15} style={{ flexShrink: 0, marginTop: 1, color: '#4f46e5' }} />
-                <span>
-                  <strong>Uso con Cuffie vs Altoparlanti:</strong> Con <strong>Google Chrome</strong> (già presente sul tuo Mac) puoi catturare l'audio digitale limpido della scheda (YouTube/Meet) direttamente anche con le cuffie collegate o a volume zero. Su <strong>Safari</strong> l'audio del computer deve essere emesso dagli altoparlanti del Mac.
-                </span>
-              </div>
-            )}
           </>
         )}
 
@@ -451,7 +442,7 @@ export default function MeetingAssistantModal({
                 </div>
                 <p className="instruction-text">
                   {audioMode === 'mixed'
-                    ? "Il sistema acquisisce simultaneamente la tua voce e l'audio riprodotto dal computer (videochiamate, YouTube o altoparlanti). Al termine, l'intera conversazione viene trascritta ed elaborata con l'AI."
+                    ? "Il sistema acquisisce simultaneamente la tua voce e l'audio riprodotto dal computer (videochiamate). Al termine, l'intera conversazione viene trascritta ed elaborata con l'AI."
                     : "Il sistema registra direttamente la tua voce tramite il microfono del computer o auricolari, per appunti personali o riunioni dal vivo."}
                 </p>
 
