@@ -10,7 +10,7 @@ import {
   vacationMatchesFilters,
   DEPARTMENT_OPTIONS,
 } from '../utils/calendarFilters';
-import TimelineView, { TIMELINE_COLUMNS } from '../components/calendar/TimelineView';
+import TimelineView, { TIMELINE_COLUMNS, getProjectResponsible } from '../components/calendar/TimelineView';
 import { getCustomDatesList } from '../utils/customDates';
 import AppIcon from '../components/ui/AppIcon';
 import './CalendarPage.css';
@@ -37,10 +37,87 @@ const MONTH_NAMES_IT = [
 
 export const CALENDAR_FILTERS_STORAGE_KEY = 'hiplan-commesse-cal-filters';
 
+export const SORT_OPTIONS = [
+  { key: 'start_date', label: 'Data inizio commessa', shortLabel: 'Data inizio' },
+  { key: 'end_date', label: 'Data fine commessa', shortLabel: 'Data fine' },
+  { key: 'responsible', label: 'Responsabile / Referente', shortLabel: 'Responsabile' },
+  { key: 'code', label: 'Codice commessa', shortLabel: 'Codice' },
+  { key: 'name', label: 'Titolo commessa', shortLabel: 'Titolo' },
+  { key: 'client', label: 'Cliente', shortLabel: 'Cliente' },
+  { key: 'status', label: 'Stato commessa', shortLabel: 'Stato' },
+];
+
+export function sortProjects(projects, sortConfig, systemUsers = []) {
+  if (!Array.isArray(projects)) return [];
+  if (!sortConfig || sortConfig.key === 'none' || !sortConfig.key) return projects;
+
+  const { key, direction = 'asc' } = sortConfig;
+  const dirMultiplier = direction === 'desc' ? -1 : 1;
+
+  return [...projects].sort((a, b) => {
+    switch (key) {
+      case 'start_date': {
+        const aDate = a.start_date || '';
+        const bDate = b.start_date || '';
+        if (!aDate && !bDate) return 0;
+        if (!aDate) return 1;
+        if (!bDate) return -1;
+        return aDate.localeCompare(bDate) * dirMultiplier;
+      }
+      case 'end_date': {
+        const aDate = a.end_date || '';
+        const bDate = b.end_date || '';
+        if (!aDate && !bDate) return 0;
+        if (!aDate) return 1;
+        if (!bDate) return -1;
+        return aDate.localeCompare(bDate) * dirMultiplier;
+      }
+      case 'responsible': {
+        const aResp = getProjectResponsible(a, systemUsers);
+        const bResp = getProjectResponsible(b, systemUsers);
+        const aEmpty = !aResp || aResp === '-';
+        const bEmpty = !bResp || bResp === '-';
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+        return aResp.localeCompare(bResp, 'it', { sensitivity: 'base' }) * dirMultiplier;
+      }
+      case 'code': {
+        const aCode = a.code || '';
+        const bCode = b.code || '';
+        if (!aCode && !bCode) return 0;
+        if (!aCode) return 1;
+        if (!bCode) return -1;
+        return aCode.localeCompare(bCode, 'it', { numeric: true }) * dirMultiplier;
+      }
+      case 'name': {
+        const aName = a.name || '';
+        const bName = b.name || '';
+        return aName.localeCompare(bName, 'it', { sensitivity: 'base' }) * dirMultiplier;
+      }
+      case 'client': {
+        const aClient = a.client || '';
+        const bClient = b.client || '';
+        if (!aClient && !bClient) return 0;
+        if (!aClient) return 1;
+        if (!bClient) return -1;
+        return aClient.localeCompare(bClient, 'it', { sensitivity: 'base' }) * dirMultiplier;
+      }
+      case 'status': {
+        const aStatus = a.status || '';
+        const bStatus = b.status || '';
+        return aStatus.localeCompare(bStatus) * dirMultiplier;
+      }
+      default:
+        return 0;
+    }
+  });
+}
+
 export const loadSavedFilters = () => {
   try {
     if (typeof localStorage === 'undefined') {
-      return { status: 'all', department: 'all', worker: 'all', search: '' };
+      return { status: 'all', department: 'all', worker: 'all', search: '', sortKey: 'none', sortDirection: 'asc' };
     }
     const raw = localStorage.getItem(CALENDAR_FILTERS_STORAGE_KEY);
     if (raw) {
@@ -51,11 +128,13 @@ export const loadSavedFilters = () => {
           department: typeof parsed.department === 'string' ? parsed.department : 'all',
           worker: typeof parsed.worker === 'string' ? parsed.worker : 'all',
           search: typeof parsed.search === 'string' ? parsed.search : '',
+          sortKey: typeof parsed.sortKey === 'string' ? parsed.sortKey : 'none',
+          sortDirection: parsed.sortDirection === 'desc' ? 'desc' : 'asc',
         };
       }
     }
   } catch { }
-  return { status: 'all', department: 'all', worker: 'all', search: '' };
+  return { status: 'all', department: 'all', worker: 'all', search: '', sortKey: 'none', sortDirection: 'asc' };
 };
 
 export default function CalendarPage() {
@@ -79,13 +158,23 @@ export default function CalendarPage() {
   const [filterWorker, setFilterWorker] = useState(savedFilters.worker);
   const [filterDepartment, setFilterDepartment] = useState(savedFilters.department);
   const [searchQuery, setSearchQuery] = useState(savedFilters.search);
+  const [sortConfig, setSortConfig] = useState({
+    key: savedFilters.sortKey || 'none',
+    direction: savedFilters.sortDirection || 'asc',
+  });
   const [systemUsers, setSystemUsers] = useState([]);
   const [vacations, setVacations] = useState([]);
 
-  // Salva filtri in cache al variare
+  // Salva filtri e ordinamento in cache al variare
   useEffect(() => {
     try {
-      if (filterStatus === 'all' && filterDepartment === 'all' && filterWorker === 'all' && !searchQuery.trim()) {
+      if (
+        filterStatus === 'all' &&
+        filterDepartment === 'all' &&
+        filterWorker === 'all' &&
+        !searchQuery.trim() &&
+        sortConfig.key === 'none'
+      ) {
         localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
       } else {
         localStorage.setItem(CALENDAR_FILTERS_STORAGE_KEY, JSON.stringify({
@@ -93,10 +182,12 @@ export default function CalendarPage() {
           department: filterDepartment,
           worker: filterWorker,
           search: searchQuery,
+          sortKey: sortConfig.key,
+          sortDirection: sortConfig.direction,
         }));
       }
     } catch { }
-  }, [filterStatus, filterDepartment, filterWorker, searchQuery]);
+  }, [filterStatus, filterDepartment, filterWorker, searchQuery, sortConfig]);
 
   // Modali dettaglio
   const [selectedProject, setSelectedProject] = useState(null);
@@ -119,10 +210,16 @@ export default function CalendarPage() {
   const [showToolbarColsMenu, setShowToolbarColsMenu] = useState(false);
   const toolbarColsRef = useRef(null);
 
+  const [showSortFilterMenu, setShowSortFilterMenu] = useState(false);
+  const sortFilterRef = useRef(null);
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (toolbarColsRef.current && !toolbarColsRef.current.contains(event.target)) {
         setShowToolbarColsMenu(false);
+      }
+      if (sortFilterRef.current && !sortFilterRef.current.contains(event.target)) {
+        setShowSortFilterMenu(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -205,9 +302,9 @@ export default function CalendarPage() {
     return systemUsers.map(u => ({ username: u.username, name: u.full_name || u.username, department: u.department })).sort((a, b) => a.name.localeCompare(b.name));
   }, [systemUsers]);
 
-  // Filtra commesse per stato, addetto, reparto e ricerca
+  // Filtra e ordina commesse per stato, addetto, reparto, ricerca e sortConfig
   const filteredProjects = useMemo(() => {
-    return projects.filter(p => {
+    const list = projects.filter(p => {
       // 1. Filtro per stato commessa
       if (filterStatus === 'all') {
         // Mostra in automatico tutte le commesse in pianificazione, in corso e completate (esclude solo archiviate)
@@ -252,7 +349,9 @@ export default function CalendarPage() {
       }
       return true;
     });
-  }, [projects, filterStatus, filterWorker, filterDepartment, searchQuery, systemUsers]);
+
+    return sortProjects(list, sortConfig, systemUsers);
+  }, [projects, filterStatus, filterWorker, filterDepartment, searchQuery, systemUsers, sortConfig]);
 
   // Gestione Mese Precedente / Successivo / Oggi
   function prevMonth() {
@@ -411,12 +510,22 @@ export default function CalendarPage() {
     }
   };
 
-  const hasActiveFilters = filterStatus !== 'all' || filterDepartment !== 'all' || filterWorker !== 'all' || Boolean(searchQuery.trim());
+  const activeSortFilterCount = useMemo(() => {
+    let count = 0;
+    if (filterStatus !== 'all') count++;
+    if (filterDepartment !== 'all') count++;
+    if (filterWorker !== 'all') count++;
+    if (sortConfig.key !== 'none') count++;
+    return count;
+  }, [filterStatus, filterDepartment, filterWorker, sortConfig]);
+
+  const hasActiveFilters = filterStatus !== 'all' || filterDepartment !== 'all' || filterWorker !== 'all' || Boolean(searchQuery.trim()) || sortConfig.key !== 'none';
   const resetAllFilters = () => {
     setFilterStatus('all');
     setFilterDepartment('all');
     setFilterWorker('all');
     setSearchQuery('');
+    setSortConfig({ key: 'none', direction: 'asc' });
     try {
       localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
     } catch { }
@@ -469,54 +578,169 @@ export default function CalendarPage() {
 
           <div className="calendar-actions-section">
 
-            <select
-              className="input"
-              style={{ width: 175, minWidth: 135, maxWidth: '100%', flex: '0 1 auto', padding: '8px 12px', fontSize: '12px' }}
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-            >
-              <option value="all">Commesse attive</option>
-              <option value="active">Solo In corso</option>
-              <option value="planning">Solo In pianificazione</option>
-              <option value="completed">Solo Completate</option>
-              <option value="archived">Archiviate</option>
-            </select>
-
-            <select
-              className="input"
-              style={{ width: 170, minWidth: 130, maxWidth: '100%', flex: '0 1 auto', padding: '8px 12px', fontSize: '12px' }}
-              value={filterDepartment}
-              onChange={(e) => handleDepartmentChange(e.target.value)}
-            >
-              {DEPARTMENT_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-
-            <select
-              className="input"
-              style={{ width: 170, minWidth: 130, maxWidth: '100%', flex: '0 1 auto', padding: '8px 12px', fontSize: '12px' }}
-              value={filterWorker}
-              onChange={(e) => setFilterWorker(e.target.value)}
-            >
-              <option value="all">Tutti gli utenti</option>
-              {allWorkers.map(w => (
-                <option key={w.username} value={w.username}>{w.name}</option>
-              ))}
-            </select>
-
-            {hasActiveFilters && (
+            {/* Pulsante Unico Ordina e Filtra */}
+            <div style={{ position: 'relative' }} ref={sortFilterRef}>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={resetAllFilters}
-                title="Azzera tutti i filtri"
-                style={{ fontSize: '12px', padding: '6px 10px', height: '35px', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
+                className={`btn btn-secondary btn-sm ${activeSortFilterCount > 0 ? 'btn-active-sort' : ''}`}
+                onClick={() => setShowSortFilterMenu(prev => !prev)}
+                title="Personalizza filtri e ordinamento commesse"
+                style={{ fontSize: '12px', padding: '6px 12px', height: '35px', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
               >
-                <AppIcon name="close" size={12} />
-                Azzera
+                <AppIcon name="filter" size={14} />
+                <span>Ordina e filtra</span>
+                {activeSortFilterCount > 0 && (
+                  <span className="filter-sort-badge">
+                    {activeSortFilterCount}
+                  </span>
+                )}
               </button>
-            )}
+
+              {showSortFilterMenu && (
+                <div className="filter-sort-popover">
+                  {/* Header Popover */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border-subtle)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
+                      <AppIcon name="filter" size={14} />
+                      <span>Ordina e filtra</span>
+                    </div>
+                    {activeSortFilterCount > 0 && (
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={resetAllFilters}
+                        style={{ fontSize: 11, color: 'var(--accent-600)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontWeight: 600 }}
+                      >
+                        Azzera tutto
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Sezione Filtri */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                      Filtri
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                        Stato commessa
+                      </label>
+                      <select
+                        className="input"
+                        style={{ width: '100%', fontSize: '12px', padding: '6px 10px' }}
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                      >
+                        <option value="all">Commesse attive (predefinito)</option>
+                        <option value="active">Solo In corso</option>
+                        <option value="planning">Solo In pianificazione</option>
+                        <option value="completed">Solo Completate</option>
+                        <option value="archived">Archiviate</option>
+                      </select>
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                        Reparto
+                      </label>
+                      <select
+                        className="input"
+                        style={{ width: '100%', fontSize: '12px', padding: '6px 10px' }}
+                        value={filterDepartment}
+                        onChange={(e) => handleDepartmentChange(e.target.value)}
+                      >
+                        {DEPARTMENT_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                        Addetto assegnato
+                      </label>
+                      <select
+                        className="input"
+                        style={{ width: '100%', fontSize: '12px', padding: '6px 10px' }}
+                        value={filterWorker}
+                        onChange={(e) => setFilterWorker(e.target.value)}
+                      >
+                        <option value="all">Tutti gli utenti</option>
+                        {allWorkers.map(w => (
+                          <option key={w.username} value={w.username}>{w.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Sezione Ordinamento */}
+                  <div style={{ paddingTop: 12, borderTop: '1px solid var(--border-subtle)', marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                      Ordinamento
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                        Ordina per
+                      </label>
+                      <select
+                        className="input"
+                        style={{ width: '100%', fontSize: '12px', padding: '6px 10px' }}
+                        value={sortConfig.key}
+                        onChange={(e) => setSortConfig(prev => ({ ...prev, key: e.target.value }))}
+                      >
+                        <option value="none">Predefinito (nessun ordinamento)</option>
+                        {SORT_OPTIONS.map(opt => (
+                          <option key={opt.key} value={opt.key}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {sortConfig.key !== 'none' && (
+                      <div>
+                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                          Direzione
+                        </label>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${sortConfig.direction === 'asc' ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ flex: 1, fontSize: 11, padding: '4px 8px', height: 28, justifyContent: 'center' }}
+                            onClick={() => setSortConfig(prev => ({ ...prev, direction: 'asc' }))}
+                          >
+                            ▲ Crescente
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${sortConfig.direction === 'desc' ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ flex: 1, fontSize: 11, padding: '4px 8px', height: 28, justifyContent: 'center' }}
+                            onClick={() => setSortConfig(prev => ({ ...prev, direction: 'desc' }))}
+                          >
+                            ▼ Decrescente
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer Popover */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px solid var(--border-subtle)' }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      {activeSortFilterCount === 0 ? 'Nessun filtro attivo' : `${activeSortFilterCount} impostazion${activeSortFilterCount === 1 ? 'e attiva' : 'i attive'}`}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      style={{ fontSize: 11, padding: '4px 12px' }}
+                      onClick={() => setShowSortFilterMenu(false)}
+                    >
+                      Chiudi
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {viewMode === 'timeline' && (
               <div style={{ position: 'relative' }} ref={toolbarColsRef}>
@@ -720,6 +944,8 @@ export default function CalendarPage() {
           vacations={vacations}
           visibleColumns={timelineVisibleCols}
           onVisibleColumnsChange={handleTimelineVisibleColsChange}
+          sortConfig={sortConfig}
+          onSortChange={setSortConfig}
           onSelectProject={(proj) => {
             if (proj.selectedPhase) {
               navigate(`/projects/${proj.id}?tab=gantt`);

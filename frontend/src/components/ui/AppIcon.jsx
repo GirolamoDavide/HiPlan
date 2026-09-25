@@ -374,6 +374,14 @@ const paths = {
       <line x1="1" y1="10" x2="23" y2="10" />
     </>
   ),
+  sort: (
+    <>
+      <path d="m3 16 4 4 4-4" />
+      <path d="M7 20V4" />
+      <path d="m21 8-4-4-4 4" />
+      <path d="M17 4v16" />
+    </>
+  ),
 };
 
 export default function AppIcon({ name, size = 18, className = '', strokeWidth = 1.9, style = {} }) {

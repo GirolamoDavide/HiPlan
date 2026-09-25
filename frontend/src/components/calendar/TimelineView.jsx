@@ -23,12 +23,15 @@ const STATUS_COLORS = {
 
 const WEEKDAYS_IT = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
 const TIMELINE_DAY_WIDTH = 38;
+export const EXPAND_COL_WIDTH = 34;
 
 export const TIMELINE_COLUMNS = [
   { id: 'code', label: 'Cod. Commessa' },
   { id: 'name', label: 'Titolo' },
   { id: 'client', label: 'Cliente' },
   { id: 'responsible', label: 'Referente' },
+  { id: 'start_date', label: 'Data Inizio' },
+  { id: 'end_date', label: 'Data Fine' },
 ];
 
 export const DEFAULT_COL_WIDTHS = {
@@ -36,6 +39,8 @@ export const DEFAULT_COL_WIDTHS = {
   name: 240,
   client: 150,
   responsible: 140,
+  start_date: 105,
+  end_date: 105,
 };
 
 export const MIN_COL_WIDTHS = {
@@ -43,6 +48,8 @@ export const MIN_COL_WIDTHS = {
   name: 130,
   client: 80,
   responsible: 80,
+  start_date: 75,
+  end_date: 75,
 };
 
 export function getProjectResponsible(proj, systemUsers = []) {
@@ -77,12 +84,27 @@ export default function TimelineView({
   onDoubleClickVacation,
   visibleColumns: propVisibleCols,
   onVisibleColumnsChange: propOnVisibleColsChange,
+  sortConfig,
+  onSortChange,
 }) {
   const today = new Date();
   const todayKey = toLocalDateKey(today);
   const [expandedProjects, setExpandedProjects] = useState({});
   const [vacationsExpanded, setVacationsExpanded] = useState(false);
   const scrollRef = useDragScroll();
+
+  const handleHeaderSort = (key) => {
+    if (!onSortChange) return;
+    if (sortConfig?.key === key) {
+      if (sortConfig.direction === 'asc') {
+        onSortChange({ key, direction: 'desc' });
+      } else {
+        onSortChange({ key: 'none', direction: 'asc' });
+      }
+    } else {
+      onSortChange({ key, direction: 'asc' });
+    }
+  };
 
   const [internalCols, setInternalCols] = useState(() => {
     try {
@@ -199,7 +221,7 @@ export default function TimelineView({
   };
 
   const leftColWidth = useMemo(() => {
-    let w = 0;
+    let w = EXPAND_COL_WIDTH;
     visibleColumns.forEach(id => {
       w += (colWidths[id] || DEFAULT_COL_WIDTHS[id] || 120);
     });
@@ -264,14 +286,39 @@ export default function TimelineView({
     })
   );
 
-  const renderProjectInfoCols = (proj, isExpanded = false, matchingTasks = [], isFiltered = false) => {
-    const hasNameCol = visibleColumns.includes('name');
-    const firstColId = visibleColumns[0];
-    const taskCount = isFiltered ? `${matchingTasks.length}/${proj.tasks?.length || 0}` : (proj.tasks?.length || 0);
-    const hasTasks = proj.tasks && proj.tasks.length > 0;
+  const renderProjectInfoCols = (proj, isExpanded = false) => {
+    const hasTasks = Array.isArray(proj.tasks) && proj.tasks.length > 0;
 
     return (
       <>
+        {/* Colonna fissa a sinistra per l'espansione */}
+        <div
+          className="timeline-col-cell timeline-col-cell--expand"
+          style={{
+            width: `${EXPAND_COL_WIDTH}px`,
+            minWidth: `${EXPAND_COL_WIDTH}px`,
+            maxWidth: `${EXPAND_COL_WIDTH}px`,
+            flex: `0 0 ${EXPAND_COL_WIDTH}px`,
+          }}
+        >
+          {hasTasks ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
+              }}
+              className="timeline-expand-btn"
+              title={isExpanded ? 'Riduci fasi' : 'Espandi fasi'}
+              aria-expanded={Boolean(isExpanded)}
+            >
+              <AppIcon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={11} />
+            </button>
+          ) : (
+            <span style={{ width: 18, height: 18 }} />
+          )}
+        </div>
+
         {visibleColumns.includes('code') && (
           <div
             className="timeline-col-cell timeline-col-cell--code"
@@ -283,95 +330,33 @@ export default function TimelineView({
             }}
             title={proj.code || '-'}
           >
-            {/* Fallback chevron se la colonna Titolo è nascosta */}
-            {!hasNameCol && firstColId === 'code' && hasTasks && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
-                }}
-                className="timeline-expand-btn"
-                title={isExpanded ? 'Nascondi fasi' : 'Mostra fasi'}
-                aria-expanded={Boolean(isExpanded)}
-              >
-                <AppIcon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={11} />
-              </button>
-            )}
-
             {proj.code ? (
               <span className="timeline-code-badge">{proj.code}</span>
             ) : (
               <span style={{ color: 'var(--text-tertiary)' }}>-</span>
             )}
-
-            {!hasNameCol && firstColId === 'code' && hasTasks && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
-                }}
-                className="timeline-count-pill"
-                title={isExpanded ? 'Nascondi fasi' : 'Mostra fasi'}
-              >
-                <span>{taskCount}</span>
-              </button>
-            )}
           </div>
         )}
 
-        {hasNameCol && (
+        {visibleColumns.includes('name') && (
           <div
             className="timeline-col-cell timeline-col-cell--name"
             style={{
               ...getColStyle('name', false),
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 8,
             }}
             title={proj.name}
           >
-            {hasTasks ? (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
-                }}
-                className="timeline-expand-btn"
-                title={isExpanded ? 'Nascondi fasi' : 'Mostra fasi'}
-                aria-expanded={Boolean(isExpanded)}
-              >
-                <AppIcon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={11} />
-              </button>
-            ) : (
-              <span style={{ width: 18, flexShrink: 0 }} />
-            )}
-
             <span
               className="timeline-status-dot"
               style={{ '--timeline-status-color': STATUS_COLORS[proj.status] || '#a5b4fc', flexShrink: 0 }}
               title={STATUS_LABELS_IT[proj.status] || proj.status}
             />
-
-            <span className="timeline-proj-title" style={{ flex: 1, minWidth: 0 }}>
+            <span className="timeline-proj-title" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {proj.name}
             </span>
-
-            {hasTasks && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
-                }}
-                className="timeline-count-pill"
-                title={isExpanded ? 'Nascondi fasi' : 'Mostra fasi'}
-              >
-                <span>{taskCount} fasi</span>
-              </button>
-            )}
           </div>
         )}
 
@@ -386,36 +371,9 @@ export default function TimelineView({
             }}
             title={proj.client || 'Nessun cliente'}
           >
-            {!hasNameCol && firstColId === 'client' && hasTasks && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
-                }}
-                className="timeline-expand-btn"
-                title={isExpanded ? 'Nascondi fasi' : 'Mostra fasi'}
-                aria-expanded={Boolean(isExpanded)}
-              >
-                <AppIcon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={11} />
-              </button>
-            )}
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: proj.client ? 'var(--text-secondary)' : 'var(--text-tertiary)', fontSize: '0.78rem', flex: 1, minWidth: 0 }}>
               {proj.client || '-'}
             </span>
-            {!hasNameCol && firstColId === 'client' && hasTasks && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
-                }}
-                className="timeline-count-pill"
-                title={isExpanded ? 'Nascondi fasi' : 'Mostra fasi'}
-              >
-                <span>{taskCount}</span>
-              </button>
-            )}
           </div>
         )}
 
@@ -430,37 +388,34 @@ export default function TimelineView({
             }}
             title={getProjectResponsible(proj, systemUsers)}
           >
-            {!hasNameCol && firstColId === 'responsible' && hasTasks && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
-                }}
-                className="timeline-expand-btn"
-                title={isExpanded ? 'Nascondi fasi' : 'Mostra fasi'}
-                aria-expanded={Boolean(isExpanded)}
-              >
-                <AppIcon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={11} />
-              </button>
-            )}
             <AppIcon name="user" size={13} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)', fontSize: '0.78rem', flex: 1, minWidth: 0 }}>
               {getProjectResponsible(proj, systemUsers)}
             </span>
-            {!hasNameCol && firstColId === 'responsible' && hasTasks && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
-                }}
-                className="timeline-count-pill"
-                title={isExpanded ? 'Nascondi fasi' : 'Mostra fasi'}
-              >
-                <span>{taskCount}</span>
-              </button>
-            )}
+          </div>
+        )}
+
+        {visibleColumns.includes('start_date') && (
+          <div
+            className="timeline-col-cell timeline-col-cell--start-date"
+            style={getColStyle('start_date', false)}
+            title={proj.start_date ? proj.start_date.substring(0, 10) : 'Nessuna data inizio'}
+          >
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              {proj.start_date ? proj.start_date.substring(0, 10) : '-'}
+            </span>
+          </div>
+        )}
+
+        {visibleColumns.includes('end_date') && (
+          <div
+            className="timeline-col-cell timeline-col-cell--end-date"
+            style={getColStyle('end_date', false)}
+            title={proj.end_date ? proj.end_date.substring(0, 10) : 'Nessuna data fine'}
+          >
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              {proj.end_date ? proj.end_date.substring(0, 10) : '-'}
+            </span>
           </div>
         )}
       </>
@@ -475,12 +430,25 @@ export default function TimelineView({
 
     return (
       <>
+        {/* Colonna fissa a sinistra per l'indicatore ramo fase */}
+        <div
+          className="timeline-col-cell timeline-col-cell--expand"
+          style={{
+            width: `${EXPAND_COL_WIDTH}px`,
+            minWidth: `${EXPAND_COL_WIDTH}px`,
+            maxWidth: `${EXPAND_COL_WIDTH}px`,
+            flex: `0 0 ${EXPAND_COL_WIDTH}px`,
+          }}
+        >
+          <span className="timeline-task-branch" aria-hidden="true" style={{ fontSize: '0.85rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>↳</span>
+        </div>
+
         {visibleColumns.includes('code') && (
           <div
             className="timeline-col-cell timeline-col-cell--code"
             style={{ ...getColStyle('code', false), justifyContent: 'center' }}
           >
-            <span className="timeline-task-branch" aria-hidden="true" style={{ fontSize: '0.95rem', color: isCompleted ? '#10b981' : tColor, fontWeight: 700 }}>↳</span>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem' }}>-</span>
           </div>
         )}
 
@@ -492,15 +460,11 @@ export default function TimelineView({
               display: 'flex',
               alignItems: 'center',
               gap: 6,
-              paddingLeft: !visibleColumns.includes('code') ? '24px' : '10px',
             }}
             title={t.text}
           >
-            {!visibleColumns.includes('code') && (
-              <span className="timeline-task-branch" aria-hidden="true" style={{ fontSize: '0.95rem', color: isCompleted ? '#10b981' : tColor, fontWeight: 700 }}>↳</span>
-            )}
             {isCompleted && <AppIcon name="check" size={12} className="timeline-completed-icon" />}
-            <span className="timeline-proj-title timeline-task-title" style={{ flex: 1, minWidth: 0 }}>
+            <span className="timeline-proj-title timeline-task-title" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {t.text}
             </span>
             <span
@@ -541,6 +505,30 @@ export default function TimelineView({
           </span>
         </div>
       )}
+
+      {visibleColumns.includes('start_date') && (
+        <div
+          className="timeline-col-cell timeline-col-cell--start-date"
+          style={getColStyle('start_date', false)}
+          title={t.start_date ? t.start_date.substring(0, 10) : '-'}
+        >
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+            {t.start_date ? t.start_date.substring(0, 10) : '-'}
+          </span>
+        </div>
+      )}
+
+      {visibleColumns.includes('end_date') && (
+        <div
+          className="timeline-col-cell timeline-col-cell--end-date"
+          style={getColStyle('end_date', false)}
+          title={t.end_date ? t.end_date.substring(0, 10) : '-'}
+        >
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+            {t.end_date ? t.end_date.substring(0, 10) : '-'}
+          </span>
+        </div>
+      )}
     </>
   );
 };
@@ -550,9 +538,28 @@ export default function TimelineView({
       <div className="timeline-header-row">
         <div className="timeline-project-col has-columns">
           <div className="timeline-cols-header">
+            {/* Colonna fissa a sinistra per allineare le frecce di espansione */}
+            <div
+              className="timeline-col-th timeline-col-th--expand"
+              style={{
+                width: `${EXPAND_COL_WIDTH}px`,
+                minWidth: `${EXPAND_COL_WIDTH}px`,
+                maxWidth: `${EXPAND_COL_WIDTH}px`,
+                flex: `0 0 ${EXPAND_COL_WIDTH}px`,
+                padding: 0,
+              }}
+            />
             {visibleColumns.includes('code') && (
-              <div className="timeline-col-th" style={getColStyle('code', true)}>
+              <div
+                className={`timeline-col-th timeline-col-th--sortable ${sortConfig?.key === 'code' ? 'is-sorted' : ''}`}
+                style={getColStyle('code', true)}
+                onClick={() => handleHeaderSort('code')}
+                title="Ordina per Codice Commessa"
+              >
                 <span>Cod. Commessa</span>
+                {sortConfig?.key === 'code' && (
+                  <span className="timeline-sort-indicator">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+                )}
                 <div
                   className={`timeline-col-resizer ${resizingCol === 'code' ? 'is-resizing' : ''}`}
                   onMouseDown={(e) => startResize('code', e)}
@@ -562,8 +569,16 @@ export default function TimelineView({
               </div>
             )}
             {visibleColumns.includes('name') && (
-              <div className="timeline-col-th" style={getColStyle('name', true)}>
+              <div
+                className={`timeline-col-th timeline-col-th--sortable ${sortConfig?.key === 'name' ? 'is-sorted' : ''}`}
+                style={getColStyle('name', true)}
+                onClick={() => handleHeaderSort('name')}
+                title="Ordina per Titolo"
+              >
                 <span>Titolo</span>
+                {sortConfig?.key === 'name' && (
+                  <span className="timeline-sort-indicator">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+                )}
                 <div
                   className={`timeline-col-resizer ${resizingCol === 'name' ? 'is-resizing' : ''}`}
                   onMouseDown={(e) => startResize('name', e)}
@@ -573,8 +588,16 @@ export default function TimelineView({
               </div>
             )}
             {visibleColumns.includes('client') && (
-              <div className="timeline-col-th" style={getColStyle('client', true)}>
+              <div
+                className={`timeline-col-th timeline-col-th--sortable ${sortConfig?.key === 'client' ? 'is-sorted' : ''}`}
+                style={getColStyle('client', true)}
+                onClick={() => handleHeaderSort('client')}
+                title="Ordina per Cliente"
+              >
                 <span>Cliente</span>
+                {sortConfig?.key === 'client' && (
+                  <span className="timeline-sort-indicator">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+                )}
                 <div
                   className={`timeline-col-resizer ${resizingCol === 'client' ? 'is-resizing' : ''}`}
                   onMouseDown={(e) => startResize('client', e)}
@@ -584,11 +607,57 @@ export default function TimelineView({
               </div>
             )}
             {visibleColumns.includes('responsible') && (
-              <div className="timeline-col-th" style={getColStyle('responsible', true)}>
+              <div
+                className={`timeline-col-th timeline-col-th--sortable ${sortConfig?.key === 'responsible' ? 'is-sorted' : ''}`}
+                style={getColStyle('responsible', true)}
+                onClick={() => handleHeaderSort('responsible')}
+                title="Ordina per Responsabile"
+              >
                 <span>Referente</span>
+                {sortConfig?.key === 'responsible' && (
+                  <span className="timeline-sort-indicator">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+                )}
                 <div
                   className={`timeline-col-resizer ${resizingCol === 'responsible' ? 'is-resizing' : ''}`}
                   onMouseDown={(e) => startResize('responsible', e)}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Trascina per ridimensionare colonna"
+                />
+              </div>
+            )}
+            {visibleColumns.includes('start_date') && (
+              <div
+                className={`timeline-col-th timeline-col-th--sortable ${sortConfig?.key === 'start_date' ? 'is-sorted' : ''}`}
+                style={getColStyle('start_date', true)}
+                onClick={() => handleHeaderSort('start_date')}
+                title="Ordina per Data Inizio"
+              >
+                <span>Data Inizio</span>
+                {sortConfig?.key === 'start_date' && (
+                  <span className="timeline-sort-indicator">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+                )}
+                <div
+                  className={`timeline-col-resizer ${resizingCol === 'start_date' ? 'is-resizing' : ''}`}
+                  onMouseDown={(e) => startResize('start_date', e)}
+                  onClick={(e) => e.stopPropagation()}
+                  title="Trascina per ridimensionare colonna"
+                />
+              </div>
+            )}
+            {visibleColumns.includes('end_date') && (
+              <div
+                className={`timeline-col-th timeline-col-th--sortable ${sortConfig?.key === 'end_date' ? 'is-sorted' : ''}`}
+                style={getColStyle('end_date', true)}
+                onClick={() => handleHeaderSort('end_date')}
+                title="Ordina per Data Fine"
+              >
+                <span>Data Fine</span>
+                {sortConfig?.key === 'end_date' && (
+                  <span className="timeline-sort-indicator">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
+                )}
+                <div
+                  className={`timeline-col-resizer ${resizingCol === 'end_date' ? 'is-resizing' : ''}`}
+                  onMouseDown={(e) => startResize('end_date', e)}
                   onClick={(e) => e.stopPropagation()}
                   title="Trascina per ridimensionare colonna"
                 />
@@ -630,7 +699,7 @@ export default function TimelineView({
                   <button
                     type="button"
                     className="btn btn-sm btn-secondary"
-                    onClick={() => setVisibleColumns(['code', 'name', 'client', 'responsible'])}
+                    onClick={() => setVisibleColumns(TIMELINE_COLUMNS.map(c => c.id))}
                     style={{ flex: 1, fontSize: 11 }}
                   >
                     Tutte
@@ -696,43 +765,34 @@ export default function TimelineView({
           <React.Fragment key="vacation-group-all">
             {/* Riga genitore riassuntiva */}
             <div className="timeline-project-row" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-              <div
-                className="timeline-project-info timeline-vacation-info"
-                style={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'flex-start',
-                  gap: 8,
-                  padding: '0 12px',
-                  width: 'var(--timeline-left-width)',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <button
-                  type="button"
-                  className="timeline-expand-btn"
-                  onClick={() => setVacationsExpanded(!vacationsExpanded)}
-                  title={vacationsExpanded ? 'Riduci addetti' : 'Espandi addetti'}
-                  aria-expanded={Boolean(vacationsExpanded)}
+              <div className="timeline-project-info timeline-vacation-info has-columns">
+                <div
+                  className="timeline-col-cell timeline-col-cell--expand"
+                  style={{
+                    width: `${EXPAND_COL_WIDTH}px`,
+                    minWidth: `${EXPAND_COL_WIDTH}px`,
+                    maxWidth: `${EXPAND_COL_WIDTH}px`,
+                    flex: `0 0 ${EXPAND_COL_WIDTH}px`,
+                  }}
                 >
-                  <AppIcon name={vacationsExpanded ? 'chevronDown' : 'chevronRight'} size={11} />
-                </button>
-                <span className="timeline-proj-title timeline-vacation-title" style={{ fontWeight: 700, color: '#b45309', fontSize: '0.78rem' }}>
-                  Panoramica Ferie
-                </span>
-                <button
-                  type="button"
-                  className="timeline-count-pill"
-                  onClick={() => setVacationsExpanded(!vacationsExpanded)}
-                  title="Espandi/comprimi addetti"
-                >
-                  <AppIcon name="users" size={10} />
-                  <span>{totalWorkers} addetti</span>
-                </button>
-                <span className="timeline-proj-meta" style={{ fontSize: '0.64rem', color: 'var(--text-tertiary)' }}>
-                  • {totalPeriods} periodi
-                </span>
+                  <button
+                    type="button"
+                    className="timeline-expand-btn"
+                    onClick={() => setVacationsExpanded(!vacationsExpanded)}
+                    title={vacationsExpanded ? 'Riduci addetti' : 'Espandi addetti'}
+                    aria-expanded={Boolean(vacationsExpanded)}
+                  >
+                    <AppIcon name={vacationsExpanded ? 'chevronDown' : 'chevronRight'} size={11} />
+                  </button>
+                </div>
+                <div style={{ flex: 1, minWidth: 0, paddingLeft: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="timeline-proj-title timeline-vacation-title" style={{ fontWeight: 700, color: '#b45309', fontSize: '0.78rem' }}>
+                    Panoramica Ferie
+                  </span>
+                  <span className="timeline-proj-meta" style={{ fontSize: '0.64rem', color: 'var(--text-tertiary)' }}>
+                    • {totalPeriods} periodi
+                  </span>
+                </div>
               </div>
               <div className="timeline-row-grid">
                 {renderGrid()}
@@ -766,13 +826,26 @@ export default function TimelineView({
             {vacationsExpanded && Object.entries(groupedVacations).map(([username, userVacations]) => {
               return (
                 <div key={`vac-group-${username}`} className="timeline-project-row" style={{ backgroundColor: 'var(--bg-card)', borderTop: '1px dashed var(--border-subtle)' }}>
-                  <div className="timeline-project-info timeline-vacation-info" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 12, padding: '0 16px 0 24px', width: 'var(--timeline-left-width)', boxSizing: 'border-box' }}>
-                    <span className="timeline-proj-title timeline-vacation-title" style={{ fontSize: '0.75rem' }}>
-                      {username}
-                    </span>
-                    <span className="timeline-proj-meta" style={{ fontSize: '0.64rem' }}>
-                      {userVacations.length > 1 ? `${userVacations.length} periodi registrati` : (userVacations[0].reason || 'Ferie')}
-                    </span>
+                  <div className="timeline-project-info timeline-vacation-info has-columns">
+                    <div
+                      className="timeline-col-cell timeline-col-cell--expand"
+                      style={{
+                        width: `${EXPAND_COL_WIDTH}px`,
+                        minWidth: `${EXPAND_COL_WIDTH}px`,
+                        maxWidth: `${EXPAND_COL_WIDTH}px`,
+                        flex: `0 0 ${EXPAND_COL_WIDTH}px`,
+                      }}
+                    >
+                      <span className="timeline-task-branch" aria-hidden="true" style={{ fontSize: '0.85rem', color: 'var(--text-tertiary)', fontWeight: 700 }}>↳</span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0, paddingLeft: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span className="timeline-proj-title timeline-vacation-title" style={{ fontSize: '0.75rem' }}>
+                        {username}
+                      </span>
+                      <span className="timeline-proj-meta" style={{ fontSize: '0.64rem' }}>
+                        {userVacations.length > 1 ? `${userVacations.length} periodi registrati` : (userVacations[0].reason || 'Ferie')}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="timeline-row-grid">
@@ -833,7 +906,7 @@ export default function TimelineView({
               return (
                 <div key={proj.id} className="timeline-project-row">
                   <div className="timeline-project-info has-columns" onClick={() => onSelectProject(proj)} style={{ cursor: 'pointer' }}>
-                    {renderProjectInfoCols(proj, false, [], false)}
+                    {renderProjectInfoCols(proj, false)}
                   </div>
                   <div className="timeline-row-grid">
                     {renderGrid()}
@@ -860,7 +933,7 @@ export default function TimelineView({
               <React.Fragment key={proj.id}>
                 <div className="timeline-project-row">
                   <div className="timeline-project-info has-columns" onClick={() => onSelectProject(proj)} style={{ cursor: 'pointer' }}>
-                    {renderProjectInfoCols(proj, isExpanded, matchingTasks, isFiltered)}
+                    {renderProjectInfoCols(proj, isExpanded)}
                   </div>
 
                   <div className="timeline-row-grid">

@@ -4,7 +4,7 @@ import {
   taskMatchesDepartment,
   vacationMatchesFilters,
 } from '../../src/utils/calendarFilters';
-import { CALENDAR_FILTERS_STORAGE_KEY, loadSavedFilters } from '../../src/pages/CalendarPage';
+import { CALENDAR_FILTERS_STORAGE_KEY, loadSavedFilters, sortProjects, SORT_OPTIONS } from '../../src/pages/CalendarPage';
 
 describe('calendarFilters', () => {
   const mockUsers = [
@@ -116,6 +116,8 @@ describe('calendarFilters', () => {
         department: 'all',
         worker: 'all',
         search: '',
+        sortKey: 'none',
+        sortDirection: 'asc',
       });
 
       localStorage.setItem(CALENDAR_FILTERS_STORAGE_KEY, 'invalid-json');
@@ -124,20 +126,123 @@ describe('calendarFilters', () => {
         department: 'all',
         worker: 'all',
         search: '',
+        sortKey: 'none',
+        sortDirection: 'asc',
       });
     });
 
-    it('loads saved filters from localStorage', () => {
+    it('loads saved filters from localStorage including sort settings', () => {
       const saved = {
         status: 'planning',
         department: 'produzione',
         worker: 'admin',
         search: 'robot',
+        sortKey: 'start_date',
+        sortDirection: 'desc',
       };
       localStorage.setItem(CALENDAR_FILTERS_STORAGE_KEY, JSON.stringify(saved));
       expect(loadSavedFilters()).toEqual(saved);
 
       localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
+    });
+  });
+
+  describe('sortProjects', () => {
+    const testProjects = [
+      {
+        id: 'p1',
+        code: 'PRJ-10',
+        name: 'Zeta Project',
+        client: 'Beta Srl',
+        status: 'active',
+        start_date: '2026-09-10',
+        end_date: '2026-09-20',
+        responsible_username: 'marco_uff',
+      },
+      {
+        id: 'p2',
+        code: 'PRJ-2',
+        name: 'Alpha Project',
+        client: 'Acme Corp',
+        status: 'planning',
+        start_date: '2026-09-01',
+        end_date: '2026-09-30',
+        responsible_id: 'u2', // Laura (Acq)
+      },
+      {
+        id: 'p3',
+        code: 'PRJ-1',
+        name: 'Gamma Project',
+        client: 'Omega Spa',
+        status: 'completed',
+        start_date: '2026-09-05',
+        end_date: '2026-09-15',
+        owner_id: 'u3', // Franco (Prod)
+      },
+      {
+        id: 'p4',
+        code: 'PRJ-0',
+        name: 'No Dates Project',
+        client: '',
+        status: 'archived',
+        start_date: null,
+        end_date: null,
+      },
+    ];
+
+    it('sorts by start_date ascending placing empty dates last', () => {
+      const sorted = sortProjects(testProjects, { key: 'start_date', direction: 'asc' }, mockUsers);
+      expect(sorted.map(p => p.id)).toEqual(['p2', 'p3', 'p1', 'p4']);
+    });
+
+    it('sorts by start_date descending placing empty dates last', () => {
+      const sorted = sortProjects(testProjects, { key: 'start_date', direction: 'desc' }, mockUsers);
+      expect(sorted.map(p => p.id)).toEqual(['p1', 'p3', 'p2', 'p4']);
+    });
+
+    it('sorts by end_date ascending', () => {
+      const sorted = sortProjects(testProjects, { key: 'end_date', direction: 'asc' }, mockUsers);
+      expect(sorted.map(p => p.id)).toEqual(['p3', 'p1', 'p2', 'p4']);
+    });
+
+    it('sorts by end_date descending', () => {
+      const sorted = sortProjects(testProjects, { key: 'end_date', direction: 'desc' }, mockUsers);
+      expect(sorted.map(p => p.id)).toEqual(['p2', 'p1', 'p3', 'p4']);
+    });
+
+    it('sorts by responsible / referente ascending', () => {
+      // Franco (p3), Laura (p2), Marco (p1), none '-' (p4)
+      const sorted = sortProjects(testProjects, { key: 'responsible', direction: 'asc' }, mockUsers);
+      expect(sorted.map(p => p.id)).toEqual(['p3', 'p2', 'p1', 'p4']);
+    });
+
+    it('sorts by responsible / referente descending', () => {
+      const sorted = sortProjects(testProjects, { key: 'responsible', direction: 'desc' }, mockUsers);
+      expect(sorted.map(p => p.id)).toEqual(['p1', 'p2', 'p3', 'p4']);
+    });
+
+    it('sorts by code numerically', () => {
+      // Natural order: PRJ-0, PRJ-1, PRJ-2, PRJ-10
+      const sorted = sortProjects(testProjects, { key: 'code', direction: 'asc' }, mockUsers);
+      expect(sorted.map(p => p.id)).toEqual(['p4', 'p3', 'p2', 'p1']);
+    });
+
+    it('sorts by name ascending and descending', () => {
+      const asc = sortProjects(testProjects, { key: 'name', direction: 'asc' }, mockUsers);
+      expect(asc.map(p => p.name)).toEqual(['Alpha Project', 'Gamma Project', 'No Dates Project', 'Zeta Project']);
+
+      const desc = sortProjects(testProjects, { key: 'name', direction: 'desc' }, mockUsers);
+      expect(desc.map(p => p.name)).toEqual(['Zeta Project', 'No Dates Project', 'Gamma Project', 'Alpha Project']);
+    });
+
+    it('sorts by client with empty clients last', () => {
+      const asc = sortProjects(testProjects, { key: 'client', direction: 'asc' }, mockUsers);
+      expect(asc.map(p => p.id)).toEqual(['p2', 'p1', 'p3', 'p4']);
+    });
+
+    it('returns unchanged list if sort key is none', () => {
+      const res = sortProjects(testProjects, { key: 'none', direction: 'asc' }, mockUsers);
+      expect(res).toEqual(testProjects);
     });
   });
 });

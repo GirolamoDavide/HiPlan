@@ -538,6 +538,67 @@
   border-right: none;
 }
 
+.timeline-col-th--sortable {
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.timeline-col-th--sortable:hover {
+  color: var(--accent-600);
+  background-color: var(--bg-hover, rgba(0, 0, 0, 0.04));
+}
+
+.timeline-col-th--sortable.is-sorted {
+  color: var(--accent-600);
+  background-color: rgba(59, 130, 246, 0.06);
+}
+
+.timeline-sort-indicator {
+  margin-left: 4px;
+  font-size: 0.62rem;
+  color: var(--accent-600);
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.btn-active-sort {
+  border-color: var(--accent-500) !important;
+  color: var(--accent-600) !important;
+  background-color: var(--accent-50, rgba(59, 130, 246, 0.08)) !important;
+}
+
+.filter-sort-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background-color: var(--accent-500, #3b82f6);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.filter-sort-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-xl, 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1));
+  padding: 16px;
+  z-index: 350;
+  width: 320px;
+  max-width: 90vw;
+  box-sizing: border-box;
+  animation: fadeIn 0.15s ease-out;
+}
+
 .timeline-col-resizer {
   position: absolute;
   right: -3px;
@@ -631,6 +692,17 @@
 
 .timeline-col-cell:last-child {
   border-right: none;
+}
+
+.timeline-col-th--expand,
+.timeline-col-cell--expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+  flex-shrink: 0;
+  border-right: 1px solid var(--timeline-grid);
+  box-sizing: border-box;
 }
 
 .timeline-code-badge {
@@ -818,8 +890,24 @@
 }
 
 .timeline-vacation-info {
-  border-left: 3px solid var(--warning);
   cursor: default;
+}
+
+.timeline-vacation-info.has-columns {
+  border-left: none;
+  padding: 0;
+}
+
+.timeline-vacation-info.has-columns::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--warning);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .timeline-vacation-title {
@@ -849,6 +937,23 @@
   background: var(--timeline-row-alt, var(--bg-card));
   justify-content: center;
   cursor: pointer;
+}
+
+.timeline-task-info.has-columns {
+  border-left: none;
+  padding: 0;
+}
+
+.timeline-task-info.has-columns::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--timeline-row-accent, var(--accent-400));
+  z-index: 2;
+  pointer-events: none;
 }
 
 .timeline-task-title {
