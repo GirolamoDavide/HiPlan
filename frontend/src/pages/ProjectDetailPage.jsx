@@ -1138,11 +1138,18 @@ export default function ProjectDetailPage() {
           ? prev.custom_dates
           : [{ date: prev.start_date || new Date().toISOString().split('T')[0], hours: 8 }];
         const sorted = [...cDates].sort((a, b) => a.date.localeCompare(b.date));
+        const totalH = Math.round(sorted.reduce((sum, item) => sum + (Number(item.hours) || 8), 0) * 100) / 100;
         updates.custom_dates = sorted;
         updates.start_date = sorted[0].date;
         updates.end_date = sorted[sorted.length - 1].date;
         updates.duration_days = sorted.length;
-        updates.planned_hours = sorted.reduce((sum, item) => sum + (Number(item.hours) || 8), 0);
+        updates.planned_hours = totalH;
+        if (prev.workers && prev.workers.length === 1 && prev.taskType !== 'milestone') {
+          updates.worker_hours = {
+            ...(prev.worker_hours || {}),
+            [prev.workers[0]]: totalH
+          };
+        }
       }
       return { ...prev, ...updates };
     });
@@ -1160,15 +1167,24 @@ export default function ProjectDetailPage() {
         s = sorted[0].date;
         e = sorted[sorted.length - 1].date;
         dur = sorted.length;
-        hrs = sorted.reduce((sum, item) => sum + (Number(item.hours) || 8), 0);
+        hrs = Math.round(sorted.reduce((sum, item) => sum + (Number(item.hours) || 0), 0) * 100) / 100;
       }
-      return {
-        ...prev,
+      const updates = {
         custom_dates: sorted,
         start_date: s,
         end_date: e,
         duration_days: dur,
         planned_hours: hrs,
+      };
+      if (prev.workers && prev.workers.length === 1 && prev.taskType !== 'milestone') {
+        updates.worker_hours = {
+          ...(prev.worker_hours || {}),
+          [prev.workers[0]]: hrs
+        };
+      }
+      return {
+        ...prev,
+        ...updates
       };
     });
   }
@@ -3375,35 +3391,35 @@ export default function ProjectDetailPage() {
                                 <AppIcon name="alert" size={14} style={{ color: 'var(--accent-500)' }} /> Questa nuova fase verrà automaticamente aggiunta all'elenco suggerito per il reparto selezionato:
                               </span>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-                                  {DEPT_OPTIONS.map(d => {
-                                    const currentVal = taskForm.department || user?.department || 'ufficio_tecnico';
-                                    const isSelected = currentVal === d.value;
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={d.value}
-                                        onClick={(e) => {
-                                          e.preventDefault();
-                                          setTaskForm({
-                                            ...taskForm,
-                                            department: d.value,
-                                            color: d.color === '#6b7280' ? taskForm.color : d.color
-                                          });
-                                        }}
-                                        style={{
-                                          padding: '5px 14px', borderRadius: 20, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
-                                          background: isSelected ? (d.color + '22') : 'var(--bg-primary)',
-                                          color: isSelected ? d.color : 'var(--text-secondary)',
-                                          border: `1.5px solid ${isSelected ? d.color : 'var(--border-default)'}`,
-                                          boxShadow: isSelected ? `0 0 0 2px ${d.color}33` : 'none',
-                                          transition: 'all 0.18s ease', display: 'inline-flex', alignItems: 'center', gap: 6
-                                        }}
-                                      >
-                                        <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: d.color, opacity: isSelected ? 1 : 0.4 }} />
-                                        <span>{d.label}</span>
-                                      </button>
-                                    );
-                                  })}
+                                {DEPT_OPTIONS.map(d => {
+                                  const currentVal = taskForm.department || user?.department || 'ufficio_tecnico';
+                                  const isSelected = currentVal === d.value;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={d.value}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        setTaskForm({
+                                          ...taskForm,
+                                          department: d.value,
+                                          color: d.color === '#6b7280' ? taskForm.color : d.color
+                                        });
+                                      }}
+                                      style={{
+                                        padding: '5px 14px', borderRadius: 20, fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
+                                        background: isSelected ? (d.color + '22') : 'var(--bg-primary)',
+                                        color: isSelected ? d.color : 'var(--text-secondary)',
+                                        border: `1.5px solid ${isSelected ? d.color : 'var(--border-default)'}`,
+                                        boxShadow: isSelected ? `0 0 0 2px ${d.color}33` : 'none',
+                                        transition: 'all 0.18s ease', display: 'inline-flex', alignItems: 'center', gap: 6
+                                      }}
+                                    >
+                                      <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: d.color, opacity: isSelected ? 1 : 0.4 }} />
+                                      <span>{d.label}</span>
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}
@@ -3608,14 +3624,14 @@ export default function ProjectDetailPage() {
                               value={budgetMode}
                               onChange={(e) => handleBudgetModeChange(e.target.value)}
                             >
-                              <option value="start_end">Data Inizio / Data Fine (calcola giorni lavorativi ed ore escludendo sab/dom e festivi)</option>
-                              <option value="start_hours">Data Inizio / Ore (calcola data fine escludendo sab/dom e festivi, giorni = ore/8)</option>
-                              <option value="end_hours">Data Fine / Ore (calcola data inizio a ritroso escludendo sab/dom e festivi)</option>
-                              <option value="start_days">Data Inizio / Giorni (calcola data fine escludendo sab/dom e festivi, ore = giorni×8)</option>
-                              <option value="end_days">Data Fine / Giorni (calcola data inizio a ritroso escludendo sab/dom e festivi)</option>
-                              <option value="start_days_hours">Data Inizio / Giorni / Ore (es. 24h spalmate su 10 gg escludendo sab/dom e festivi)</option>
-                              <option value="end_days_hours">Data Fine / Giorni / Ore (es. 24h spalmate a ritroso su 10 gg escludendo sab/dom e festivi)</option>
-                              <option value="custom_dates">📅 Selezione Date da Calendario (giorni singoli o contigui con ore personalizzate/8h)</option>
+                              <option value="start_end">Data Inizio / Data Fine</option>
+                              <option value="start_hours">Data Inizio / Ore</option>
+                              <option value="end_hours">Data Fine / Ore</option>
+                              <option value="start_days">Data Inizio / Giorni</option>
+                              <option value="end_days">Data Fine / Giorni</option>
+                              <option value="start_days_hours">Data Inizio / Giorni / Ore</option>
+                              <option value="end_days_hours">Data Fine / Giorni / Ore</option>
+                              <option value="custom_dates">Selezione Date da Calendario</option>
                             </select>
                           </div>
 

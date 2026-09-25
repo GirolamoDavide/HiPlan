@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import useDragScroll from '../../hooks/useDragScroll';
 import AppIcon from '../ui/AppIcon';
 import { getTaskColor } from '../../utils/phaseColors';
+import { getCustomDatesList, clusterCustomDates } from '../../utils/customDates';
 
 export default function WorkloadHeatmap() {
   const navigate = useNavigate();
@@ -665,86 +666,116 @@ export default function WorkloadHeatmap() {
                       </div>
                     </div>
 
-                    {/* Timeline per il task corrente (Celle sfondo grid + barra) */}
+                    {/* Timeline per il task corrente (Celle sfondo grid + barra / barre spezzettate) */}
                     {(() => {
-                      const activeCols = columns.map(colKey => {
-                        if (viewMode === 'day') {
-                          return colKey >= task.start_date && colKey <= task.end_date;
-                        } else if (viewMode === 'week') {
-                          const weekStart = colKey;
-                          const weekEndObj = new Date(colKey);
-                          weekEndObj.setDate(weekEndObj.getDate() + 6);
-                          const weekEnd = weekEndObj.toISOString().substring(0, 10);
-                          return task.start_date <= weekEnd && task.end_date >= weekStart;
-                        } else if (viewMode === 'month') {
-                          const monthStart = colKey + '-01';
-                          const monthEndObj = new Date(monthStart);
-                          monthEndObj.setMonth(monthEndObj.getMonth() + 1);
-                          monthEndObj.setDate(0);
-                          const monthEnd = monthEndObj.toISOString().substring(0, 10);
-                          return task.start_date <= monthEnd && task.end_date >= monthStart;
-                        }
-                        return false;
-                      });
-
-                      const startIdx = activeCols.findIndex(v => v);
-                      const lastIdx = activeCols.findLastIndex(v => v);
-
-                      let startOffsetPx = 4;
-                      let endOffsetPx = 4;
                       const COL_WIDTH = 90;
+                      let segments = [];
+                      if (task.budget_mode === 'custom_dates') {
+                        const cList = getCustomDatesList(task);
+                        if (cList.length > 0) {
+                          segments = clusterCustomDates(cList);
+                        }
+                      }
 
-                      if (startIdx !== -1 && lastIdx !== -1) {
-                        const taskStart = new Date(task.start_date);
-                        const taskEnd = new Date(task.end_date);
-                        taskStart.setHours(0, 0, 0, 0);
-                        taskEnd.setHours(0, 0, 0, 0);
+                      if (segments.length === 0) {
+                        segments = [{
+                          startDateStr: task.start_date,
+                          endDateStr: task.end_date,
+                          hours: task.total_assigned_hours || task.planned_hours || 0
+                        }];
+                      }
+
+                      // barsByCol[colIdx] = array di barre che partono da quella colonna
+                      const barsByCol = {};
+
+                      segments.forEach(seg => {
+                        const activeCols = columns.map(colKey => {
+                          if (viewMode === 'day') {
+                            return colKey >= seg.startDateStr && colKey <= seg.endDateStr;
+                          } else if (viewMode === 'week') {
+                            const weekStart = colKey;
+                            const weekEndObj = new Date(colKey);
+                            weekEndObj.setDate(weekEndObj.getDate() + 6);
+                            const weekEnd = weekEndObj.toISOString().substring(0, 10);
+                            return seg.startDateStr <= weekEnd && seg.endDateStr >= weekStart;
+                          } else if (viewMode === 'month') {
+                            const monthStart = colKey + '-01';
+                            const monthEndObj = new Date(monthStart);
+                            monthEndObj.setMonth(monthEndObj.getMonth() + 1);
+                            monthEndObj.setDate(0);
+                            const monthEnd = monthEndObj.toISOString().substring(0, 10);
+                            return seg.startDateStr <= monthEnd && seg.endDateStr >= monthStart;
+                          }
+                          return false;
+                        });
+
+                        const startIdx = activeCols.findIndex(v => v);
+                        const lastIdx = activeCols.findLastIndex(v => v);
+
+                        if (startIdx === -1 || lastIdx === -1) return;
+
+                        let startOffsetPx = 4;
+                        let endOffsetPx = 4;
+
+                        const segStart = new Date(seg.startDateStr + 'T00:00:00');
+                        const segEnd = new Date(seg.endDateStr + 'T00:00:00');
 
                         if (viewMode === 'week') {
                           const weekStartStr = columns[startIdx];
-                          const weekStart = new Date(weekStartStr);
-                          weekStart.setHours(0, 0, 0, 0);
-                          if (taskStart > weekStart) {
-                            const diffDays = Math.round((taskStart - weekStart) / (1000 * 60 * 60 * 24));
+                          const weekStart = new Date(weekStartStr + 'T00:00:00');
+                          if (segStart > weekStart) {
+                            const diffDays = Math.round((segStart - weekStart) / (1000 * 60 * 60 * 24));
                             startOffsetPx = (diffDays / 7) * COL_WIDTH;
                           }
 
                           const weekEndStr = columns[lastIdx];
-                          const weekEndObj = new Date(weekEndStr);
-                          weekEndObj.setHours(0, 0, 0, 0);
+                          const weekEndObj = new Date(weekEndStr + 'T00:00:00');
                           weekEndObj.setDate(weekEndObj.getDate() + 6);
-                          if (taskEnd < weekEndObj) {
-                            const diffDays = Math.round((weekEndObj - taskEnd) / (1000 * 60 * 60 * 24));
+                          if (segEnd < weekEndObj) {
+                            const diffDays = Math.round((weekEndObj - segEnd) / (1000 * 60 * 60 * 24));
                             endOffsetPx = (diffDays / 7) * COL_WIDTH;
                           }
                         } else if (viewMode === 'month') {
                           const monthStartStr = columns[startIdx] + '-01';
-                          const monthStart = new Date(monthStartStr);
-                          monthStart.setHours(0, 0, 0, 0);
+                          const monthStart = new Date(monthStartStr + 'T00:00:00');
                           const daysInStartMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
-                          if (taskStart > monthStart) {
-                            const diffDays = Math.round((taskStart - monthStart) / (1000 * 60 * 60 * 24));
+                          if (segStart > monthStart) {
+                            const diffDays = Math.round((segStart - monthStart) / (1000 * 60 * 60 * 24));
                             startOffsetPx = (diffDays / daysInStartMonth) * COL_WIDTH;
                           }
 
-                          const monthEndStr = columns[lastIdx] + '-01';
-                          const monthEndObj = new Date(monthEndStr);
-                          monthEndObj.setHours(0, 0, 0, 0);
+                          const monthEndStr = columns[lastIdx];
+                          const monthEndObj = new Date(monthEndStr + '-01T00:00:00');
                           const daysInEndMonth = new Date(monthEndObj.getFullYear(), monthEndObj.getMonth() + 1, 0).getDate();
                           monthEndObj.setDate(daysInEndMonth);
-                          if (taskEnd < monthEndObj) {
-                            const diffDays = Math.round((monthEndObj - taskEnd) / (1000 * 60 * 60 * 24));
+                          if (segEnd < monthEndObj) {
+                            const diffDays = Math.round((monthEndObj - segEnd) / (1000 * 60 * 60 * 24));
                             endOffsetPx = (diffDays / daysInEndMonth) * COL_WIDTH;
                           }
                         }
-                      }
 
-                      let barWidth = ((lastIdx - startIdx + 1) * COL_WIDTH) - startOffsetPx - endOffsetPx;
-                      if (viewMode === 'day') barWidth = ((lastIdx - startIdx + 1) * COL_WIDTH) - 8;
-                      if (barWidth < 10) barWidth = 10;
+                        let barWidth = ((lastIdx - startIdx + 1) * COL_WIDTH) - startOffsetPx - endOffsetPx;
+                        if (viewMode === 'day') barWidth = ((lastIdx - startIdx + 1) * COL_WIDTH) - 8;
+                        if (barWidth < 10) barWidth = 10;
+
+                        if (!barsByCol[startIdx]) {
+                          barsByCol[startIdx] = [];
+                        }
+
+                        const barTitle = seg.startDateStr === seg.endDateStr
+                          ? `${task.name} (${seg.startDateStr} • ${seg.hours}h)`
+                          : `${task.name} (${seg.startDateStr} → ${seg.endDateStr} • ${seg.hours}h)`;
+
+                        barsByCol[startIdx].push({
+                          left: viewMode === 'day' ? '4px' : `${startOffsetPx}px`,
+                          width: `${barWidth}px`,
+                          title: barTitle
+                        });
+                      });
 
                       return columns.map((colKey, idx) => {
-                        const isStart = idx === startIdx;
+                        const colBars = barsByCol[idx] || [];
+                        const hasBars = colBars.length > 0;
 
                         return (
                           <div
@@ -752,39 +783,41 @@ export default function WorkloadHeatmap() {
                             className={'heatmap-cell' + (colKey === todayKey ? ' today-cell' : '') + (isColumnWeekend(colKey) ? ' heatmap-weekend' : '')}
                             style={{
                               borderBottom: '1px solid var(--border-subtle)',
-                              position: isStart ? 'relative' : undefined,
-                              zIndex: isStart ? 10 : undefined,
-                              overflow: isStart ? 'visible' : undefined
+                              position: hasBars ? 'relative' : undefined,
+                              zIndex: hasBars ? 10 : undefined,
+                              overflow: hasBars ? 'visible' : undefined
                             }}
                           >
-                            {isStart && (
-                              <div style={{
-                                position: 'absolute',
-                                left: viewMode === 'day' ? '4px' : `${startOffsetPx}px`,
-                                width: `${barWidth}px`,
-                                top: '8px',
-                                bottom: '8px',
-                                backgroundColor: getTaskColor(task),
-                                borderRadius: '4px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                padding: '0 8px',
-                                color: '#fff',
-                                fontSize: '0.75rem',
-                                fontWeight: 600,
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                                zIndex: 11,
-                                cursor: 'pointer'
-                              }}
-                                title={`${task.name} (${task.start_date} → ${task.end_date})`}
+                            {colBars.map((bar, barIdx) => (
+                              <div
+                                key={barIdx}
+                                style={{
+                                  position: 'absolute',
+                                  left: bar.left,
+                                  width: bar.width,
+                                  top: '8px',
+                                  bottom: '8px',
+                                  backgroundColor: getTaskColor(task),
+                                  borderRadius: '4px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  padding: '0 8px',
+                                  color: '#fff',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                                  zIndex: 11,
+                                  cursor: 'pointer'
+                                }}
+                                title={bar.title}
                                 onClick={() => navigate(`/projects/${task.project_id}`)}
                               >
                                 {task.name}
                               </div>
-                            )}
+                            ))}
                           </div>
                         );
                       });

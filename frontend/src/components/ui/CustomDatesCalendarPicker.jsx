@@ -39,7 +39,7 @@ export default function CustomDatesCalendarPicker({
         if (typeof item === 'string') {
           map.set(item, 8);
         } else if (item && typeof item === 'object' && item.date) {
-          map.set(item.date, Number(item.hours) > 0 ? Number(item.hours) : 8);
+          map.set(item.date, item.hours !== undefined && item.hours !== null ? item.hours : 8);
         }
       });
     }
@@ -106,9 +106,29 @@ export default function CustomDatesCalendarPicker({
   // Modifica ore per una data
   const handleHoursChange = (dateStr, newHours) => {
     const nextMap = new Map(datesMap);
-    const parsed = parseFloat(newHours);
-    nextMap.set(dateStr, isNaN(parsed) || parsed <= 0 ? 8 : parsed);
+    if (newHours === '' || newHours === null || newHours === undefined) {
+      nextMap.set(dateStr, '');
+    } else {
+      const parsed = parseFloat(newHours);
+      nextMap.set(dateStr, isNaN(parsed) ? '' : Math.round(parsed * 100) / 100);
+    }
     emitChange(nextMap);
+  };
+
+  const handleBlurHours = (dateStr) => {
+    const current = datesMap.get(dateStr);
+    const parsed = parseFloat(current);
+    if (isNaN(parsed) || parsed <= 0) {
+      const nextMap = new Map(datesMap);
+      nextMap.set(dateStr, 8);
+      emitChange(nextMap);
+    }
+  };
+
+  const handleStepHours = (dateStr, delta) => {
+    const curVal = Number(datesMap.get(dateStr)) || 8;
+    const nextVal = Math.min(24, Math.max(0.5, Math.round((curVal + delta) * 100) / 100));
+    handleHoursChange(dateStr, nextVal);
   };
 
   // Rimuovi data
@@ -122,7 +142,10 @@ export default function CustomDatesCalendarPicker({
   const emitChange = (map) => {
     const sorted = Array.from(map.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, hours]) => ({ date, hours: Number(hours) || 8 }));
+      .map(([date, hours]) => {
+        const val = hours === '' ? '' : (Math.round((Number(hours) || 8) * 100) / 100);
+        return { date, hours: val };
+      });
     onChange(sorted);
   };
 
@@ -152,7 +175,10 @@ export default function CustomDatesCalendarPicker({
   }, [datesMap, vacationsByDate]);
 
   const totalDays = sortedSelectedList.length;
-  const totalHours = sortedSelectedList.reduce((acc, item) => acc + (Number(item.hours) || 0), 0);
+  const totalHours = useMemo(() => {
+    const sum = sortedSelectedList.reduce((acc, item) => acc + (Number(item.hours) || 0), 0);
+    return Math.round(sum * 100) / 100;
+  }, [sortedSelectedList]);
 
   const renderCalendarDays = () => {
     const cells = [];
@@ -350,8 +376,8 @@ export default function CustomDatesCalendarPicker({
                         <button
                           type="button"
                           className="cdp-stepper-btn"
-                          onClick={() => handleHoursChange(date, Math.max(0.5, (Number(hours) || 8) - 1))}
-                          title="-1 ora"
+                          onClick={() => handleStepHours(date, -0.5)}
+                          title="-0.5 ore"
                         >
                           −
                         </button>
@@ -364,6 +390,7 @@ export default function CustomDatesCalendarPicker({
                             className="cdp-stepper-input"
                             value={hours}
                             onChange={(e) => handleHoursChange(date, e.target.value)}
+                            onBlur={() => handleBlurHours(date)}
                             title="Ore di lavoro previste per questa data"
                           />
                           <span className="cdp-stepper-unit">h</span>
@@ -371,8 +398,8 @@ export default function CustomDatesCalendarPicker({
                         <button
                           type="button"
                           className="cdp-stepper-btn"
-                          onClick={() => handleHoursChange(date, Math.min(24, (Number(hours) || 8) + 1))}
-                          title="+1 ora"
+                          onClick={() => handleStepHours(date, 0.5)}
+                          title="+0.5 ore"
                         >
                           +
                         </button>
