@@ -1247,7 +1247,7 @@ const ArticoloForm = forwardRef(function ArticoloForm({ richiestaId, richiesta, 
 
   const handleSubmit = (e) => {
     if (e) e.preventDefault();
-    submitInternal().catch(() => {});
+    submitInternal().catch(() => { });
   };
 
   return (
@@ -1921,13 +1921,13 @@ function DettaglioModal({ richiestaId, userRole, onClose, onUpdated, onDeleted }
     const isMancaListinoAdmin = userRole === 'admin' && currRichiesta.status === 'manca_listino';
     const payloadArticoli = isMancaListinoAdmin
       ? (currRichiesta.articoli || []).map(a => ({
-          id: a.id,
-          titolo: (titoliAdmin[a.id] !== undefined ? titoliAdmin[a.id] : a.titolo)?.trim(),
-          descrizione: (descrizioniAdmin[a.id] !== undefined ? descrizioniAdmin[a.id] : (a.descrizione || '')).trim(),
-          costo: (costiAcquisti[a.id] !== undefined && costiAcquisti[a.id] !== '' && !isNaN(parseFloat(costiAcquisti[a.id]))) ? parseFloat(costiAcquisti[a.id]) : a.costo,
-          prezzo_listino: prezziListino[a.id] !== '' && prezziListino[a.id] != null ? parseFloat(prezziListino[a.id]) : null,
-          note_admin: (noteAdmin[a.id] !== undefined ? noteAdmin[a.id] : (a.note_admin || '')).trim() || null,
-        }))
+        id: a.id,
+        titolo: (titoliAdmin[a.id] !== undefined ? titoliAdmin[a.id] : a.titolo)?.trim(),
+        descrizione: (descrizioniAdmin[a.id] !== undefined ? descrizioniAdmin[a.id] : (a.descrizione || '')).trim(),
+        costo: (costiAcquisti[a.id] !== undefined && costiAcquisti[a.id] !== '' && !isNaN(parseFloat(costiAcquisti[a.id]))) ? parseFloat(costiAcquisti[a.id]) : a.costo,
+        prezzo_listino: prezziListino[a.id] !== '' && prezziListino[a.id] != null ? parseFloat(prezziListino[a.id]) : null,
+        note_admin: (noteAdmin[a.id] !== undefined ? noteAdmin[a.id] : (a.note_admin || '')).trim() || null,
+      }))
       : buildAcquistiArticoliPayload();
 
     setSavingArticoli(true);
@@ -3793,7 +3793,7 @@ export default function RichiesteCommercialiPage() {
             <input
               type="text"
               className="input rc-search-input"
-              placeholder="Cerca per titolo, cliente, offerta o referente..."
+              placeholder="Cerca per titolo, cliente, offerta o responsabile..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -3837,15 +3837,15 @@ export default function RichiesteCommercialiPage() {
             {searchQuery || filterStatus
               ? 'Nessuna richiesta trovata'
               : richieste.length > 0
-              ? 'Nessuna richiesta aperta'
-              : 'Nessuna richiesta ancora'}
+                ? 'Nessuna richiesta aperta'
+                : 'Nessuna richiesta ancora'}
           </h3>
           <p>
             {searchQuery || filterStatus
               ? 'Nessuna richiesta corrisponde ai filtri o al termine di ricerca.'
               : richieste.length > 0
-              ? 'Tutte le richieste registrate sono state completate. Clicca su "Completate" per visualizzarle.'
-              : 'Non ci sono ancora richieste registrate. Creane una nuova per iniziare il coordinamento commerciale e acquisti.'}
+                ? 'Tutte le richieste registrate sono state completate. Clicca su "Completate" per visualizzarle.'
+                : 'Non ci sono ancora richieste registrate. Creane una nuova per iniziare il coordinamento commerciale e acquisti.'}
           </p>
           {!searchQuery && !filterStatus && (
             <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'center', flexWrap: 'wrap' }}>

@@ -17,7 +17,7 @@ describe('Timeline Columns & Helpers', () => {
     expect(TIMELINE_COLUMNS.find(c => c.id === 'code').label).toBe('Cod. Commessa');
     expect(TIMELINE_COLUMNS.find(c => c.id === 'name').label).toBe('Titolo');
     expect(TIMELINE_COLUMNS.find(c => c.id === 'client').label).toBe('Cliente');
-    expect(TIMELINE_COLUMNS.find(c => c.id === 'responsible').label).toBe('Referente');
+    expect(TIMELINE_COLUMNS.find(c => c.id === 'responsible').label).toBe('Responsabile');
   });
 
   it('defines default and minimum column widths for resizing', () => {

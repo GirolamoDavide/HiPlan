@@ -29,7 +29,7 @@ export const TIMELINE_COLUMNS = [
   { id: 'code', label: 'Cod. Commessa' },
   { id: 'name', label: 'Titolo' },
   { id: 'client', label: 'Cliente' },
-  { id: 'responsible', label: 'Referente' },
+  { id: 'responsible', label: 'Responsabile' },
   { id: 'start_date', label: 'Data Inizio' },
   { id: 'end_date', label: 'Data Fine' },
 ];
@@ -113,7 +113,7 @@ export default function TimelineView({
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch { }
     return ['code', 'name', 'client', 'responsible'];
   });
 
@@ -126,7 +126,7 @@ export default function TimelineView({
     }
     try {
       localStorage.setItem('hiplan-timeline-visible-cols', JSON.stringify(cols));
-    } catch {}
+    } catch { }
   };
 
   // Larghezze colonne ridimensionabili (trascina per allargare / stringere)
@@ -139,7 +139,7 @@ export default function TimelineView({
           return { ...DEFAULT_COL_WIDTHS, ...parsed };
         }
       }
-    } catch {}
+    } catch { }
     return { ...DEFAULT_COL_WIDTHS };
   });
 
@@ -162,7 +162,7 @@ export default function TimelineView({
         const updated = { ...prev, [colId]: newW };
         try {
           localStorage.setItem('hiplan-timeline-col-widths', JSON.stringify(updated));
-        } catch {}
+        } catch { }
         return updated;
       });
     };
@@ -478,60 +478,60 @@ export default function TimelineView({
           </div>
         )}
 
-      {visibleColumns.includes('client') && (
-        <div
-          className="timeline-col-cell timeline-col-cell--client"
-          style={getColStyle('client', false)}
-        >
-          {t.department ? (
-            <span className="badge badge-subtle" style={{ fontSize: '0.65rem' }}>{t.department}</span>
-          ) : (
-            <span style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem' }}>-</span>
-          )}
-        </div>
-      )}
+        {visibleColumns.includes('client') && (
+          <div
+            className="timeline-col-cell timeline-col-cell--client"
+            style={getColStyle('client', false)}
+          >
+            {t.department ? (
+              <span className="badge badge-subtle" style={{ fontSize: '0.65rem' }}>{t.department}</span>
+            ) : (
+              <span style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem' }}>-</span>
+            )}
+          </div>
+        )}
 
-      {visibleColumns.includes('responsible') && (
-        <div
-          className="timeline-col-cell timeline-col-cell--responsible"
-          style={getColStyle('responsible', false)}
-          title={Array.isArray(t.workers) && t.workers.length > 0 ? t.workers.join(', ') : 'Nessun addetto'}
-        >
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)', fontSize: '0.75rem', width: '100%' }}>
-            <AppIcon name="users" size={12} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {Array.isArray(t.workers) && t.workers.length > 0 ? t.workers.join(', ') : 'Nessuno'}
+        {visibleColumns.includes('responsible') && (
+          <div
+            className="timeline-col-cell timeline-col-cell--responsible"
+            style={getColStyle('responsible', false)}
+            title={Array.isArray(t.workers) && t.workers.length > 0 ? t.workers.join(', ') : 'Nessun addetto'}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)', fontSize: '0.75rem', width: '100%' }}>
+              <AppIcon name="users" size={12} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {Array.isArray(t.workers) && t.workers.length > 0 ? t.workers.join(', ') : 'Nessuno'}
+              </span>
             </span>
-          </span>
-        </div>
-      )}
+          </div>
+        )}
 
-      {visibleColumns.includes('start_date') && (
-        <div
-          className="timeline-col-cell timeline-col-cell--start-date"
-          style={getColStyle('start_date', false)}
-          title={t.start_date ? t.start_date.substring(0, 10) : '-'}
-        >
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
-            {t.start_date ? t.start_date.substring(0, 10) : '-'}
-          </span>
-        </div>
-      )}
+        {visibleColumns.includes('start_date') && (
+          <div
+            className="timeline-col-cell timeline-col-cell--start-date"
+            style={getColStyle('start_date', false)}
+            title={t.start_date ? t.start_date.substring(0, 10) : '-'}
+          >
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+              {t.start_date ? t.start_date.substring(0, 10) : '-'}
+            </span>
+          </div>
+        )}
 
-      {visibleColumns.includes('end_date') && (
-        <div
-          className="timeline-col-cell timeline-col-cell--end-date"
-          style={getColStyle('end_date', false)}
-          title={t.end_date ? t.end_date.substring(0, 10) : '-'}
-        >
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
-            {t.end_date ? t.end_date.substring(0, 10) : '-'}
-          </span>
-        </div>
-      )}
-    </>
-  );
-};
+        {visibleColumns.includes('end_date') && (
+          <div
+            className="timeline-col-cell timeline-col-cell--end-date"
+            style={getColStyle('end_date', false)}
+            title={t.end_date ? t.end_date.substring(0, 10) : '-'}
+          >
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+              {t.end_date ? t.end_date.substring(0, 10) : '-'}
+            </span>
+          </div>
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="calendar-timeline-container" ref={scrollRef} style={{ '--timeline-left-width': `${leftColWidth}px` }}>
@@ -613,7 +613,7 @@ export default function TimelineView({
                 onClick={() => handleHeaderSort('responsible')}
                 title="Ordina per Responsabile"
               >
-                <span>Referente</span>
+                <span>Responsabile</span>
                 {sortConfig?.key === 'responsible' && (
                   <span className="timeline-sort-indicator">{sortConfig.direction === 'asc' ? '▲' : '▼'}</span>
                 )}

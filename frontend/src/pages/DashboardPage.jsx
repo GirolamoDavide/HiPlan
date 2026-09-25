@@ -807,10 +807,10 @@ export default function DashboardPage() {
             <div className="dashboard-panel-title">
               <span
                 className={`dashboard-panel-icon ${activeRightTab === 'todos'
-                    ? 'todo-icon'
-                    : activeRightTab === 'tickets'
-                      ? 'ticket-icon'
-                      : 'notes-icon'
+                  ? 'todo-icon'
+                  : activeRightTab === 'tickets'
+                    ? 'ticket-icon'
+                    : 'notes-icon'
                   }`}
                 aria-hidden="true"
               >
@@ -1021,7 +1021,7 @@ export default function DashboardPage() {
                 </span>
                 <div>
                   <h2>Ore da recuperare per ferie</h2>
-                  <p>Coordina il recupero con il tuo referente.</p>
+                  <p>Coordina il recupero con il tuo responsabile.</p>
                 </div>
               </div>
             </div>

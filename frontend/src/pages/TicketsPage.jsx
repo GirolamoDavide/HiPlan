@@ -381,7 +381,7 @@ function NewTicketModal({ onClose, onCreated, projects, users, currentUser }) {
 
           <div className="tkt-field-row">
             <div className="tkt-field">
-              <label className="tkt-label">Referente</label>
+              <label className="tkt-label">Responsabile</label>
               <div className="tkt-select-wrap">
                 <select
                   className="tkt-select"
@@ -697,7 +697,7 @@ function EditTicketModal({ ticket, onClose, onUpdated, projects, users, currentU
           </div>
           <div className="tkt-field-row">
             <div className="tkt-field">
-              <label className="tkt-label">Referente</label>
+              <label className="tkt-label">Responsabile</label>
               <div className="tkt-select-wrap">
                 <select
                   className="tkt-select"
@@ -1004,7 +1004,7 @@ function TicketDetail({ ticket, currentUser, onRefresh, users, projects, phases 
                         style={{ width: '100%', marginBottom: 16, background: '#10a37f', color: '#fff', border: 'none', display: 'flex', justifyContent: 'center', gap: 8 }}
                         onClick={() => {
                           const repliesText = (ticket.replies || []).map(r => `- ${r.author_full_name || r.author_username}: ${r.content}`).join('\n');
-                          const prompt = `Analizza questo ticket tecnico e forniscimi un riassunto dei punti chiave e delle possibili soluzioni. \n\nTitolo: ${ticket.title}\nDescrizione: ${ticket.description}\nStato: ${ticket.status}\nPriorità: ${ticket.priority}\nCreato da: ${ticket.author_full_name || ticket.author_username}\nReferente: ${ticket.responsible_full_name || ticket.responsible_username || 'Nessuno'}\n\nRisposte/Commenti:\n${repliesText}`;
+                          const prompt = `Analizza questo ticket tecnico e forniscimi un riassunto dei punti chiave e delle possibili soluzioni. \n\nTitolo: ${ticket.title}\nDescrizione: ${ticket.description}\nStato: ${ticket.status}\nPriorità: ${ticket.priority}\nCreato da: ${ticket.author_full_name || ticket.author_username}\nResponsabile: ${ticket.responsible_full_name || ticket.responsible_username || 'Nessuno'}\n\nRisposte/Commenti:\n${repliesText}`;
                           window.open(`https://chatgpt.com/?q=${encodeURIComponent(prompt)}`, '_blank');
                           setShowExportMenu(false);
                         }}
@@ -1079,7 +1079,7 @@ function TicketDetail({ ticket, currentUser, onRefresh, users, projects, phases 
           <span style={{ color: 'var(--border-default)' }}>·</span>
           <span className="ticket-detail-meta-item">
             <AppIcon name="user" size={14} />
-            Referente: {ticket.responsible_full_name || ticket.responsible_username || 'Nessuno'}
+            Responsabile: {ticket.responsible_full_name || ticket.responsible_username || 'Nessuno'}
           </span>
           <span style={{ color: 'var(--border-default)' }}>·</span>
           <span className="ticket-detail-meta-item">

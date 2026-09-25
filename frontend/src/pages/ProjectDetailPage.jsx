@@ -924,7 +924,7 @@ export default function ProjectDetailPage() {
 
   async function handleToggleTaskCompleted(task, currentIsCompleted) {
     if (!canManageProject) {
-      toast.error('Solo proprietario, referente o editor possono segnare la fase come completata/in corso');
+      toast.error('Solo proprietario, responsabile o editor possono segnare la fase come completata/in corso');
       return false;
     }
 
@@ -2487,7 +2487,7 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
               <div className="stat-box">
-                <div className="stat-box-label">Referente Commessa</div>
+                <div className="stat-box-label">Responsabile Commessa</div>
                 <div className="stat-box-value" style={{ fontSize: '0.88rem' }} title={project?.responsible_name || project?.responsible_username || project?.responsible?.full_name || project?.responsible?.username || ''}>
                   {project?.responsible_name || project?.responsible_username || project?.responsible?.full_name || project?.responsible?.username || 'N/D'}
                 </div>
@@ -4313,14 +4313,14 @@ export default function ProjectDetailPage() {
                   </div>
 
                   <div className="input-group">
-                    <label htmlFor="edit-proj-responsible">Referente di Commessa</label>
+                    <label htmlFor="edit-proj-responsible">Responsabile di Commessa</label>
                     <select
                       id="edit-proj-responsible"
                       className="input"
                       value={projectForm.responsible_id || ''}
                       onChange={(e) => setProjectForm({ ...projectForm, responsible_id: e.target.value })}
                     >
-                      <option value="">-- Nessun referente predefinito --</option>
+                      <option value="">-- Nessun responsabile predefinito --</option>
                       {usersList.map(u => (
                         <option key={u.id} value={u.id}>{u.full_name || u.username} ({u.username})</option>
                       ))}

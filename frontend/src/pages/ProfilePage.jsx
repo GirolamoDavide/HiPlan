@@ -463,7 +463,7 @@ export default function ProfilePage() {
             <h3>Ore da Recuperare per Ferie</h3>
           </div>
           <p className="profile-recovery-desc">
-            Le seguenti fasi hanno ore pianificate che cadono nei tuoi giorni di ferie. Queste ore andrebbero recuperate in accordo con il tuo referente.
+            Le seguenti fasi hanno ore pianificate che cadono nei tuoi giorni di ferie. Queste ore andrebbero recuperate in accordo con il tuo responsabile.
           </p>
           <div className="profile-recovery-list">
             {pendingRecoveryItems.map((item, i) => (

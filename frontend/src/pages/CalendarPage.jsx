@@ -40,7 +40,7 @@ export const CALENDAR_FILTERS_STORAGE_KEY = 'hiplan-commesse-cal-filters';
 export const SORT_OPTIONS = [
   { key: 'start_date', label: 'Data inizio commessa', shortLabel: 'Data inizio' },
   { key: 'end_date', label: 'Data fine commessa', shortLabel: 'Data fine' },
-  { key: 'responsible', label: 'Responsabile / Referente', shortLabel: 'Responsabile' },
+  { key: 'responsible', label: 'Responsabile', shortLabel: 'Responsabile' },
   { key: 'code', label: 'Codice commessa', shortLabel: 'Codice' },
   { key: 'name', label: 'Titolo commessa', shortLabel: 'Titolo' },
   { key: 'client', label: 'Cliente', shortLabel: 'Cliente' },

@@ -154,7 +154,7 @@ async def get_replanning_suggestions(db: AsyncSession, current_user=None):
                         "department": None,
                         "worker": None,
                         "date": str(today),
-                        "reason": "La commessa non ha un referente o responsabile assegnato."
+                        "reason": "La commessa non ha un responsabile assegnato."
                     })
 
         workers_list = []

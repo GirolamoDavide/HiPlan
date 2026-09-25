@@ -56,7 +56,7 @@ La Dashboard mostra:
 
 Dalla pagina **Commesse**, selezionare **Nuova Commessa** (oppure cliccare su *Modifica Commessa* dalla scheda di dettaglio). Il popup moderno a due colonne consente una gestione spaziosa e ordinata:
 
-- **Colonna sinistra**: Codice e Cliente, Titolo commessa, Data di Inizio e Fine, Colore identificativo e Stato (*In Pianificazione*, *In Corso*, *Completata*, *Archiviata*), Referente e Note/Descrizione.
+- **Colonna sinistra**: Codice e Cliente, Titolo commessa, Data di Inizio e Fine, Colore identificativo e Stato (*In Pianificazione*, *In Corso*, *Completata*, *Archiviata*), Responsabile e Note/Descrizione.
 - **Colonna destra**:
   - **Tipologia Commessa**:
     - **Standard**: commessa ordinaria senza vincoli normativi speciali (selezionata automaticamente se non vi sono altri flag attivi).
