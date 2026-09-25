@@ -291,9 +291,13 @@ export default function ProjectDetailPage() {
     toast.success('Filtri e ordinamento reimpostati ai valori predefiniti');
   };
 
+  const VALID_PROJECT_TABS = ['gantt', 'commessa', 'note', 'alert', 'ai_analysis', 'activity_log'];
   const activeTabDefault = () => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('tab') || 'gantt';
+    const tab = params.get('tab');
+    if (tab === 'tasks') return 'gantt';
+    if (tab && VALID_PROJECT_TABS.includes(tab)) return tab;
+    return 'gantt';
   };
   const [activeTab, setActiveTab] = useState(activeTabDefault);
 
@@ -423,6 +427,13 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab === 'tasks') {
+      setActiveTab('gantt');
+    } else if (tab && VALID_PROJECT_TABS.includes(tab)) {
+      setActiveTab(tab);
+    }
+
     const openTask = params.get('open_task');
     const openTab = params.get('open_tab') || 'generale';
     if (openTask && ganttData.tasks && ganttData.tasks.length > 0) {

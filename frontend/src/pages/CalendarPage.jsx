@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import { useToast } from '../context/ToastContext';
@@ -10,7 +10,8 @@ import {
   vacationMatchesFilters,
   DEPARTMENT_OPTIONS,
 } from '../utils/calendarFilters';
-import TimelineView from '../components/calendar/TimelineView';
+import TimelineView, { TIMELINE_COLUMNS } from '../components/calendar/TimelineView';
+import { getCustomDatesList } from '../utils/customDates';
 import AppIcon from '../components/ui/AppIcon';
 import './CalendarPage.css';
 
@@ -34,7 +35,28 @@ const MONTH_NAMES_IT = [
   'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'
 ];
 
-const WEEKDAYS_IT = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
+export const CALENDAR_FILTERS_STORAGE_KEY = 'hiplan-commesse-cal-filters';
+
+export const loadSavedFilters = () => {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return { status: 'all', department: 'all', worker: 'all', search: '' };
+    }
+    const raw = localStorage.getItem(CALENDAR_FILTERS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          status: typeof parsed.status === 'string' ? parsed.status : 'all',
+          department: typeof parsed.department === 'string' ? parsed.department : 'all',
+          worker: typeof parsed.worker === 'string' ? parsed.worker : 'all',
+          search: typeof parsed.search === 'string' ? parsed.search : '',
+        };
+      }
+    }
+  } catch { }
+  return { status: 'all', department: 'all', worker: 'all', search: '' };
+};
 
 export default function CalendarPage() {
   const navigate = useNavigate();
@@ -48,22 +70,80 @@ export default function CalendarPage() {
   const [currYear, setCurrYear] = useState(today.getFullYear());
   const [currMonth, setCurrMonth] = useState(today.getMonth()); // 0-11
 
-  // Controlli e filtri
+  // Controlli e filtri (con persistenza in cache / localStorage)
   const [viewMode, setViewMode] = useState(() => {
     return localStorage.getItem('hiplan-commesse-cal-view') || 'timeline';
   });
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterWorker, setFilterWorker] = useState('all');
-  const [filterDepartment, setFilterDepartment] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  const savedFilters = useMemo(() => loadSavedFilters(), []);
+  const [filterStatus, setFilterStatus] = useState(savedFilters.status);
+  const [filterWorker, setFilterWorker] = useState(savedFilters.worker);
+  const [filterDepartment, setFilterDepartment] = useState(savedFilters.department);
+  const [searchQuery, setSearchQuery] = useState(savedFilters.search);
   const [systemUsers, setSystemUsers] = useState([]);
   const [vacations, setVacations] = useState([]);
+
+  // Salva filtri in cache al variare
+  useEffect(() => {
+    try {
+      if (filterStatus === 'all' && filterDepartment === 'all' && filterWorker === 'all' && !searchQuery.trim()) {
+        localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
+      } else {
+        localStorage.setItem(CALENDAR_FILTERS_STORAGE_KEY, JSON.stringify({
+          status: filterStatus,
+          department: filterDepartment,
+          worker: filterWorker,
+          search: searchQuery,
+        }));
+      }
+    } catch { }
+  }, [filterStatus, filterDepartment, filterWorker, searchQuery]);
 
   // Modali dettaglio
   const [selectedProject, setSelectedProject] = useState(null);
   const [selectedDayProjects, setSelectedDayProjects] = useState(null); // { dateStr, dayNum, list }
   const [editingVacation, setEditingVacation] = useState(null);
   const { user } = useAuth();
+
+  // Colonne visibili Timeline
+  const [timelineVisibleCols, setTimelineVisibleCols] = useState(() => {
+    try {
+      const saved = localStorage.getItem('hiplan-timeline-visible-cols');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch { }
+    return ['code', 'name', 'client', 'responsible'];
+  });
+
+  const [showToolbarColsMenu, setShowToolbarColsMenu] = useState(false);
+  const toolbarColsRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (toolbarColsRef.current && !toolbarColsRef.current.contains(event.target)) {
+        setShowToolbarColsMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleTimelineVisibleColsChange = (cols) => {
+    setTimelineVisibleCols(cols);
+    try {
+      localStorage.setItem('hiplan-timeline-visible-cols', JSON.stringify(cols));
+    } catch { }
+  };
+
+  const toggleTimelineCol = (colId) => {
+    if (timelineVisibleCols.includes(colId)) {
+      if (timelineVisibleCols.length === 1) return;
+      handleTimelineVisibleColsChange(timelineVisibleCols.filter(c => c !== colId));
+    } else {
+      handleTimelineVisibleColsChange([...timelineVisibleCols, colId]);
+    }
+  };
 
   const handleEditVacation = async (e) => {
     e.preventDefault();
@@ -129,7 +209,11 @@ export default function CalendarPage() {
   const filteredProjects = useMemo(() => {
     return projects.filter(p => {
       // 1. Filtro per stato commessa
-      if (filterStatus !== 'all') {
+      if (filterStatus === 'all') {
+        // Mostra in automatico tutte le commesse in pianificazione, in corso e completate (esclude solo archiviate)
+        const pStatus = (p.status || 'planning').toLowerCase();
+        if (pStatus === 'archived') return false;
+      } else {
         const pStatus = (p.status || '').toLowerCase();
         if (pStatus !== filterStatus.toLowerCase()) return false;
       }
@@ -333,6 +417,9 @@ export default function CalendarPage() {
     setFilterDepartment('all');
     setFilterWorker('all');
     setSearchQuery('');
+    try {
+      localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
+    } catch { }
   };
 
   return (
@@ -384,15 +471,15 @@ export default function CalendarPage() {
 
             <select
               className="input"
-              style={{ width: 160, minWidth: 120, maxWidth: '100%', flex: '0 1 auto', padding: '8px 12px', fontSize: '12px' }}
+              style={{ width: 175, minWidth: 135, maxWidth: '100%', flex: '0 1 auto', padding: '8px 12px', fontSize: '12px' }}
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
             >
-              <option value="all">Tutti gli stati</option>
-              <option value="active">In corso</option>
-              <option value="planning">In pianificazione</option>
-              <option value="completed">Completati</option>
-              <option value="archived">Archiviati</option>
+              <option value="all">Commesse attive</option>
+              <option value="active">Solo In corso</option>
+              <option value="planning">Solo In pianificazione</option>
+              <option value="completed">Solo Completate</option>
+              <option value="archived">Archiviate</option>
             </select>
 
             <select
@@ -429,6 +516,61 @@ export default function CalendarPage() {
                 <AppIcon name="close" size={12} />
                 Azzera
               </button>
+            )}
+
+            {viewMode === 'timeline' && (
+              <div style={{ position: 'relative' }} ref={toolbarColsRef}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowToolbarColsMenu(prev => !prev)}
+                  title="Personalizza colonne visibili"
+                  style={{ fontSize: '12px', padding: '6px 12px', height: '35px', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+                >
+                  <AppIcon name="columns" size={14} />
+                  <span>Colonne ({timelineVisibleCols.length}/{TIMELINE_COLUMNS.length})</span>
+                </button>
+                {showToolbarColsMenu && (
+                  <div className="action-popover" style={{
+                    position: 'absolute', top: '100%', right: 0, marginTop: 6, background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+                    borderRadius: 10, padding: 12, zIndex: 300, minWidth: 200, boxShadow: 'var(--shadow-lg)'
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Colonne visualizzate:
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {TIMELINE_COLUMNS.map(col => (
+                        <label key={col.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', userSelect: 'none' }}>
+                          <input
+                            type="checkbox"
+                            checked={timelineVisibleCols.includes(col.id)}
+                            onChange={() => toggleTimelineCol(col.id)}
+                          />
+                          {col.label}
+                        </label>
+                      ))}
+                    </div>
+                    <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 8, paddingTop: 8, display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-secondary"
+                        style={{ fontSize: 11, padding: '4px 8px', flex: 1 }}
+                        onClick={() => handleTimelineVisibleColsChange(TIMELINE_COLUMNS.map(c => c.id))}
+                      >
+                        Tutte
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        style={{ fontSize: 11, padding: '4px 8px' }}
+                        onClick={() => setShowToolbarColsMenu(false)}
+                      >
+                        Chiudi
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="calendar-view-toggle">
@@ -576,9 +718,11 @@ export default function CalendarPage() {
           searchQuery={searchQuery}
           systemUsers={systemUsers}
           vacations={vacations}
+          visibleColumns={timelineVisibleCols}
+          onVisibleColumnsChange={handleTimelineVisibleColsChange}
           onSelectProject={(proj) => {
             if (proj.selectedPhase) {
-              navigate(`/projects/${proj.id}?tab=tasks`);
+              navigate(`/projects/${proj.id}?tab=gantt`);
             } else {
               setSelectedProject(proj);
             }
@@ -674,29 +818,45 @@ export default function CalendarPage() {
                     if (phases.length === 0) {
                       return <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Nessuna fase corrisponde ai filtri selezionati.</span>;
                     }
-                    return phases.map(t => (
-                      <div
-                        key={t.id}
-                        style={{
-                          padding: '8px 10px',
-                          background: selectedProject.selectedPhase?.id === t.id ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-secondary)',
-                          borderRadius: 6,
-                          borderLeft: `3px solid ${selectedProject.selectedPhase?.id === t.id ? '#6366f1' : (selectedProject.color || '#185FA5')}`,
-                          fontSize: '0.8125rem'
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          <span>↳ {t.text}</span>
-                          <span className="inline-detail-row" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}><AppIcon name="clock" size={12} />{t.planned_hours || 8}h</span>
+                    return phases.map(t => {
+                      const cList = getCustomDatesList(t);
+                      const isCustom = t.budget_mode === 'custom_dates' || cList.length > 0;
+                      const customTotalH = cList.reduce((acc, d) => acc + (d.hours || 0), 0);
+                      const phaseHours = isCustom && customTotalH > 0 ? customTotalH : (t.planned_hours || 8);
+
+                      return (
+                        <div
+                          key={t.id}
+                          style={{
+                            padding: '8px 10px',
+                            background: selectedProject.selectedPhase?.id === t.id ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-secondary)',
+                            borderRadius: 6,
+                            borderLeft: `3px solid ${selectedProject.selectedPhase?.id === t.id ? '#6366f1' : (selectedProject.color || '#185FA5')}`,
+                            fontSize: '0.8125rem'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                              <span>↳ {t.text}</span>
+                              {isCustom && (
+                                <span className="badge badge-subtle" style={{ fontSize: '0.65rem' }}>
+                                  Date da calendario ({cList.length} gg)
+                                </span>
+                              )}
+                            </div>
+                            <span className="inline-detail-row" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              <AppIcon name="clock" size={12} />{phaseHours}h
+                            </span>
+                          </div>
+                          <div className="inline-detail-row" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                            <AppIcon name="calendar" size={12} />
+                            <strong>{t.start_date?.slice(0, 10)}</strong> → <strong>{t.end_date?.slice(0, 10) || 'N/D'}</strong>
+                            <AppIcon name="users" size={12} />
+                            Addetti: <strong>{Array.isArray(t.workers) && t.workers.length > 0 ? t.workers.join(', ') : 'Nessuno'}</strong>
+                          </div>
                         </div>
-                        <div className="inline-detail-row" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-                          <AppIcon name="calendar" size={12} />
-                          <strong>{t.start_date?.slice(0, 10)}</strong> → <strong>{t.end_date?.slice(0, 10) || 'N/D'}</strong>
-                          <AppIcon name="users" size={12} />
-                          Addetti: <strong>{Array.isArray(t.workers) && t.workers.length > 0 ? t.workers.join(', ') : 'Nessuno'}</strong>
-                        </div>
-                      </div>
-                    ));
+                      );
+                    });
                   })()}
                 </div>
               </div>

@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   taskMatchesWorker,
   taskMatchesDepartment,
   vacationMatchesFilters,
 } from '../../src/utils/calendarFilters';
+import { CALENDAR_FILTERS_STORAGE_KEY, loadSavedFilters } from '../../src/pages/CalendarPage';
 
 describe('calendarFilters', () => {
   const mockUsers = [
@@ -95,4 +96,49 @@ describe('calendarFilters', () => {
       expect(vacationMatchesFilters(mockVacation, { searchQuery: 'robot' }, mockUsers)).toBe(false);
     });
   });
+
+  describe('CalendarPage cached filters', () => {
+    let mockStore = {};
+    beforeEach(() => {
+      mockStore = {};
+      globalThis.localStorage = {
+        getItem: (k) => mockStore[k] || null,
+        setItem: (k, v) => { mockStore[k] = String(v); },
+        removeItem: (k) => { delete mockStore[k]; },
+        clear: () => { mockStore = {}; }
+      };
+    });
+
+    it('returns default filters if localStorage is empty or invalid', () => {
+      localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
+      expect(loadSavedFilters()).toEqual({
+        status: 'all',
+        department: 'all',
+        worker: 'all',
+        search: '',
+      });
+
+      localStorage.setItem(CALENDAR_FILTERS_STORAGE_KEY, 'invalid-json');
+      expect(loadSavedFilters()).toEqual({
+        status: 'all',
+        department: 'all',
+        worker: 'all',
+        search: '',
+      });
+    });
+
+    it('loads saved filters from localStorage', () => {
+      const saved = {
+        status: 'planning',
+        department: 'produzione',
+        worker: 'admin',
+        search: 'robot',
+      };
+      localStorage.setItem(CALENDAR_FILTERS_STORAGE_KEY, JSON.stringify(saved));
+      expect(loadSavedFilters()).toEqual(saved);
+
+      localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
+    });
+  });
 });
+
