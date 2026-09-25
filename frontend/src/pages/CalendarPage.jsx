@@ -4,6 +4,12 @@ import api from '../api/client';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { isWeekendOrHoliday } from '../utils/workingDays';
+import {
+  taskMatchesWorker,
+  taskMatchesDepartment,
+  vacationMatchesFilters,
+  DEPARTMENT_OPTIONS,
+} from '../utils/calendarFilters';
 import TimelineView from '../components/calendar/TimelineView';
 import AppIcon from '../components/ui/AppIcon';
 import './CalendarPage.css';
@@ -122,30 +128,47 @@ export default function CalendarPage() {
   // Filtra commesse per stato, addetto, reparto e ricerca
   const filteredProjects = useMemo(() => {
     return projects.filter(p => {
-      if (filterStatus !== 'all' && p.status !== filterStatus) return false;
-
-      // Filtro per addetto (utente) e/o reparto
-      if (filterWorker !== 'all' || filterDepartment !== 'all') {
-        const hasMatchingTask = Array.isArray(p.tasks) && p.tasks.some(t => {
-          // Se task.department è settato, controlla se combacia
-          const deptMatch = filterDepartment === 'all' || t.department === filterDepartment;
-          // Controlla addetti assegnati
-          const workerMatch = filterWorker === 'all' || (Array.isArray(t.workers) && t.workers.includes(filterWorker));
-          return deptMatch && workerMatch;
-        });
-        if (!hasMatchingTask) return false;
+      // 1. Filtro per stato commessa
+      if (filterStatus !== 'all') {
+        const pStatus = (p.status || '').toLowerCase();
+        if (pStatus !== filterStatus.toLowerCase()) return false;
       }
 
+      // 2. Filtro per addetto (utente) e/o reparto
+      if (filterWorker !== 'all' || filterDepartment !== 'all') {
+        const hasMatchingTask = Array.isArray(p.tasks) && p.tasks.some(t => {
+          const deptMatch = taskMatchesDepartment(t, filterDepartment, systemUsers);
+          const workerMatch = taskMatchesWorker(t, filterWorker, systemUsers);
+          return deptMatch && workerMatch;
+        });
+
+        if (!hasMatchingTask) {
+          if (!p.tasks || p.tasks.length === 0) {
+            const hasWorker = filterWorker === 'all' || (Array.isArray(p.assigned_workers) && p.assigned_workers.some(w => taskMatchesWorker({ workers: [w] }, filterWorker, systemUsers)));
+            const hasDept = filterDepartment === 'all' || (Array.isArray(p.assigned_workers) && p.assigned_workers.some(w => taskMatchesDepartment({ workers: [w] }, filterDepartment, systemUsers)));
+            if (!hasWorker || !hasDept) return false;
+          } else {
+            return false;
+          }
+        }
+      }
+
+      // 3. Filtro per ricerca testuale
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+        const q = searchQuery.toLowerCase().trim();
         const code = (p.code || '').toLowerCase();
         const name = (p.name || '').toLowerCase();
         const client = (p.client || '').toLowerCase();
-        if (!code.includes(q) && !name.includes(q) && !client.includes(q)) return false;
+        const taskMatch = Array.isArray(p.tasks) && p.tasks.some(t => {
+          const tText = (t.text || '').toLowerCase();
+          const tWorkers = Array.isArray(t.workers) ? t.workers.join(' ').toLowerCase() : '';
+          return tText.includes(q) || tWorkers.includes(q);
+        });
+        if (!code.includes(q) && !name.includes(q) && !client.includes(q) && !taskMatch) return false;
       }
       return true;
     });
-  }, [projects, filterStatus, filterWorker, searchQuery]);
+  }, [projects, filterStatus, filterWorker, filterDepartment, searchQuery, systemUsers]);
 
   // Gestione Mese Precedente / Successivo / Oggi
   function prevMonth() {
@@ -213,27 +236,32 @@ export default function CalendarPage() {
 
       // Aggiungi ferie
       const activeVacations = vacations.filter(v => {
-        if (filterWorker !== 'all' && v.username !== filterWorker) return false;
+        if (!vacationMatchesFilters(v, { filterWorker, filterDepartment, filterStatus, searchQuery }, systemUsers)) {
+          return false;
+        }
         const start = v.start_date.substring(0, 10);
         const end = v.end_date ? v.end_date.substring(0, 10) : start;
         return dateStr >= start && dateStr <= end;
       });
       activeVacations.forEach(v => {
+        const u = systemUsers.find(user => user.username === v.username);
+        const displayName = u?.full_name || v.username;
         activeList.push({
           id: `vac-${v.id}`,
           isVacation: true,
-          name: `Ferie: ${v.username}`,
-          displayTitle: `Ferie: ${v.username}`,
+          name: `Ferie: ${displayName}`,
+          displayTitle: `Ferie: ${displayName}`,
           color: '#f59e0b',
           status: 'planning'
         });
       });
 
       filteredProjects.forEach(p => {
-        if (filterWorker !== 'all') {
-          // Quando si filtra per addetto, controlla le singole fasi dell'addetto attive in questa data
+        if (filterWorker !== 'all' || filterDepartment !== 'all') {
+          // Quando si filtra per addetto o reparto, controlla le singole fasi dell'addetto/reparto attive in questa data
           const matchingTasks = (p.tasks || []).filter(t => {
-            if (!Array.isArray(t.workers) || !t.workers.includes(filterWorker)) return false;
+            if (!taskMatchesWorker(t, filterWorker, systemUsers)) return false;
+            if (!taskMatchesDepartment(t, filterDepartment, systemUsers)) return false;
             const tStart = t.start_date ? t.start_date.substring(0, 10) : '';
             const tEnd = t.end_date ? t.end_date.substring(0, 10) : tStart;
             return tStart <= dateStr && tEnd >= dateStr;
@@ -276,7 +304,7 @@ export default function CalendarPage() {
     }
 
     return cells;
-  }, [currYear, currMonth, filteredProjects, firstDayIndex, daysInMonth, filterWorker, vacations]);
+  }, [currYear, currMonth, filteredProjects, firstDayIndex, daysInMonth, filterWorker, filterDepartment, filterStatus, searchQuery, vacations, systemUsers]);
 
   // Funzione per formattare la durata in giorni tra due date
   function getDurationDays(start, end) {
@@ -287,6 +315,25 @@ export default function CalendarPage() {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
     return `${diffDays} giorni`;
   }
+
+  // Gestione cambio reparto con reset coerente dell'addetto selezionato
+  const handleDepartmentChange = (newDept) => {
+    setFilterDepartment(newDept);
+    if (newDept !== 'all' && filterWorker !== 'all') {
+      const selectedUser = systemUsers.find(u => u.username === filterWorker);
+      if (selectedUser && selectedUser.department && selectedUser.department !== newDept) {
+        setFilterWorker('all');
+      }
+    }
+  };
+
+  const hasActiveFilters = filterStatus !== 'all' || filterDepartment !== 'all' || filterWorker !== 'all' || Boolean(searchQuery.trim());
+  const resetAllFilters = () => {
+    setFilterStatus('all');
+    setFilterDepartment('all');
+    setFilterWorker('all');
+    setSearchQuery('');
+  };
 
   return (
     <div className="calendar-page">
@@ -352,13 +399,11 @@ export default function CalendarPage() {
               className="input"
               style={{ width: 170, minWidth: 130, maxWidth: '100%', flex: '0 1 auto', padding: '8px 12px', fontSize: '12px' }}
               value={filterDepartment}
-              onChange={(e) => setFilterDepartment(e.target.value)}
+              onChange={(e) => handleDepartmentChange(e.target.value)}
             >
-              <option value="all">Tutti i reparti</option>
-              <option value="ufficio_tecnico">Ufficio Tecnico</option>
-              <option value="produzione">Produzione</option>
-              <option value="amministrazione">Amministrazione</option>
-              <option value="acquisti">Acquisti</option>
+              {DEPARTMENT_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
             </select>
 
             <select
@@ -372,6 +417,19 @@ export default function CalendarPage() {
                 <option key={w.username} value={w.username}>{w.name}</option>
               ))}
             </select>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={resetAllFilters}
+                title="Azzera tutti i filtri"
+                style={{ fontSize: '12px', padding: '6px 10px', height: '35px', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
+              >
+                <AppIcon name="close" size={12} />
+                Azzera
+              </button>
+            )}
 
             <div className="calendar-view-toggle">
               <button
@@ -513,6 +571,10 @@ export default function CalendarPage() {
           currYear={currYear}
           currMonth={currMonth}
           filterWorker={filterWorker}
+          filterDepartment={filterDepartment}
+          filterStatus={filterStatus}
+          searchQuery={searchQuery}
+          systemUsers={systemUsers}
           vacations={vacations}
           onSelectProject={(proj) => {
             if (proj.selectedPhase) {
@@ -600,35 +662,42 @@ export default function CalendarPage() {
               <div style={{ marginTop: 10, background: 'var(--bg-primary)', padding: 14, borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
                 <span className="calendar-modal-label inline-detail-row" style={{ marginBottom: 8, color: 'var(--accent-400)', fontWeight: 700 }}>
                   <AppIcon name="gantt" size={15} />
-                  Fasi Operative {filterWorker !== 'all' ? `di ${filterWorker}` : `nella Commessa (${selectedProject.tasks?.length || 0})`}
+                  Fasi Operative nella Commessa ({(selectedProject.tasks || []).length})
                 </span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto' }}>
-                  {(filterWorker !== 'all' && selectedProject.matchingPhases ? selectedProject.matchingPhases : (selectedProject.tasks || [])).map(t => (
-                    <div
-                      key={t.id}
-                      style={{
-                        padding: '8px 10px',
-                        background: selectedProject.selectedPhase?.id === t.id ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-secondary)',
-                        borderRadius: 6,
-                        borderLeft: `3px solid ${selectedProject.selectedPhase?.id === t.id ? '#6366f1' : (selectedProject.color || '#185FA5')}`,
-                        fontSize: '0.8125rem'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, color: 'var(--text-primary)' }}>
-                        <span>↳ {t.text}</span>
-                        <span className="inline-detail-row" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}><AppIcon name="clock" size={12} />{t.planned_hours || 8}h</span>
+                  {(() => {
+                    const phases = (selectedProject.tasks || []).filter(t => {
+                      if (!taskMatchesWorker(t, filterWorker, systemUsers)) return false;
+                      if (!taskMatchesDepartment(t, filterDepartment, systemUsers)) return false;
+                      return true;
+                    });
+                    if (phases.length === 0) {
+                      return <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Nessuna fase corrisponde ai filtri selezionati.</span>;
+                    }
+                    return phases.map(t => (
+                      <div
+                        key={t.id}
+                        style={{
+                          padding: '8px 10px',
+                          background: selectedProject.selectedPhase?.id === t.id ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-secondary)',
+                          borderRadius: 6,
+                          borderLeft: `3px solid ${selectedProject.selectedPhase?.id === t.id ? '#6366f1' : (selectedProject.color || '#185FA5')}`,
+                          fontSize: '0.8125rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          <span>↳ {t.text}</span>
+                          <span className="inline-detail-row" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}><AppIcon name="clock" size={12} />{t.planned_hours || 8}h</span>
+                        </div>
+                        <div className="inline-detail-row" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                          <AppIcon name="calendar" size={12} />
+                          <strong>{t.start_date?.slice(0, 10)}</strong> → <strong>{t.end_date?.slice(0, 10) || 'N/D'}</strong>
+                          <AppIcon name="users" size={12} />
+                          Addetti: <strong>{Array.isArray(t.workers) && t.workers.length > 0 ? t.workers.join(', ') : 'Nessuno'}</strong>
+                        </div>
                       </div>
-                      <div className="inline-detail-row" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-                        <AppIcon name="calendar" size={12} />
-                        <strong>{t.start_date?.slice(0, 10)}</strong> → <strong>{t.end_date?.slice(0, 10) || 'N/D'}</strong>
-                        <AppIcon name="users" size={12} />
-                        Addetti: <strong>{Array.isArray(t.workers) && t.workers.length > 0 ? t.workers.join(', ') : 'Nessuno'}</strong>
-                      </div>
-                    </div>
-                  ))}
-                  {(selectedProject.tasks || []).length === 0 && (
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Nessuna fase specificata in questa commessa.</span>
-                  )}
+                    ));
+                  })()}
                 </div>
               </div>
             </div>

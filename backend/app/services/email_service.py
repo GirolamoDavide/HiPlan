@@ -90,10 +90,10 @@ async def send_todo_notification_email(
 ) -> bool:
     """Invia la email di notifica TODO."""
     if notify_type == "due_reminder":
-        subject = f"HiPlan - Promemoria Scadenza TODO: {todo_title}"
+        subject = f"HiPlan: {todo_title}"
         intro = "Il seguente TODO è in scadenza <strong>domani</strong> e non è ancora stato completato."
     else:
-        subject = f"HiPlan - Nuovo TODO Assegnato: {todo_title}"
+        subject = f"HiPlan: {todo_title}"
         intro = f"Hai ricevuto un nuovo TODO da <strong>{creator_name}</strong>."
 
     content_html = f"<p style='white-space: pre-wrap; margin-top: 12px;'>{todo_content}</p>" if todo_content else ""
@@ -102,9 +102,6 @@ async def send_todo_notification_email(
     body_html = f"""
     <html><body style="font-family: 'Segoe UI', Arial, sans-serif; background-color: #f9fafb; margin: 0; padding: 40px 20px;">
         <div style="max-width: 650px; margin: auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); overflow: hidden;">
-            <div style="background: linear-gradient(135deg, #185FA5, #2563eb); padding: 24px 32px;">
-                <h1 style="margin: 0; font-size: 1.5rem; font-weight: 600; letter-spacing: 0.5px;">HiPlan</h1>
-            </div>
             <div style="padding: 24px 32px 32px 32px;">
                 <p style="font-size: 1.05rem; line-height: 1.6; margin-top: 0; margin-bottom: 8px;">{intro}</p>
                 <div style="background: #f8fafc; border-left: 5px solid #2563eb; border-radius: 6px; padding: 24px; margin: 12px 0;">

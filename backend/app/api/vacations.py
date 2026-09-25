@@ -20,13 +20,37 @@ from app.utils.working_days import get_working_days_in_range
 router = APIRouter(prefix="/api/vacations", tags=["vacations"])
 
 
-from typing import Optional
+from typing import Optional, Any
 import asyncio
 
 class VacationCreate(BaseModel):
     start_date: date
     end_date: date
     reason: Optional[str] = None
+
+
+def _parse_json_list(val: Any) -> list:
+    if not val:
+        return []
+    if isinstance(val, list):
+        return val
+    try:
+        loaded = json.loads(val)
+        return loaded if isinstance(loaded, list) else []
+    except Exception:
+        return []
+
+
+def _parse_json_dict(val: Any) -> dict:
+    if not val:
+        return {}
+    if isinstance(val, dict):
+        return val
+    try:
+        loaded = json.loads(val)
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
 
 
 def _parse_json(val, default):
@@ -55,14 +79,15 @@ async def _compute_recovery_for_user(db: AsyncSession, user: User, vacation: Vac
     tasks_res = await db.execute(select(Task).options(joinedload(Task.project)))
     all_tasks = tasks_res.scalars().all()
 
+    username = str(user.username)
     recovery_items = []
     for task in all_tasks:
         if task.project:
             p_status = task.project.status.value if hasattr(task.project.status, 'value') else str(task.project.status)
             if p_status in ("completed", "archived", "ProjectStatus.COMPLETED", "ProjectStatus.ARCHIVED"):
                 continue
-        workers = _parse_json(task.workers, [])
-        if user.username not in workers:
+        workers = _parse_json_list(task.workers)
+        if username not in workers:
             continue
         if not task.start_date or not task.end_date:
             continue
@@ -84,9 +109,9 @@ async def _compute_recovery_for_user(db: AsyncSession, user: User, vacation: Vac
             continue
 
         # Hours assigned to this worker
-        worker_hours_map = _parse_json(task.worker_hours, {})
-        if user.username in worker_hours_map and worker_hours_map[user.username] is not None:
-            assigned_h = float(worker_hours_map[user.username])
+        worker_hours_map: dict = _parse_json_dict(task.worker_hours)
+        if username in worker_hours_map and worker_hours_map[username] is not None:
+            assigned_h = float(worker_hours_map[username])
         else:
             n_workers = len(workers) if workers else 1
             assigned_h = float(task.planned_hours or 8.0) / n_workers
@@ -343,7 +368,8 @@ async def list_all_vacations(db: AsyncSession = Depends(get_db), current_user: U
             "full_name": u.full_name,
             "start_date": str(v.start_date),
             "end_date": str(v.end_date),
-            "reason": v.reason
+            "reason": v.reason,
+            "department": u.department
         }
         for v, u in rows
     ]

@@ -3,6 +3,7 @@ import useDragScroll from '../../hooks/useDragScroll';
 import { getTaskColor } from '../../utils/phaseColors';
 import { isTaskCompleted } from '../../utils/taskCompletion';
 import { isWeekendOrHoliday } from '../../utils/workingDays';
+import { taskMatchesWorker, taskMatchesDepartment, vacationMatchesFilters } from '../../utils/calendarFilters';
 import AppIcon from '../ui/AppIcon';
 
 const STATUS_LABELS_IT = {
@@ -26,7 +27,19 @@ const toLocalDateKey = (date) => (
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 );
 
-export default function TimelineView({ projects, currYear, currMonth, filterWorker, onSelectProject, vacations = [], onDoubleClickVacation }) {
+export default function TimelineView({
+  projects,
+  currYear,
+  currMonth,
+  filterWorker,
+  filterDepartment,
+  filterStatus,
+  searchQuery,
+  systemUsers = [],
+  onSelectProject,
+  vacations = [],
+  onDoubleClickVacation
+}) {
   const today = new Date();
   const todayKey = toLocalDateKey(today);
   const [expandedProjects, setExpandedProjects] = useState({});
@@ -121,7 +134,9 @@ export default function TimelineView({ projects, currYear, currMonth, filterWork
 
       {(() => {
         const visibleVacations = vacations.filter(v => {
-          if (filterWorker && filterWorker !== 'all' && v.username !== filterWorker) return false;
+          if (!vacationMatchesFilters(v, { filterWorker, filterDepartment, filterStatus, searchQuery }, systemUsers)) {
+            return false;
+          }
           const vStart = v.start_date?.substring(0, 10) || '';
           const vEnd = v.end_date?.substring(0, 10) || '';
           return vEnd >= rangeStartStr && vStart <= rangeEndStr;
@@ -273,12 +288,12 @@ export default function TimelineView({ projects, currYear, currMonth, filterWork
             const spanDays = Math.max(1, endIdx - startIdx + 1);
 
             const matchingTasks = (proj.tasks || []).filter(t => {
-              if (filterWorker && filterWorker !== 'all') {
-                return Array.isArray(t.workers) && t.workers.includes(filterWorker);
-              }
+              if (!taskMatchesWorker(t, filterWorker, systemUsers)) return false;
+              if (!taskMatchesDepartment(t, filterDepartment, systemUsers)) return false;
               return true;
             });
-            const isExpanded = expandedProjects[proj.id] || (filterWorker && filterWorker !== 'all');
+            const isFiltered = (filterWorker && filterWorker !== 'all') || (filterDepartment && filterDepartment !== 'all');
+            const isExpanded = expandedProjects[proj.id] !== undefined ? expandedProjects[proj.id] : isFiltered;
 
             return (
               <React.Fragment key={proj.id}>
@@ -298,14 +313,14 @@ export default function TimelineView({ projects, currYear, currMonth, filterWork
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setExpandedProjects(prev => ({ ...prev, [proj.id]: !prev[proj.id] }));
+                          setExpandedProjects(prev => ({ ...prev, [proj.id]: !isExpanded }));
                         }}
                         className="timeline-phase-toggle"
                         title="Mostra singole fasi"
                         aria-expanded={Boolean(isExpanded)}
                       >
                         <AppIcon name={isExpanded ? 'chevronDown' : 'chevronRight'} size={12} />
-                        Fasi ({proj.tasks?.length || 0})
+                        Fasi ({isFiltered ? `${matchingTasks.length}/${proj.tasks?.length || 0}` : (proj.tasks?.length || 0)})
                       </button>
                     </span>
                   </div>
@@ -378,7 +393,7 @@ export default function TimelineView({ projects, currYear, currMonth, filterWork
                         >
                           <span aria-hidden="true">↳</span>
                           {isCompleted && <AppIcon name="check" size={13} />}
-                          <span>{t.text} {(filterWorker && filterWorker !== 'all') ? `(${filterWorker})` : ''}</span>
+                          <span>{t.text}</span>
                         </div>
                       </div>
                     </div>
