@@ -113,13 +113,105 @@ export function taskMatchesDepartment(task, deptFilter, systemUsers = []) {
 }
 
 /**
+ * Resolves the display name of a project's responsible.
+ */
+export function getProjectResponsible(proj, systemUsers = []) {
+  if (!proj) return '-';
+  if (proj.responsible_name) return proj.responsible_name;
+  if (proj.responsible_username) return proj.responsible_username;
+  if (proj.responsible_id && Array.isArray(systemUsers)) {
+    const u = systemUsers.find(user => String(user.id) === String(proj.responsible_id));
+    if (u) return u.full_name || u.username;
+  }
+  if (proj.owner_id && Array.isArray(systemUsers)) {
+    const u = systemUsers.find(user => String(user.id) === String(proj.owner_id));
+    if (u) return u.full_name || u.username;
+  }
+  return '-';
+}
+
+/**
+ * Checks if a project matches the selected responsible filter.
+ *
+ * @param {Object} project - The project object
+ * @param {string} respFilter - User username, user id, '__none__', or 'all'
+ * @param {Array} systemUsers - List of user objects from /users API
+ * @returns {boolean}
+ */
+export function projectMatchesResponsible(project, respFilter, systemUsers = []) {
+  if (!respFilter || respFilter === 'all') return true;
+  if (!project) return false;
+
+  // Filtro per commesse senza responsabile assegnato
+  if (respFilter === '__none__') {
+    const resp = getProjectResponsible(project, systemUsers);
+    return !resp || resp === '-';
+  }
+
+  const targetUser = systemUsers.find(
+    u => u.username === respFilter || String(u.id) === String(respFilter)
+  );
+  const targetUsername = clean(targetUser?.username || respFilter);
+  const targetFullName = clean(targetUser?.full_name);
+  const targetBaseName = stripBadge(targetUser?.full_name);
+  const targetId = targetUser?.id !== undefined ? String(targetUser.id) : String(respFilter);
+
+  // 1. Check responsible_id
+  if (project.responsible_id && (String(project.responsible_id) === targetId || String(project.responsible_id) === clean(respFilter))) {
+    return true;
+  }
+
+  // 2. Fallback check owner_id if no responsible_id
+  if (!project.responsible_id && project.owner_id && (String(project.owner_id) === targetId || String(project.owner_id) === clean(respFilter))) {
+    return true;
+  }
+
+  // 3. Check responsible_username
+  if (project.responsible_username) {
+    const rUserClean = clean(project.responsible_username);
+    if (rUserClean === targetUsername) return true;
+  }
+
+  // 4. Check responsible_name
+  if (project.responsible_name) {
+    const rNameClean = clean(project.responsible_name);
+    const rNameBase = stripBadge(project.responsible_name);
+    if (rNameClean === targetUsername) return true;
+    if (targetFullName && rNameClean === targetFullName) return true;
+    if (targetBaseName && rNameBase && targetBaseName === rNameBase) return true;
+  }
+
+  // 5. Check via getProjectResponsible resolution
+  const resolved = getProjectResponsible(project, systemUsers);
+  if (resolved && resolved !== '-') {
+    const resClean = clean(resolved);
+    const resBase = stripBadge(resolved);
+    if (resClean === targetUsername) return true;
+    if (targetFullName && resClean === targetFullName) return true;
+    if (targetBaseName && resBase && targetBaseName === resBase) return true;
+  }
+
+  return false;
+}
+
+/**
  * Checks if a vacation entry matches active filters.
  */
 export function vacationMatchesFilters(vacation, filters, systemUsers = []) {
-  const { filterWorker = 'all', filterDepartment = 'all', filterStatus = 'all', searchQuery = '' } = filters || {};
+  const { filterWorker = 'all', filterDepartment = 'all', filterStatus = 'all', filterStatuses, filterResponsible = 'all', searchQuery = '' } = filters || {};
 
-  // Vacations don't have project status, hide if a project status is selected
-  if (filterStatus !== 'all') return false;
+  // Vacations don't have project status or project responsible, hide if a project status or responsible is selected
+  if (filterStatus && filterStatus !== 'all') return false;
+  if (Array.isArray(filterStatuses)) {
+    const isDefaultStatuses = filterStatuses.length === 3 &&
+      filterStatuses.includes('planning') &&
+      filterStatuses.includes('active') &&
+      filterStatuses.includes('completed');
+    if (!isDefaultStatuses && filterStatuses.length < 3) {
+      return false;
+    }
+  }
+  if (filterResponsible && filterResponsible !== 'all') return false;
 
   // Check worker filter
   if (filterWorker !== 'all') {
@@ -153,3 +245,4 @@ export function vacationMatchesFilters(vacation, filters, systemUsers = []) {
 
   return true;
 }
+

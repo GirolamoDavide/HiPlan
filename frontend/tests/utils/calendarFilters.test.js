@@ -3,6 +3,7 @@ import {
   taskMatchesWorker,
   taskMatchesDepartment,
   vacationMatchesFilters,
+  projectMatchesResponsible,
 } from '../../src/utils/calendarFilters';
 import { CALENDAR_FILTERS_STORAGE_KEY, loadSavedFilters, sortProjects, SORT_OPTIONS } from '../../src/pages/CalendarPage';
 
@@ -66,6 +67,45 @@ describe('calendarFilters', () => {
     });
   });
 
+  describe('projectMatchesResponsible', () => {
+    it('returns true when filter is "all" or empty', () => {
+      const proj = { responsible_id: 'u1' };
+      expect(projectMatchesResponsible(proj, 'all', mockUsers)).toBe(true);
+      expect(projectMatchesResponsible(proj, '', mockUsers)).toBe(true);
+    });
+
+    it('matches project by responsible_id', () => {
+      const proj = { responsible_id: 'u1' };
+      expect(projectMatchesResponsible(proj, 'marco_uff', mockUsers)).toBe(true);
+      expect(projectMatchesResponsible(proj, 'laura_acq', mockUsers)).toBe(false);
+    });
+
+    it('matches project by fallback owner_id when responsible_id is missing', () => {
+      const proj = { owner_id: 'u2' };
+      expect(projectMatchesResponsible(proj, 'laura_acq', mockUsers)).toBe(true);
+      expect(projectMatchesResponsible(proj, 'marco_uff', mockUsers)).toBe(false);
+    });
+
+    it('matches project by responsible_username', () => {
+      const proj = { responsible_username: 'franco_pro' };
+      expect(projectMatchesResponsible(proj, 'franco_pro', mockUsers)).toBe(true);
+      expect(projectMatchesResponsible(proj, 'marco_uff', mockUsers)).toBe(false);
+    });
+
+    it('matches project by responsible_name', () => {
+      const proj = { responsible_name: 'Marco (UT)' };
+      expect(projectMatchesResponsible(proj, 'marco_uff', mockUsers)).toBe(true);
+      expect(projectMatchesResponsible(proj, 'topolino', mockUsers)).toBe(false);
+    });
+
+    it('matches unassigned projects when filter is "__none__"', () => {
+      const unassignedProj = {};
+      const assignedProj = { responsible_id: 'u1' };
+      expect(projectMatchesResponsible(unassignedProj, '__none__', mockUsers)).toBe(true);
+      expect(projectMatchesResponsible(assignedProj, '__none__', mockUsers)).toBe(false);
+    });
+  });
+
   describe('vacationMatchesFilters', () => {
     const mockVacation = {
       id: 'v1',
@@ -78,6 +118,13 @@ describe('calendarFilters', () => {
     it('hides vacations if project status filter is active', () => {
       expect(vacationMatchesFilters(mockVacation, { filterStatus: 'active' }, mockUsers)).toBe(false);
       expect(vacationMatchesFilters(mockVacation, { filterStatus: 'all' }, mockUsers)).toBe(true);
+      expect(vacationMatchesFilters(mockVacation, { filterStatuses: ['active'] }, mockUsers)).toBe(false);
+      expect(vacationMatchesFilters(mockVacation, { filterStatuses: ['planning', 'active', 'completed'] }, mockUsers)).toBe(true);
+    });
+
+    it('hides vacations if project responsible filter is active', () => {
+      expect(vacationMatchesFilters(mockVacation, { filterResponsible: 'marco_uff' }, mockUsers)).toBe(false);
+      expect(vacationMatchesFilters(mockVacation, { filterResponsible: 'all' }, mockUsers)).toBe(true);
     });
 
     it('filters vacations by worker', () => {
@@ -112,9 +159,10 @@ describe('calendarFilters', () => {
     it('returns default filters if localStorage is empty or invalid', () => {
       localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
       expect(loadSavedFilters()).toEqual({
-        status: 'all',
+        statuses: ['planning', 'active', 'completed'],
         department: 'all',
         worker: 'all',
+        responsible: 'all',
         search: '',
         sortKey: 'none',
         sortDirection: 'asc',
@@ -122,20 +170,22 @@ describe('calendarFilters', () => {
 
       localStorage.setItem(CALENDAR_FILTERS_STORAGE_KEY, 'invalid-json');
       expect(loadSavedFilters()).toEqual({
-        status: 'all',
+        statuses: ['planning', 'active', 'completed'],
         department: 'all',
         worker: 'all',
+        responsible: 'all',
         search: '',
         sortKey: 'none',
         sortDirection: 'asc',
       });
     });
 
-    it('loads saved filters from localStorage including sort settings', () => {
+    it('loads saved filters from localStorage including sort settings and responsible', () => {
       const saved = {
-        status: 'planning',
+        statuses: ['planning', 'active'],
         department: 'produzione',
         worker: 'admin',
+        responsible: 'marco_uff',
         search: 'robot',
         sortKey: 'start_date',
         sortDirection: 'desc',
@@ -144,6 +194,28 @@ describe('calendarFilters', () => {
       expect(loadSavedFilters()).toEqual(saved);
 
       localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
+    });
+
+    it('backward-compatibility: migrates legacy status string to statuses array', () => {
+      const legacy = {
+        status: 'completed',
+        department: 'acquisti',
+        worker: 'all',
+        responsible: 'all',
+        search: '',
+        sortKey: 'none',
+        sortDirection: 'asc',
+      };
+      localStorage.setItem(CALENDAR_FILTERS_STORAGE_KEY, JSON.stringify(legacy));
+      expect(loadSavedFilters()).toEqual({
+        statuses: ['completed'],
+        department: 'acquisti',
+        worker: 'all',
+        responsible: 'all',
+        search: '',
+        sortKey: 'none',
+        sortDirection: 'asc',
+      });
     });
   });
 

@@ -17,7 +17,8 @@ import {
   XCircle,
   Info,
   Eye,
-  LayoutGrid
+  LayoutGrid,
+  SlidersHorizontal
 } from 'lucide-react';
 import ReplanningGanttPreview from './ReplanningGanttPreview';
 
@@ -49,6 +50,13 @@ export default function SmartReplanningSection({
   const [confirmModalSuggestion, setConfirmModalSuggestion] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
   const [previewSuggestionId, setPreviewSuggestionId] = useState(null);
+  const [aiPreference, setAiPreference] = useState(() => {
+    try {
+      return localStorage.getItem('hiplan-replanning-user-preference') || 'none';
+    } catch {
+      return 'none';
+    }
+  });
 
   const canManage = user?.role === 'admin' || user?.role === 'editor';
   const prevFingerprintRef = useRef(null);
@@ -98,11 +106,14 @@ export default function SmartReplanningSection({
     return `${tasksStr}#${linksStr}`;
   }, [tasks, links]);
 
-  const fetchSuggestions = useCallback(async () => {
+  const fetchSuggestions = useCallback(async (prefOverride) => {
     if (!projectId || !canManage) return;
     setLoading(true);
+    const prefToUse = prefOverride !== undefined ? prefOverride : aiPreference;
     try {
-      const res = await api.get(`/replanning/project/${projectId}/suggestions?_t=${Date.now()}`);
+      const res = await api.get(
+        `/replanning/project/${projectId}/suggestions?preference=${encodeURIComponent(prefToUse)}&_t=${Date.now()}`
+      );
       setReplanData(res.data);
     } catch (err) {
       console.error('Errore caricamento suggerimenti di replanning:', err);
@@ -110,7 +121,22 @@ export default function SmartReplanningSection({
     } finally {
       setLoading(false);
     }
-  }, [projectId, canManage]);
+  }, [projectId, canManage, aiPreference]);
+
+  const handlePreferenceChange = (newPref) => {
+    setAiPreference(newPref);
+    try {
+      localStorage.setItem('hiplan-replanning-user-preference', newPref);
+    } catch { }
+    fetchSuggestions(newPref);
+    if (newPref === 'change_worker') {
+      toast.info('Preferenza AI impostata: Preferisco cambiare addetto');
+    } else if (newPref === 'keep_worker') {
+      toast.info("Preferenza AI impostata: Preferisco lasciare l'addetto corrente e cambiare giorni");
+    } else {
+      toast.info('Preferenza AI impostata: Nessuna preferenza (analisi bilanciata)');
+    }
+  };
 
   // Caricamento iniziale al montaggio
   useEffect(() => {
@@ -348,8 +374,48 @@ export default function SmartReplanningSection({
               )}
             </div>
 
-            {/* Pulsanti Anteprima Gantt e Aggiorna posizionati sul lato destro */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+            {/* Preferenza Riprogrammatore AI + Pulsanti Azione */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto', flexWrap: 'wrap' }}>
+              {/* Selettore Preferenza AI */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: aiPreference !== 'none' ? 'rgba(37, 99, 235, 0.08)' : '#ffffff',
+                  border: aiPreference !== 'none' ? '1px solid #93c5fd' : '1px solid #cbd5e1',
+                  borderRadius: '10px',
+                  padding: '4px 10px',
+                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+                  transition: 'all 0.2s ease'
+                }}
+                title="Indica all'ottimizzatore AI come preferisci risolvere i conflitti (ferie, sovraccarichi e ritardi)"
+              >
+                <SlidersHorizontal size={14} color={aiPreference !== 'none' ? '#2563eb' : '#64748b'} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>
+                  Preferenza AI:
+                </span>
+                <select
+                  value={aiPreference}
+                  onChange={(e) => handlePreferenceChange(e.target.value)}
+                  disabled={loading}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: aiPreference !== 'none' ? '#1d4ed8' : '#1e293b',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    padding: '2px 4px'
+                  }}
+                >
+                  <option value="none">Nessuna preferenza</option>
+                  <option value="change_worker">Preferisco cambiare addetto</option>
+                  <option value="keep_worker">Preferisco lasciare l'addetto corrente e cambiare giorni</option>
+                </select>
+              </div>
+
               {replanData?.actionable_suggestions_count > 0 && (
                 <button
                   className="btn btn-secondary"
@@ -374,7 +440,7 @@ export default function SmartReplanningSection({
 
               <button
                 className="btn btn-secondary"
-                onClick={fetchSuggestions}
+                onClick={() => fetchSuggestions()}
                 disabled={loading}
                 title="Ricalcola analisi orari e carichi"
                 style={{ padding: '8px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}

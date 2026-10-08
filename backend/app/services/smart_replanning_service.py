@@ -910,20 +910,23 @@ def detect_cross_project_impact(
 async def generate_project_smart_suggestions(
     db: AsyncSession,
     project_id: str,
-    current_user: Optional[User] = None
+    current_user: Optional[User] = None,
+    preference: Optional[str] = "none"
 ) -> Dict[str, Any]:
     """
     Motore Principale di Analisi e Rebalance per una specifica commessa:
     1. Raccoglie il contesto globale di tutte le commesse e tutti gli addetti.
     2. Identifica i conflitti di questa commessa (ferie, sovraccarichi, ritardi, scadenze).
-    3. Formula proposte intelligenti secondo l'ordine di priorità:
-       - Riassegnazione risorsa (nessun cambio date)
-       - Spostamento nel margine libero interno (fine commessa intatta)
-       - Supporto / Parallelizzazione
-       - Allarme ultima spiaggia (richiesta estensione manuale)
+    3. Formula proposte intelligenti orientate dalla preferenza utente:
+       - change_worker: preferisce cambiare addetto (riassegnazione su collega libero mantenendo le date)
+       - keep_worker: preferisce lasciare l'addetto corrente e cambiare giorni (spostamento date)
+       - none: bilanciato automatico
     4. Calcola la propagazione a cascata e verifica l'impatto cross-commessa.
     """
     today = date.today()
+    pref = (preference or "none").strip().lower()
+    if pref not in ["change_worker", "keep_worker", "none"]:
+        pref = "none"
     context = await build_global_schedule_context(db)
     
     active_projects = context["active_projects"]
@@ -1139,7 +1142,100 @@ async def generate_project_smart_suggestions(
                     department_filter=task.department or w_user.department
                 )
 
-                if same_worker_res and cascade and target_start and target_end and not cascade["exceeds_project_deadline"]:
+                if pref == "change_worker" and alt_worker:
+                    new_workers = [alt_worker["worker_name"] if cur == w else cur for cur in workers]
+                    new_w_hours = dict(w_hours_map)
+                    if w in new_w_hours:
+                        new_w_hours[alt_worker["worker_name"]] = new_w_hours.pop(w)
+
+                    sugg_id = f"vac_reassign_{task.id}_{w_uid}_{conflicting_vac_dates[0].strftime('%Y%m%d')}"
+                    suggestions.append({
+                        "id": sugg_id,
+                        "type": "vacation_conflict",
+                        "severity": "medium",
+                        "title": f"Cambio Addetto per Ferie: {w} → {alt_worker['worker_name']}",
+                        "description": f"L'addetto {w} è in ferie per {len(conflicting_vac_dates)} gg. In accordo con la preferenza di cambiare addetto, la lavorazione viene affidata al collega {alt_worker['worker_name']}, mantenendo invariate le date pianificate.",
+                        "task_id": str(task.id),
+                        "task_name": task.text,
+                        "strategy": "reassign_worker",
+                        "strategy_label": "Riassegnazione a Risorsa Alternativa",
+                        "badge": "Cambio Addetto",
+                        "is_alternative": False,
+                        "action_label": f"Riassegna a {alt_worker['worker_name']} (date invariate)",
+                        "current_state": {
+                            "workers": workers,
+                            "start_date": str(task.start_date),
+                            "end_date": str(task.end_date),
+                            "conflicting_dates": [d.strftime("%d/%m/%Y") for d in conflicting_vac_dates]
+                        },
+                        "proposed_changes": {
+                            "task_id": str(task.id),
+                            "workers": new_workers,
+                            "worker_hours": new_w_hours,
+                            "start_date": str(task.start_date),
+                            "end_date": str(task.end_date),
+                            "shift_working_days": 0
+                        },
+                        "cascade_impact": {
+                            "same_project_tasks": [],
+                            "other_projects": [
+                                {
+                                    "worker": alt_worker["worker_name"],
+                                    "status": "safe",
+                                    "message": f"{alt_worker['worker_name']} ha capienza libera (~{alt_worker['min_daily_free_hours']}h/gg) per coprire la fase."
+                                }
+                            ],
+                            "project_deadline_status": "safe",
+                            "deadline_message": f"Scadenza commessa ({proj_end_date.strftime('%d/%m/%Y') if proj_end_date else 'N.D.'}) rispettata."
+                        }
+                    })
+
+                    # Opzione alternativa: spostamento al rientro se fattibile
+                    if same_worker_res and cascade and target_start and target_end and not cascade["exceeds_project_deadline"]:
+                        shift_days = get_working_days_count(task.start_date, target_start) - 1
+                        shifted_custom_dates = None
+                        if task_custom_dates:
+                            shifted_custom_dates, sc_start, sc_end = shift_custom_dates(task_custom_dates, shift_days)
+                            target_start = sc_start or target_start
+                            target_end = sc_end or target_end
+
+                        alt_sugg_id = f"vac_shift_alt_{task.id}_{w_uid}_{target_start.strftime('%Y%m%d')}"
+                        suggestions.append({
+                            "id": alt_sugg_id,
+                            "type": "vacation_conflict",
+                            "severity": "low",
+                            "title": f"Opzione Alternativa: Sposta al Rientro di {w}",
+                            "description": f"Se si preferisce mantenere {w}, la lavorazione può essere recuperata al suo rientro ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')}).",
+                            "task_id": str(task.id),
+                            "task_name": task.text,
+                            "strategy": "internal_shift",
+                            "strategy_label": "Recupero Post-Ferie (Stesso Addetto)",
+                            "badge": "Opzione Alternativa",
+                            "is_alternative": True,
+                            "action_label": f"Sposta al rientro di {w} ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')})",
+                            "current_state": {
+                                "workers": workers,
+                                "start_date": str(task.start_date),
+                                "end_date": str(task.end_date),
+                                "conflicting_dates": [d.strftime("%d/%m/%Y") for d in conflicting_vac_dates]
+                            },
+                            "proposed_changes": {
+                                "task_id": str(task.id),
+                                "workers": workers,
+                                "worker_hours": w_hours_map,
+                                "start_date": str(target_start),
+                                "end_date": str(target_end),
+                                "shift_working_days": shift_days,
+                                "custom_dates": shifted_custom_dates
+                            },
+                            "cascade_impact": {
+                                "same_project_tasks": cascade["affected_successors"],
+                                "other_projects": [],
+                                "project_deadline_status": "safe",
+                                "deadline_message": f"Tutte le fasi a valle rimangono entro la scadenza finale ({proj_end_date.strftime('%d/%m/%Y')})."
+                            }
+                        })
+                elif same_worker_res and cascade and target_start and target_end and not cascade["exceeds_project_deadline"]:
                     # L'addetto stesso recupera il lavoro al rientro senza violare la scadenza commessa
                     shift_days = get_working_days_count(task.start_date, target_start) - 1
                     shifted_custom_dates = None
@@ -1155,12 +1251,19 @@ async def generate_project_smart_suggestions(
                         needed_daily_h=daily_needed_h,
                         downstream_tasks=cascade["affected_successors"]
                     )
+                    if pref == "keep_worker":
+                        desc_text = f"L'addetto {w} è in ferie per {len(conflicting_vac_dates)} gg. In accordo con la preferenza di lasciare l'addetto e cambiare giorni, {w} recupera la lavorazione al rientro ({target_start.strftime('%d/%m')}); la commessa ha margine sufficiente per assorbire lo slittamento senza sforare la consegna finale."
+                    elif pref == "change_worker":
+                        desc_text = f"L'addetto {w} è in ferie per {len(conflicting_vac_dates)} gg. Non essendo disponibili colleghi alternativi liberi nel reparto per il cambio addetto, {w} recupera al rientro ({target_start.strftime('%d/%m')})."
+                    else:
+                        desc_text = f"L'addetto {w} è in ferie per {len(conflicting_vac_dates)} gg. Come preferito, l'addetto stesso recupera la lavorazione al rientro ({target_start.strftime('%d/%m')}); la commessa ha margine sufficiente per assorbire lo slittamento senza sforare la consegna finale."
+
                     suggestions.append({
                         "id": sugg_id,
                         "type": "vacation_conflict",
                         "severity": "medium",
                         "title": f"Recupero Post-Ferie: {w}",
-                        "description": f"L'addetto {w} è in ferie per {len(conflicting_vac_dates)} gg. Come preferito, l'addetto stesso recupera la lavorazione al rientro ({target_start.strftime('%d/%m')}); la commessa ha margine sufficiente per assorbire lo slittamento senza sforare la consegna finale.",
+                        "description": desc_text,
                         "task_id": str(task.id),
                         "task_name": task.text,
                         "strategy": "internal_shift",
@@ -1390,7 +1493,95 @@ async def generate_project_smart_suggestions(
                     department_filter=task.department or (w_user.department if w_user else None)
                 )
 
-                if same_worker_res and cascade and target_start and target_end and not cascade["exceeds_project_deadline"]:
+                if pref == "change_worker" and alt_worker:
+                    new_workers = [alt_worker["worker_name"] if cur == w else cur for cur in workers]
+                    new_w_hours = dict(w_hours_map)
+                    if w in new_w_hours:
+                        new_w_hours[alt_worker["worker_name"]] = new_w_hours.pop(w)
+
+                    sugg_id = f"overload_reassign_{task.id}_{w}_{genuine_overload_dates[0][0].strftime('%Y%m%d')}"
+                    suggestions.append({
+                        "id": sugg_id,
+                        "type": "overload_conflict",
+                        "severity": "medium",
+                        "title": f"Risolvi Sovraccarico con Cambio Addetto: {w} → {alt_worker['worker_name']}",
+                        "description": f"L'addetto {w} ha un picco di {round(max_overload_val, 1)}h/gg. In accordo con la preferenza di cambiare addetto, la lavorazione viene affidata al collega {alt_worker['worker_name']}, mantenendo invariate le date pianificate.",
+                        "task_id": str(task.id),
+                        "task_name": task.text,
+                        "strategy": "reassign_worker",
+                        "strategy_label": "Riassegnazione a Risorsa Alternativa",
+                        "badge": "Cambio Addetto",
+                        "is_alternative": False,
+                        "action_label": f"Riassegna a {alt_worker['worker_name']} (date invariate)",
+                        "current_state": {
+                            "workers": workers,
+                            "start_date": str(task.start_date),
+                            "end_date": str(task.end_date),
+                            "peak_hours": round(max_overload_val, 1),
+                            "overload_days_count": len(genuine_overload_dates)
+                        },
+                        "proposed_changes": {
+                            "task_id": str(task.id),
+                            "workers": new_workers,
+                            "worker_hours": new_w_hours,
+                            "start_date": str(task.start_date),
+                            "end_date": str(task.end_date),
+                            "shift_working_days": 0
+                        },
+                        "cascade_impact": {
+                            "same_project_tasks": [],
+                            "other_projects": [
+                                {
+                                    "worker": alt_worker["worker_name"],
+                                    "status": "safe",
+                                    "message": f"{alt_worker['worker_name']} accoglie il task rimanendo entro il limite di 8h giornaliere."
+                                }
+                            ],
+                            "project_deadline_status": "safe",
+                            "deadline_message": "Date della commessa invariate al 100%."
+                        }
+                    })
+
+                    # Opzione alternativa: spostamento in finestra libera se possibile
+                    if same_worker_res and cascade and target_start and target_end and not cascade["exceeds_project_deadline"]:
+                        shift_days = get_working_days_count(task.start_date, target_start) - 1
+                        alt_sugg_id = f"overload_shift_alt_{task.id}_{w}_{target_start.strftime('%Y%m%d')}"
+                        suggestions.append({
+                            "id": alt_sugg_id,
+                            "type": "overload_conflict",
+                            "severity": "low",
+                            "title": f"Opzione Alternativa: Riprogramma su {w}",
+                            "description": f"Se si preferisce mantenere {w}, la fase può essere spostata nella prima finestra utile ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')}).",
+                            "task_id": str(task.id),
+                            "task_name": task.text,
+                            "strategy": "internal_shift",
+                            "strategy_label": "Riprogrammazione su Stesso Addetto",
+                            "badge": "Opzione Alternativa",
+                            "is_alternative": True,
+                            "action_label": f"Riprogramma su {w} ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')})",
+                            "current_state": {
+                                "workers": workers,
+                                "start_date": str(task.start_date),
+                                "end_date": str(task.end_date),
+                                "peak_hours": round(max_overload_val, 1),
+                                "overload_days_count": len(genuine_overload_dates)
+                            },
+                            "proposed_changes": {
+                                "task_id": str(task.id),
+                                "workers": workers,
+                                "worker_hours": w_hours_map,
+                                "start_date": str(target_start),
+                                "end_date": str(target_end),
+                                "shift_working_days": max(0, shift_days)
+                            },
+                            "cascade_impact": {
+                                "same_project_tasks": cascade["affected_successors"],
+                                "other_projects": [],
+                                "project_deadline_status": "safe",
+                                "deadline_message": f"Scadenza commessa ({proj_end_date.strftime('%d/%m/%Y') if proj_end_date else 'N.D.'}) rispettata."
+                            }
+                        })
+                elif same_worker_res and cascade and target_start and target_end and not cascade["exceeds_project_deadline"]:
                     shift_days = get_working_days_count(task.start_date, target_start) - 1
                     sugg_id = f"overload_shift_{task.id}_{w}_{target_start.strftime('%Y%m%d')}"
 
@@ -1400,12 +1591,19 @@ async def generate_project_smart_suggestions(
                         downstream_tasks=cascade["affected_successors"]
                     )
 
+                    if pref == "keep_worker":
+                        desc_text = f"L'addetto {w} ha un picco di {round(max_overload_val, 1)}h/gg. In accordo con la preferenza di lasciare l'addetto e cambiare giorni, il sovraccarico viene risolto riprogrammando {w} nella prima finestra libera ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')})."
+                    elif pref == "change_worker":
+                        desc_text = f"L'addetto {w} ha un picco di {round(max_overload_val, 1)}h/gg. Non essendo disponibili colleghi alternativi liberi nel reparto per il cambio addetto, la fase slitta nella prima finestra libera di {w} ({target_start.strftime('%d/%m')})."
+                    else:
+                        desc_text = f"L'addetto {w} ha un picco di {round(max_overload_val, 1)}h/gg. Come preferito, il sovraccarico viene risolto mantenendo {w} senza riassegnare ore ad altri colleghi, riprogrammando la fase nella prima finestra libera ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')}). Consegna commessa rispettata."
+
                     suggestions.append({
                         "id": sugg_id,
                         "type": "overload_conflict",
                         "severity": "medium",
                         "title": f"Riprogrammazione Sovraccarico: {w}",
-                        "description": f"L'addetto {w} ha un picco di {round(max_overload_val, 1)}h/gg. Come preferito, il sovraccarico viene risolto mantenendo {w} senza riassegnare ore ad altri colleghi, riprogrammando la fase nella prima finestra libera ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')}). Consegna commessa rispettata.",
+                        "description": desc_text,
                         "task_id": str(task.id),
                         "task_name": task.text,
                         "strategy": "internal_shift",
@@ -1614,42 +1812,186 @@ async def generate_project_smart_suggestions(
                     needed_daily_h=daily_needed_h,
                     downstream_tasks=cascade["affected_successors"]
                 )
-                suggestions.append({
-                    "id": sugg_id,
-                    "type": "delay_conflict",
-                    "severity": "high",
-                    "title": f"Recupero Fase Scaduta: '{task.text}'",
-                    "description": f"La fase è scaduta il {task.end_date.strftime('%d/%m/%Y')} ma mancano ancora {round(planned_h - tot_actual_h, 1)}h al completamento.",
-                    "task_id": str(task.id),
-                    "task_name": task.text,
-                    "strategy": "internal_shift",
-                    "strategy_label": "Riprogrammazione da Oggi",
-                    "badge": "Recupero Ritardo",
-                    "is_alternative": False,
-                    "action_label": f"Riprogramma dal {target_start.strftime('%d/%m')} al {target_end.strftime('%d/%m')}",
-                    "current_state": {
-                        "workers": workers,
-                        "start_date": str(task.start_date),
-                        "end_date": str(task.end_date),
-                        "actual_hours": tot_actual_h,
-                        "planned_hours": planned_h
-                    },
-                    "proposed_changes": {
+
+                # Cerca eventuale collega alternativo nel reparto per cambio addetto
+                alt_worker_candidate = None
+                for w_name in workers:
+                    alt_cand = find_alternative_worker(
+                        users, w_name, target_start, target_end, daily_needed_h, context,
+                        department_filter=task.department or (user_by_name.get(w_name.strip().lower()).department if user_by_name.get(w_name.strip().lower()) else None)
+                    )
+                    if alt_cand:
+                        alt_worker_candidate = (w_name, alt_cand)
+                        break
+
+                if pref == "change_worker" and alt_worker_candidate:
+                    orig_w, cand_info = alt_worker_candidate
+                    new_workers = [cand_info["worker_name"] if cur == orig_w else cur for cur in workers]
+                    new_w_hours = dict(w_hours_map)
+                    if orig_w in new_w_hours:
+                        new_w_hours[cand_info["worker_name"]] = new_w_hours.pop(orig_w)
+
+                    suggestions.append({
+                        "id": sugg_id,
+                        "type": "delay_conflict",
+                        "severity": "high",
+                        "title": f"Recupero Ritardo con Cambio Addetto: '{task.text}'",
+                        "description": f"La fase è scaduta il {task.end_date.strftime('%d/%m/%Y')} (mancano ancora {round(planned_h - tot_actual_h, 1)}h al completamento). In accordo con la preferenza di cambiare addetto, la lavorazione viene affidata al collega {cand_info['worker_name']} con riprogrammazione dal {target_start.strftime('%d/%m')} al {target_end.strftime('%d/%m')}.",
                         "task_id": str(task.id),
-                        "workers": workers,
-                        "worker_hours": w_hours_map,
-                        "start_date": str(target_start),
-                        "end_date": str(target_end),
-                        "shift_working_days": days_late
-                    },
-                    "cascade_impact": {
-                        "same_project_tasks": cascade["affected_successors"],
-                        "other_projects": cross_proj_impact,
-                        "project_deadline_status": "safe",
-                        "deadline_message": f"Tutte le fasi a valle rientrano entro la consegna finale ({proj_end_date.strftime('%d/%m/%Y') if proj_end_date else 'N.D.'})."
-                    }
-                })
-                sync_timeline_with_proposal(task, target_start, target_end, cascade, cross_proj_impact)
+                        "task_name": task.text,
+                        "strategy": "reassign_worker",
+                        "strategy_label": "Riassegnazione a Risorsa Alternativa",
+                        "badge": "Cambio Addetto",
+                        "is_alternative": False,
+                        "action_label": f"Riprogramma su {cand_info['worker_name']} ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')})",
+                        "current_state": {
+                            "workers": workers,
+                            "start_date": str(task.start_date),
+                            "end_date": str(task.end_date),
+                            "actual_hours": tot_actual_h,
+                            "planned_hours": planned_h
+                        },
+                        "proposed_changes": {
+                            "task_id": str(task.id),
+                            "workers": new_workers,
+                            "worker_hours": new_w_hours,
+                            "start_date": str(target_start),
+                            "end_date": str(target_end),
+                            "shift_working_days": days_late
+                        },
+                        "cascade_impact": {
+                            "same_project_tasks": cascade["affected_successors"],
+                            "other_projects": cross_proj_impact,
+                            "project_deadline_status": "safe",
+                            "deadline_message": f"Tutte le fasi a valle rientrano entro la consegna finale ({proj_end_date.strftime('%d/%m/%Y') if proj_end_date else 'N.D.'})."
+                        }
+                    })
+                    sync_timeline_with_proposal(task, target_start, target_end, cascade, cross_proj_impact)
+
+                    # Opzione alternativa: recupero con stesso addetto
+                    alt_sugg_id = f"expired_recovery_same_{task.id}_{today.strftime('%Y%m%d')}"
+                    suggestions.append({
+                        "id": alt_sugg_id,
+                        "type": "delay_conflict",
+                        "severity": "low",
+                        "title": f"Opzione Alternativa: Mantieni {', '.join(workers)}",
+                        "description": f"Se si preferisce mantenere {', '.join(workers)}, la lavorazione viene riprogrammata con lo stesso addetto dal {target_start.strftime('%d/%m')} al {target_end.strftime('%d/%m')}.",
+                        "task_id": str(task.id),
+                        "task_name": task.text,
+                        "strategy": "internal_shift",
+                        "strategy_label": "Riprogrammazione da Oggi",
+                        "badge": "Opzione Alternativa",
+                        "is_alternative": True,
+                        "action_label": f"Riprogramma con {', '.join(workers)} ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')})",
+                        "current_state": {
+                            "workers": workers,
+                            "start_date": str(task.start_date),
+                            "end_date": str(task.end_date),
+                            "actual_hours": tot_actual_h,
+                            "planned_hours": planned_h
+                        },
+                        "proposed_changes": {
+                            "task_id": str(task.id),
+                            "workers": workers,
+                            "worker_hours": w_hours_map,
+                            "start_date": str(target_start),
+                            "end_date": str(target_end),
+                            "shift_working_days": days_late
+                        },
+                        "cascade_impact": {
+                            "same_project_tasks": cascade["affected_successors"],
+                            "other_projects": cross_proj_impact,
+                            "project_deadline_status": "safe",
+                            "deadline_message": f"Tutte le fasi a valle rientrano entro la consegna finale ({proj_end_date.strftime('%d/%m/%Y') if proj_end_date else 'N.D.'})."
+                        }
+                    })
+                else:
+                    if pref == "keep_worker":
+                        desc_text = f"La fase è scaduta il {task.end_date.strftime('%d/%m/%Y')} ma mancano ancora {round(planned_h - tot_actual_h, 1)}h al completamento. In accordo con la preferenza di lasciare l'addetto corrente e cambiare giorni, {', '.join(workers)} recupera la lavorazione a partire da oggi ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')})."
+                    elif pref == "change_worker":
+                        desc_text = f"La fase è scaduta il {task.end_date.strftime('%d/%m/%Y')} ma mancano ancora {round(planned_h - tot_actual_h, 1)}h. Non essendo disponibili colleghi alternativi liberi nel reparto per il cambio addetto, {', '.join(workers)} recupera a partire da oggi ({target_start.strftime('%d/%m')} → {target_end.strftime('%d/%m')})."
+                    else:
+                        desc_text = f"La fase è scaduta il {task.end_date.strftime('%d/%m/%Y')} ma mancano ancora {round(planned_h - tot_actual_h, 1)}h al completamento."
+
+                    suggestions.append({
+                        "id": sugg_id,
+                        "type": "delay_conflict",
+                        "severity": "high",
+                        "title": f"Recupero Fase Scaduta: '{task.text}'",
+                        "description": desc_text,
+                        "task_id": str(task.id),
+                        "task_name": task.text,
+                        "strategy": "internal_shift",
+                        "strategy_label": "Riprogrammazione da Oggi",
+                        "badge": "Recupero Ritardo",
+                        "is_alternative": False,
+                        "action_label": f"Riprogramma dal {target_start.strftime('%d/%m')} al {target_end.strftime('%d/%m')}",
+                        "current_state": {
+                            "workers": workers,
+                            "start_date": str(task.start_date),
+                            "end_date": str(task.end_date),
+                            "actual_hours": tot_actual_h,
+                            "planned_hours": planned_h
+                        },
+                        "proposed_changes": {
+                            "task_id": str(task.id),
+                            "workers": workers,
+                            "worker_hours": w_hours_map,
+                            "start_date": str(target_start),
+                            "end_date": str(target_end),
+                            "shift_working_days": days_late
+                        },
+                        "cascade_impact": {
+                            "same_project_tasks": cascade["affected_successors"],
+                            "other_projects": cross_proj_impact,
+                            "project_deadline_status": "safe",
+                            "deadline_message": f"Tutte le fasi a valle rientrano entro la consegna finale ({proj_end_date.strftime('%d/%m/%Y') if proj_end_date else 'N.D.'})."
+                        }
+                    })
+                    sync_timeline_with_proposal(task, target_start, target_end, cascade, cross_proj_impact)
+
+                    if alt_worker_candidate:
+                        orig_w, cand_info = alt_worker_candidate
+                        new_workers = [cand_info["worker_name"] if cur == orig_w else cur for cur in workers]
+                        new_w_hours = dict(w_hours_map)
+                        if orig_w in new_w_hours:
+                            new_w_hours[cand_info["worker_name"]] = new_w_hours.pop(orig_w)
+                        alt_sugg_id = f"expired_recovery_alt_{task.id}_{today.strftime('%Y%m%d')}"
+                        suggestions.append({
+                            "id": alt_sugg_id,
+                            "type": "delay_conflict",
+                            "severity": "low",
+                            "title": f"Opzione Alternativa: Riassegna a {cand_info['worker_name']}",
+                            "description": f"Se si preferisce cambiare addetto, la fase scaduta può essere affidata al collega {cand_info['worker_name']} dal {target_start.strftime('%d/%m')}.",
+                            "task_id": str(task.id),
+                            "task_name": task.text,
+                            "strategy": "reassign_worker",
+                            "strategy_label": "Riassegnazione a Risorsa Alternativa",
+                            "badge": "Opzione Alternativa",
+                            "is_alternative": True,
+                            "action_label": f"Riprogramma su {cand_info['worker_name']}",
+                            "current_state": {
+                                "workers": workers,
+                                "start_date": str(task.start_date),
+                                "end_date": str(task.end_date),
+                                "actual_hours": tot_actual_h,
+                                "planned_hours": planned_h
+                            },
+                            "proposed_changes": {
+                                "task_id": str(task.id),
+                                "workers": new_workers,
+                                "worker_hours": new_w_hours,
+                                "start_date": str(target_start),
+                                "end_date": str(target_end),
+                                "shift_working_days": days_late
+                            },
+                            "cascade_impact": {
+                                "same_project_tasks": cascade["affected_successors"],
+                                "other_projects": cross_proj_impact,
+                                "project_deadline_status": "safe",
+                                "deadline_message": f"Tutte le fasi a valle rientrano entro la consegna finale ({proj_end_date.strftime('%d/%m/%Y') if proj_end_date else 'N.D.'})."
+                            }
+                        })
             else:
                 suggestions.append({
                     "id": sugg_id,
@@ -1798,6 +2140,7 @@ async def generate_project_smart_suggestions(
         "project_end_date": str(proj_end_date) if proj_end_date else None,
         "conflicts_count": len(suggestions),
         "actionable_suggestions_count": len([s for s in suggestions if s.get("proposed_changes")]),
+        "preference": pref,
         "suggestions": suggestions,
         "related_projects": related_projects,
         "history": history_logs

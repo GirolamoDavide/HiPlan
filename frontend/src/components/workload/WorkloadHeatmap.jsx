@@ -219,6 +219,54 @@ export default function WorkloadHeatmap() {
     return d + '/' + m + '/' + y;
   };
 
+  const formatTaskTooltip = (task, colKey, data) => {
+    const code = (task.project_code || '').trim();
+    const projName = (task.project_name || '').trim();
+    const client = (task.project_client || '').trim();
+
+    let projectHeader = '📁 Commessa: ';
+    if (code && projName && projName !== 'Progetto non specificato') {
+      projectHeader += `[${code}] ${projName}`;
+    } else if (code) {
+      projectHeader += `[${code}]`;
+    } else if (projName) {
+      projectHeader += projName;
+    } else {
+      projectHeader += 'Progetto non specificato';
+    }
+
+    if (client) {
+      projectHeader += ` • Cliente: ${client}`;
+    }
+
+    const phaseLine = task.type === 'milestone'
+      ? `🏁 Milestone: ${task.name}`
+      : `📌 Fase: ${task.name}`;
+
+    if (task.type === 'milestone') {
+      return `${projectHeader}\n${phaseLine}`;
+    }
+
+    const dateLabel = columnsMap.get(colKey) || formatDateStr(colKey);
+    const plannedItem = (data?.tasks || []).find(p => p.id === task.id);
+    const actualItem = (data?.actual_tasks || []).find(a => a.id === task.id);
+
+    const plannedH = plannedItem ? (plannedItem.hours?.toFixed(1) || '0.0') : (dataMode === 'planned' ? (task.hours?.toFixed(1) || '0.0') : '0.0');
+    const actualH = actualItem ? (actualItem.hours?.toFixed(1) || '0.0') : (dataMode === 'actual' ? (task.hours?.toFixed(1) || '0.0') : '0.0');
+    const totalPhaseH = task.total_assigned_hours ? `${task.total_assigned_hours.toFixed(1)}h` : '-';
+
+    let hoursLine = '';
+    if (dataMode === 'both') {
+      hoursLine = `⏱️ Ore giorno (${dateLabel}): ${actualH}h consuntivate / ${plannedH}h previste | Totale fase: ${totalPhaseH}`;
+    } else if (dataMode === 'actual') {
+      hoursLine = `⏱️ Ore consuntivate (${dateLabel}): ${actualH}h | Totale fase: ${totalPhaseH}`;
+    } else {
+      hoursLine = `⏱️ Ore previste (${dateLabel}): ${plannedH}h | Totale fase: ${totalPhaseH}`;
+    }
+
+    return `${projectHeader}\n${phaseLine}\n${hoursLine}`;
+  };
+
   return (
     <div className={`workload-heatmap-container ${!isWorkloadOpen ? 'is-collapsed' : ''}`}>
       <div 
@@ -543,20 +591,27 @@ export default function WorkloadHeatmap() {
                   }
                 }
 
+                const combinedTasks = dataMode === 'both'
+                  ? [...data.tasks, ...(data.actual_tasks || []).filter(a => !data.tasks.some(p => p.id === a.id))]
+                  : (dataMode === 'actual' ? (data.actual_tasks || []) : data.tasks);
+
                 let tooltipText = '';
 
                 if (isVacation) {
-                  tooltipText = 'Ferie (' + formatDateStr(colKey) + ')';
-                  if (data.tasks.length > 0) {
+                  tooltipText = '🏖️ Ferie (' + formatDateStr(colKey) + ')';
+                  if (combinedTasks.length > 0) {
                     tooltipText += '\n\n⚠️ ATTENZIONE: Ci sono ' + (data.hours?.toFixed(1) || 0) + 'h assegnate su un giorno di ferie!\n\n';
-                    tooltipText += data.tasks.map(t => '📁 ' + (t.project_name || 'Progetto') + '\n📌 ' + t.name + (t.type === 'milestone' ? '' : (': ' + (t.hours?.toFixed(1) || 0) + 'h (' + (columnsMap.get(colKey) || '') + ')'))).join('\n\n');
+                    tooltipText += combinedTasks.map(t => formatTaskTooltip(t, colKey, data)).join('\n\n────────────────────────\n\n');
                   }
                 } else if (isWeekendCol) {
                   tooltipText = formatDateStr(colKey) + ' (Sabato/Domenica/Festivo)';
-                } else if (data.tasks.length > 0) {
-                  tooltipText = data.tasks.map(t => '📁 ' + (t.project_name || 'Progetto') + '\n📌 ' + t.name + (t.type === 'milestone' ? '' : (': ' + (t.hours?.toFixed(1) || 0) + 'h (' + columnsMap.get(colKey) + ') | Totale Fase: ' + (t.total_assigned_hours?.toFixed(1) || '-') + 'h'))).join('\n\n');
+                  if (combinedTasks.length > 0) {
+                    tooltipText += '\n\n' + combinedTasks.map(t => formatTaskTooltip(t, colKey, data)).join('\n\n────────────────────────\n\n');
+                  }
+                } else if (combinedTasks.length > 0) {
+                  tooltipText = combinedTasks.map(t => formatTaskTooltip(t, colKey, data)).join('\n\n────────────────────────\n\n');
                 } else {
-                  tooltipText = 'Nessuna ora assegnata';
+                  tooltipText = 'Nessuna ora assegnata (' + formatDateStr(colKey) + ')';
                 }
 
                 const getCellText = () => {
@@ -661,8 +716,11 @@ export default function WorkloadHeatmap() {
                       <div style={{ fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={task.name}>
                         {task.name}
                       </div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={task.project_name}>
-                        📁 {task.project_name}
+                      <div
+                        style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        title={task.project_code && task.project_name && task.project_name !== 'Progetto non specificato' ? `[${task.project_code}] ${task.project_name}` : (task.project_code || task.project_name || 'Progetto')}
+                      >
+                        📁 {task.project_code && task.project_name && task.project_name !== 'Progetto non specificato' ? `[${task.project_code}] ${task.project_name}` : (task.project_code ? `[${task.project_code}]` : (task.project_name || 'Progetto'))}
                       </div>
                     </div>
 
@@ -762,9 +820,13 @@ export default function WorkloadHeatmap() {
                           barsByCol[startIdx] = [];
                         }
 
+                        const projectLabel = task.project_code && task.project_name && task.project_name !== 'Progetto non specificato'
+                          ? `[${task.project_code}] ${task.project_name}`
+                          : (task.project_code ? `[${task.project_code}]` : (task.project_name || ''));
+
                         const barTitle = seg.startDateStr === seg.endDateStr
-                          ? `${task.name} (${seg.startDateStr} • ${seg.hours}h)`
-                          : `${task.name} (${seg.startDateStr} → ${seg.endDateStr} • ${seg.hours}h)`;
+                          ? `${projectLabel ? `📁 Commessa: ${projectLabel}\n` : ''}📌 Fase: ${task.name}\n⏱️ ${seg.startDateStr} • ${seg.hours}h`
+                          : `${projectLabel ? `📁 Commessa: ${projectLabel}\n` : ''}📌 Fase: ${task.name}\n⏱️ ${seg.startDateStr} → ${seg.endDateStr} • ${seg.hours}h`;
 
                         barsByCol[startIdx].push({
                           left: viewMode === 'day' ? '4px' : `${startOffsetPx}px`,

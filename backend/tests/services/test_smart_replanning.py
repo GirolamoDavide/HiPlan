@@ -850,6 +850,87 @@ async def test_smart_replanning_custom_dates_cascade_and_revert(db_session: Asyn
     assert restored_c_dates[3]["date"] == "2026-10-19"
 
 
+@pytest.mark.asyncio
+async def test_smart_replanning_user_preferences(db_session: AsyncSession, test_user: User):
+    """
+    Test: Verifica che le preferenze dell'utente ("change_worker" vs "keep_worker")
+    guidino l'AI nell'orientare la proposta primaria rispetto all'opzione alternativa.
+    """
+    u1 = User(
+        email="worker1@example.com",
+        username="worker_1",
+        hashed_password="pwd",
+        full_name="Worker Uno",
+        role=UserRole.VIEWER,
+        department="montaggio"
+    )
+    u2 = User(
+        email="worker2@example.com",
+        username="worker_2",
+        hashed_password="pwd",
+        full_name="Worker Due",
+        role=UserRole.VIEWER,
+        department="montaggio"
+    )
+    db_session.add_all([u1, u2])
+    await db_session.commit()
+    await db_session.refresh(u1)
+    await db_session.refresh(u2)
+
+    project = Project(
+        name="Commessa Preferenze Test",
+        code="PREF-01",
+        status=ProjectStatus.ACTIVE,
+        owner_id=test_user.id,
+        start_date=date(2026, 11, 2),
+        end_date=date(2026, 11, 27)
+    )
+    db_session.add(project)
+    await db_session.commit()
+    await db_session.refresh(project)
+
+    task = Task(
+        project_id=project.id,
+        text="Assemblaggio Robot",
+        start_date=date(2026, 11, 9),
+        end_date=date(2026, 11, 13),
+        duration=5,
+        planned_hours=40.0,
+        workers=json.dumps(["Worker Uno"]),
+        worker_hours=json.dumps({"Worker Uno": 40.0}),
+        department="montaggio",
+        completed=0
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    # Worker Uno ha ferie il 10 e 11 Novembre
+    vac = Vacation(
+        user_id=u1.id,
+        start_date=date(2026, 11, 10),
+        end_date=date(2026, 11, 11),
+        reason="Ferie"
+    )
+    db_session.add(vac)
+    await db_session.commit()
+
+    # 1. Test preferenza "change_worker": l'AI deve proporre come primaria la riassegnazione a Worker Due
+    res_change = await generate_project_smart_suggestions(db_session, str(project.id), test_user, preference="change_worker")
+    assert res_change["preference"] == "change_worker"
+    primary_change = next((s for s in res_change["suggestions"] if not s.get("is_alternative")), None)
+    assert primary_change is not None
+    assert primary_change["strategy"] == "reassign_worker"
+    assert "Worker Due" in primary_change["proposed_changes"]["workers"]
+
+    # 2. Test preferenza "keep_worker": l'AI deve proporre come primaria lo slittamento date mantenendo Worker Uno
+    res_keep = await generate_project_smart_suggestions(db_session, str(project.id), test_user, preference="keep_worker")
+    assert res_keep["preference"] == "keep_worker"
+    primary_keep = next((s for s in res_keep["suggestions"] if not s.get("is_alternative")), None)
+    assert primary_keep is not None
+    assert primary_keep["strategy"] == "internal_shift"
+    assert "Worker Uno" in primary_keep["proposed_changes"]["workers"]
+
+
 
 
 

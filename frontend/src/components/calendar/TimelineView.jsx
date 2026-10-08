@@ -77,6 +77,8 @@ export default function TimelineView({
   filterWorker,
   filterDepartment,
   filterStatus,
+  filterStatuses,
+  filterResponsible,
   searchQuery,
   systemUsers = [],
   onSelectProject,
@@ -743,7 +745,7 @@ export default function TimelineView({
 
       {(() => {
         const visibleVacations = vacations.filter(v => {
-          if (!vacationMatchesFilters(v, { filterWorker, filterDepartment, filterStatus, searchQuery }, systemUsers)) {
+          if (!vacationMatchesFilters(v, { filterWorker, filterDepartment, filterStatus, filterStatuses, filterResponsible, searchQuery }, systemUsers)) {
             return false;
           }
           const vStart = v.start_date?.substring(0, 10) || '';
@@ -926,8 +928,7 @@ export default function TimelineView({
               if (!taskMatchesDepartment(t, filterDepartment, systemUsers)) return false;
               return true;
             });
-            const isFiltered = (filterWorker && filterWorker !== 'all') || (filterDepartment && filterDepartment !== 'all');
-            const isExpanded = expandedProjects[proj.id] !== undefined ? expandedProjects[proj.id] : isFiltered;
+            const isExpanded = Boolean(expandedProjects[proj.id]);
 
             return (
               <React.Fragment key={proj.id}>

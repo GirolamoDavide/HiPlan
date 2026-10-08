@@ -922,16 +922,17 @@ export default function ReplanningGanttPreview({
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '20px',
+        padding: '12px 16px',
         overflow: 'hidden'
       }}
       onClick={onClose}
     >
       <div
         style={{
-          width: '100%',
-          maxWidth: '1440px',
-          height: '92vh',
+          width: '98vw',
+          maxWidth: 'min(2200px, calc(100vw - 24px))',
+          height: '95vh',
+          maxHeight: 'calc(100vh - 24px)',
           backgroundColor: '#ffffff',
           borderRadius: '20px',
           boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.4)',

@@ -56,19 +56,21 @@ async def get_zero_hours(
 @router.get("/project/{project_id}/suggestions")
 async def get_project_smart_suggestions(
     project_id: str,
+    preference: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Rileva tutti i conflitti della commessa (ferie, sovraccarichi multi-commessa,
-    ritardi) e produce suggerimenti intelligenti di rebalance con propagazione a cascata.
+    ritardi) e produce suggerimenti intelligenti di rebalance con propagazione a cascata,
+    orientati dalla preferenza utente (change_worker, keep_worker, none).
     """
     if current_user.role not in [UserRole.ADMIN, UserRole.EDITOR]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Accesso negato. Solo admin ed editor possono accedere all'ottimizzatore."
         )
-    result = await generate_project_smart_suggestions(db, project_id, current_user)
+    result = await generate_project_smart_suggestions(db, project_id, current_user, preference=preference)
     if "error" in result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["error"])
     return result

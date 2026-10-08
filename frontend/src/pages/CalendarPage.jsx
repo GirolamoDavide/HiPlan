@@ -8,6 +8,7 @@ import {
   taskMatchesWorker,
   taskMatchesDepartment,
   vacationMatchesFilters,
+  projectMatchesResponsible,
   DEPARTMENT_OPTIONS,
 } from '../utils/calendarFilters';
 import TimelineView, { TIMELINE_COLUMNS, getProjectResponsible } from '../components/calendar/TimelineView';
@@ -29,6 +30,15 @@ const STATUS_COLORS = {
   completed: '#3b82f6',// Blue
   archived: '#6b7280', // Gray
 };
+
+export const PROJECT_STATUS_OPTIONS = [
+  { id: 'planning', label: 'In pianificazione', color: STATUS_COLORS.planning },
+  { id: 'active', label: 'In corso', color: STATUS_COLORS.active },
+  { id: 'completed', label: 'Completate', color: STATUS_COLORS.completed },
+  { id: 'archived', label: 'Archiviate', color: STATUS_COLORS.archived },
+];
+
+export const DEFAULT_STATUSES = ['planning', 'active', 'completed'];
 
 const MONTH_NAMES_IT = [
   'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
@@ -117,16 +127,24 @@ export function sortProjects(projects, sortConfig, systemUsers = []) {
 export const loadSavedFilters = () => {
   try {
     if (typeof localStorage === 'undefined') {
-      return { status: 'all', department: 'all', worker: 'all', search: '', sortKey: 'none', sortDirection: 'asc' };
+      return { department: 'all', worker: 'all', responsible: 'all', statuses: DEFAULT_STATUSES, search: '', sortKey: 'none', sortDirection: 'asc' };
     }
     const raw = localStorage.getItem(CALENDAR_FILTERS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
+        let loadedStatuses = DEFAULT_STATUSES;
+        if (Array.isArray(parsed.statuses) && parsed.statuses.length > 0) {
+          loadedStatuses = parsed.statuses;
+        } else if (typeof parsed.status === 'string') {
+          if (parsed.status === 'all') loadedStatuses = DEFAULT_STATUSES;
+          else if (['planning', 'active', 'completed', 'archived'].includes(parsed.status)) loadedStatuses = [parsed.status];
+        }
         return {
-          status: typeof parsed.status === 'string' ? parsed.status : 'all',
+          statuses: loadedStatuses,
           department: typeof parsed.department === 'string' ? parsed.department : 'all',
           worker: typeof parsed.worker === 'string' ? parsed.worker : 'all',
+          responsible: typeof parsed.responsible === 'string' ? parsed.responsible : 'all',
           search: typeof parsed.search === 'string' ? parsed.search : '',
           sortKey: typeof parsed.sortKey === 'string' ? parsed.sortKey : 'none',
           sortDirection: parsed.sortDirection === 'desc' ? 'desc' : 'asc',
@@ -134,7 +152,7 @@ export const loadSavedFilters = () => {
       }
     }
   } catch { }
-  return { status: 'all', department: 'all', worker: 'all', search: '', sortKey: 'none', sortDirection: 'asc' };
+  return { department: 'all', worker: 'all', responsible: 'all', statuses: DEFAULT_STATUSES, search: '', sortKey: 'none', sortDirection: 'asc' };
 };
 
 export default function CalendarPage() {
@@ -154,9 +172,10 @@ export default function CalendarPage() {
     return localStorage.getItem('hiplan-commesse-cal-view') || 'timeline';
   });
   const savedFilters = useMemo(() => loadSavedFilters(), []);
-  const [filterStatus, setFilterStatus] = useState(savedFilters.status);
+  const [filterStatuses, setFilterStatuses] = useState(savedFilters.statuses || DEFAULT_STATUSES);
   const [filterWorker, setFilterWorker] = useState(savedFilters.worker);
   const [filterDepartment, setFilterDepartment] = useState(savedFilters.department);
+  const [filterResponsible, setFilterResponsible] = useState(savedFilters.responsible || 'all');
   const [searchQuery, setSearchQuery] = useState(savedFilters.search);
   const [sortConfig, setSortConfig] = useState({
     key: savedFilters.sortKey || 'none',
@@ -168,26 +187,32 @@ export default function CalendarPage() {
   // Salva filtri e ordinamento in cache al variare
   useEffect(() => {
     try {
+      const isDefaultStatuses =
+        filterStatuses.length === DEFAULT_STATUSES.length &&
+        DEFAULT_STATUSES.every(s => filterStatuses.includes(s));
+
       if (
-        filterStatus === 'all' &&
+        isDefaultStatuses &&
         filterDepartment === 'all' &&
         filterWorker === 'all' &&
+        filterResponsible === 'all' &&
         !searchQuery.trim() &&
         sortConfig.key === 'none'
       ) {
         localStorage.removeItem(CALENDAR_FILTERS_STORAGE_KEY);
       } else {
         localStorage.setItem(CALENDAR_FILTERS_STORAGE_KEY, JSON.stringify({
-          status: filterStatus,
+          statuses: filterStatuses,
           department: filterDepartment,
           worker: filterWorker,
+          responsible: filterResponsible,
           search: searchQuery,
           sortKey: sortConfig.key,
           sortDirection: sortConfig.direction,
         }));
       }
     } catch { }
-  }, [filterStatus, filterDepartment, filterWorker, searchQuery, sortConfig]);
+  }, [filterStatuses, filterDepartment, filterWorker, filterResponsible, searchQuery, sortConfig]);
 
   // Modali dettaglio
   const [selectedProject, setSelectedProject] = useState(null);
@@ -213,6 +238,9 @@ export default function CalendarPage() {
   const [showSortFilterMenu, setShowSortFilterMenu] = useState(false);
   const sortFilterRef = useRef(null);
 
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const statusMenuRef = useRef(null);
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (toolbarColsRef.current && !toolbarColsRef.current.contains(event.target)) {
@@ -221,10 +249,23 @@ export default function CalendarPage() {
       if (sortFilterRef.current && !sortFilterRef.current.contains(event.target)) {
         setShowSortFilterMenu(false);
       }
+      if (statusMenuRef.current && !statusMenuRef.current.contains(event.target)) {
+        setShowStatusMenu(false);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const toggleStatusFilter = (statusId) => {
+    setFilterStatuses(prev => {
+      if (prev.includes(statusId)) {
+        return prev.filter(s => s !== statusId);
+      } else {
+        return [...prev, statusId];
+      }
+    });
+  };
 
   const handleTimelineVisibleColsChange = (cols) => {
     setTimelineVisibleCols(cols);
@@ -302,17 +343,34 @@ export default function CalendarPage() {
     return systemUsers.map(u => ({ username: u.username, name: u.full_name || u.username, department: u.department })).sort((a, b) => a.name.localeCompare(b.name));
   }, [systemUsers]);
 
-  // Filtra e ordina commesse per stato, addetto, reparto, ricerca e sortConfig
+  // Elenco dei responsabili (da systemUsers e commesse)
+  const allResponsibles = useMemo(() => {
+    const map = new Map();
+    (systemUsers || []).forEach(u => {
+      const val = u.username || String(u.id);
+      const label = u.full_name || u.username;
+      map.set(val, { value: val, label });
+    });
+    (projects || []).forEach(p => {
+      const r = getProjectResponsible(p, systemUsers);
+      if (r && r !== '-') {
+        const existing = Array.from(map.values()).some(item => item.label === r || item.value === r);
+        if (!existing) {
+          const val = p.responsible_username || r;
+          map.set(val, { value: val, label: r });
+        }
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'it', { sensitivity: 'base' }));
+  }, [systemUsers, projects]);
+
+  // Filtra e ordina commesse per stato, addetto, reparto, responsabile, ricerca e sortConfig
   const filteredProjects = useMemo(() => {
     const list = projects.filter(p => {
-      // 1. Filtro per stato commessa
-      if (filterStatus === 'all') {
-        // Mostra in automatico tutte le commesse in pianificazione, in corso e completate (esclude solo archiviate)
-        const pStatus = (p.status || 'planning').toLowerCase();
-        if (pStatus === 'archived') return false;
-      } else {
-        const pStatus = (p.status || '').toLowerCase();
-        if (pStatus !== filterStatus.toLowerCase()) return false;
+      // 1. Filtro per stato commessa (multiselezione)
+      const pStatus = (p.status || 'planning').toLowerCase();
+      if (!filterStatuses.includes(pStatus)) {
+        return false;
       }
 
       // 2. Filtro per addetto (utente) e/o reparto
@@ -334,7 +392,12 @@ export default function CalendarPage() {
         }
       }
 
-      // 3. Filtro per ricerca testuale
+      // 3. Filtro per responsabile
+      if (!projectMatchesResponsible(p, filterResponsible, systemUsers)) {
+        return false;
+      }
+
+      // 4. Filtro per ricerca testuale
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const code = (p.code || '').toLowerCase();
@@ -351,7 +414,7 @@ export default function CalendarPage() {
     });
 
     return sortProjects(list, sortConfig, systemUsers);
-  }, [projects, filterStatus, filterWorker, filterDepartment, searchQuery, systemUsers, sortConfig]);
+  }, [projects, filterStatuses, filterWorker, filterDepartment, filterResponsible, searchQuery, systemUsers, sortConfig]);
 
   // Gestione Mese Precedente / Successivo / Oggi
   function prevMonth() {
@@ -419,7 +482,7 @@ export default function CalendarPage() {
 
       // Aggiungi ferie
       const activeVacations = vacations.filter(v => {
-        if (!vacationMatchesFilters(v, { filterWorker, filterDepartment, filterStatus, searchQuery }, systemUsers)) {
+        if (!vacationMatchesFilters(v, { filterWorker, filterDepartment, filterStatuses, filterResponsible, searchQuery }, systemUsers)) {
           return false;
         }
         const start = v.start_date.substring(0, 10);
@@ -487,7 +550,7 @@ export default function CalendarPage() {
     }
 
     return cells;
-  }, [currYear, currMonth, filteredProjects, firstDayIndex, daysInMonth, filterWorker, filterDepartment, filterStatus, searchQuery, vacations, systemUsers]);
+  }, [currYear, currMonth, filteredProjects, firstDayIndex, daysInMonth, filterWorker, filterDepartment, filterStatuses, filterResponsible, searchQuery, vacations, systemUsers]);
 
   // Funzione per formattare la durata in giorni tra due date
   function getDurationDays(start, end) {
@@ -512,18 +575,27 @@ export default function CalendarPage() {
 
   const activeSortFilterCount = useMemo(() => {
     let count = 0;
-    if (filterStatus !== 'all') count++;
     if (filterDepartment !== 'all') count++;
     if (filterWorker !== 'all') count++;
+    if (filterResponsible !== 'all') count++;
     if (sortConfig.key !== 'none') count++;
     return count;
-  }, [filterStatus, filterDepartment, filterWorker, sortConfig]);
+  }, [filterDepartment, filterWorker, filterResponsible, sortConfig]);
 
-  const hasActiveFilters = filterStatus !== 'all' || filterDepartment !== 'all' || filterWorker !== 'all' || Boolean(searchQuery.trim()) || sortConfig.key !== 'none';
+  const hasActiveFilters =
+    filterDepartment !== 'all' ||
+    filterWorker !== 'all' ||
+    filterResponsible !== 'all' ||
+    Boolean(searchQuery.trim()) ||
+    sortConfig.key !== 'none' ||
+    filterStatuses.length !== DEFAULT_STATUSES.length ||
+    !DEFAULT_STATUSES.every(s => filterStatuses.includes(s));
+
   const resetAllFilters = () => {
-    setFilterStatus('all');
     setFilterDepartment('all');
     setFilterWorker('all');
+    setFilterResponsible('all');
+    setFilterStatuses(DEFAULT_STATUSES);
     setSearchQuery('');
     setSortConfig({ key: 'none', direction: 'asc' });
     try {
@@ -624,24 +696,6 @@ export default function CalendarPage() {
 
                     <div style={{ marginBottom: 10 }}>
                       <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                        Stato commessa
-                      </label>
-                      <select
-                        className="input"
-                        style={{ width: '100%', fontSize: '12px', padding: '6px 10px' }}
-                        value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value)}
-                      >
-                        <option value="all">Commesse attive (predefinito)</option>
-                        <option value="active">Solo In corso</option>
-                        <option value="planning">Solo In pianificazione</option>
-                        <option value="completed">Solo Completate</option>
-                        <option value="archived">Archiviate</option>
-                      </select>
-                    </div>
-
-                    <div style={{ marginBottom: 10 }}>
-                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
                         Reparto
                       </label>
                       <select
@@ -652,6 +706,24 @@ export default function CalendarPage() {
                       >
                         {DEPARTMENT_OPTIONS.map(opt => (
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                        Responsabile
+                      </label>
+                      <select
+                        className="input"
+                        style={{ width: '100%', fontSize: '12px', padding: '6px 10px' }}
+                        value={filterResponsible}
+                        onChange={(e) => setFilterResponsible(e.target.value)}
+                      >
+                        <option value="all">Tutti i responsabili</option>
+                        <option value="__none__">Senza responsabile</option>
+                        {allResponsibles.map(r => (
+                          <option key={r.value} value={r.value}>{r.label}</option>
                         ))}
                       </select>
                     </div>
@@ -736,6 +808,67 @@ export default function CalendarPage() {
                       onClick={() => setShowSortFilterMenu(false)}
                     >
                       Chiudi
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Pulsante Stato commesse (Multiselezione) */}
+            <div style={{ position: 'relative' }} ref={statusMenuRef}>
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm ${
+                  filterStatuses.length !== DEFAULT_STATUSES.length ||
+                  !DEFAULT_STATUSES.every(s => filterStatuses.includes(s))
+                    ? 'btn-active-sort'
+                    : ''
+                }`}
+                onClick={() => setShowStatusMenu(prev => !prev)}
+                title="Scegli quali commesse visualizzare per stato"
+                style={{ fontSize: '12px', padding: '6px 12px', height: '35px', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}
+              >
+                <AppIcon name="projects" size={14} />
+                <span>Stato commesse ({filterStatuses.length}/{PROJECT_STATUS_OPTIONS.length})</span>
+              </button>
+              {showStatusMenu && (
+                <div className="action-popover" style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: 6, background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+                  borderRadius: 10, padding: 12, zIndex: 300, minWidth: 220, boxShadow: 'var(--shadow-lg)'
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Visualizza commesse in:
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {PROJECT_STATUS_OPTIONS.map(opt => (
+                      <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', userSelect: 'none' }}>
+                        <input
+                          type="checkbox"
+                          checked={filterStatuses.includes(opt.id)}
+                          onChange={() => toggleStatusFilter(opt.id)}
+                        />
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: opt.color, display: 'inline-block' }} />
+                        <span>{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 10, paddingTop: 8, display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-secondary"
+                      style={{ fontSize: 11, padding: '4px 8px', flex: 1 }}
+                      onClick={() => setFilterStatuses(PROJECT_STATUS_OPTIONS.map(s => s.id))}
+                    >
+                      Tutte
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: 11, padding: '4px 8px', flex: 1 }}
+                      onClick={() => setFilterStatuses(DEFAULT_STATUSES)}
+                      title="Ripristina commesse attive (Pianificazione, In corso, Completate)"
+                    >
+                      Predefinito
                     </button>
                   </div>
                 </div>
@@ -938,7 +1071,8 @@ export default function CalendarPage() {
           currMonth={currMonth}
           filterWorker={filterWorker}
           filterDepartment={filterDepartment}
-          filterStatus={filterStatus}
+          filterStatuses={filterStatuses}
+          filterResponsible={filterResponsible}
           searchQuery={searchQuery}
           systemUsers={systemUsers}
           vacations={vacations}
