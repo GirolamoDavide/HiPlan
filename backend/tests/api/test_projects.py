@@ -137,3 +137,27 @@ async def test_project_tipologia_create_and_update(client: AsyncClient, auth_hea
     put_data = put_res.json()
     assert put_data["is_atex"] is False
     assert put_data["is_alimentare"] is False
+
+
+@pytest.mark.asyncio
+async def test_update_project_rejects_end_before_start(client: AsyncClient, auth_headers: dict):
+    create = await client.post(
+        "/api/projects",
+        headers=auth_headers,
+        json={"name": "Date Check", "start_date": "2026-08-25", "end_date": "2026-11-28"},
+    )
+    project_id = create.json()["id"]
+
+    response = await client.put(
+        f"/api/projects/{project_id}", headers=auth_headers, json={"end_date": "2026-08-01"}
+    )
+    assert response.status_code == 400
+
+    response = await client.put(
+        f"/api/projects/{project_id}",
+        headers=auth_headers,
+        json={"start_date": None, "end_date": None, "responsible_id": None},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["start_date"] is None and data["end_date"] is None

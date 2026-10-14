@@ -15,6 +15,7 @@ from app.models.task import Task, TaskType
 from app.models.project import Project, ProjectStatus
 from app.models.link import Link, LinkType
 from app.models.vacation import Vacation
+from app.utils.vacations import full_day_dates_by_uid, leave_hours_by_uid
 from app.models.user import User
 from app.models.setting import Setting
 from app.models.replan_log import ReplanLog, ReplanActionType
@@ -123,15 +124,8 @@ async def get_replanning_suggestions(db: AsyncSession, current_user=None):
     def get_user_id(name: str):
         return fullname_to_id.get(name) or username_to_id.get(name)
 
-    vacation_dates_by_uid = {}
-    for v in vacations:
-        uid = str(v.user_id)
-        if uid not in vacation_dates_by_uid:
-            vacation_dates_by_uid[uid] = set()
-        cur = v.start_date
-        while cur <= v.end_date:
-            vacation_dates_by_uid[uid].add(cur)
-            cur += timedelta(days=1)
+    vacation_dates_by_uid = full_day_dates_by_uid(vacations)
+    leave_hours = leave_hours_by_uid(vacations)
 
     max_daily_hours = 8.0
     timeline = {}
@@ -381,9 +375,10 @@ async def get_replanning_suggestions(db: AsyncSession, current_user=None):
                     })
                 continue
                 
-            # Sovraccarico
+            # Sovraccarico (i permessi a ore riducono la capacità del giorno)
             total_h = sum(h for _, h in w_tasks)
-            if total_h > max_daily_hours:
+            day_capacity = max_daily_hours - leave_hours.get(w_id, {}).get(d, 0.0) if w_id else max_daily_hours
+            if total_h > day_capacity:
                 conflict_tasks = [t for t, _ in w_tasks]
                 conflict_tasks.sort(key=lambda t: (t.start_date, t.id))
                 t_to_shift = conflict_tasks[-1] # Proponiamo di spostare l'ultima arrivata/iniziata
@@ -409,7 +404,7 @@ async def get_replanning_suggestions(db: AsyncSession, current_user=None):
                     "department": getattr(t_to_shift, "department", None),
                     "worker": w,
                     "date": str(d),
-                    "reason": f"L'addetto {w} ha un carico di {round(total_h, 1)}h (limite {max_daily_hours}h) il {d.strftime('%d/%m/%Y')}."
+                    "reason": f"L'addetto {w} ha un carico di {round(total_h, 1)}h (limite {round(day_capacity, 1)}h) il {d.strftime('%d/%m/%Y')}."
                 })
 
     return suggestions
@@ -456,15 +451,7 @@ async def get_zero_hours_alerts(db: AsyncSession, current_user: Optional[User] =
     def get_user_id(name: str):
         return fullname_to_id.get(name) or username_to_id.get(name)
 
-    vacation_dates_by_uid = {}
-    for v in vacations:
-        uid = str(v.user_id)
-        if uid not in vacation_dates_by_uid:
-            vacation_dates_by_uid[uid] = set()
-        cur = v.start_date
-        while cur <= v.end_date:
-            vacation_dates_by_uid[uid].add(cur)
-            cur += timedelta(days=1)
+    vacation_dates_by_uid = full_day_dates_by_uid(vacations)
 
     alerts = []
     seen_ids = set()

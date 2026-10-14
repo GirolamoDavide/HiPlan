@@ -279,9 +279,19 @@ async def get_worker_conflicts(
     # 2. Recupera ferie e raggruppa per user_id
     vac_res = await db.execute(select(Vacation))
     all_vacations = vac_res.scalars().all()
+    from app.utils.vacations import is_full_day, leave_hours_by_uid, FULL_DAY_HOURS
     vacations_by_uid = defaultdict(list)
     for v in all_vacations:
-        vacations_by_uid[str(v.user_id)].append(v)
+        if is_full_day(v):
+            vacations_by_uid[str(v.user_id)].append(v)
+    # I permessi a ore non rendono il giorno indisponibile, ma ne riducono la capacità
+    leave_hours = leave_hours_by_uid(all_vacations)
+
+    def day_capacity(w_name, d):
+        w_user = user_by_name.get(w_name.strip().lower())
+        if not w_user:
+            return FULL_DAY_HOURS
+        return FULL_DAY_HOURS - leave_hours.get(str(w_user.id), {}).get(d, 0.0)
 
     # 3. Recupera tutti i task attivi non completati
     result = await db.execute(
@@ -379,7 +389,7 @@ async def get_worker_conflicts(
 
     # 4. Raggruppa i sovraccarichi (> 8.0h/gg) in periodi continui
     for worker_name, dates_map in worker_timeline.items():
-        overload_dates = sorted([d for d, t_list in dates_map.items() if d >= today and sum(t["daily_hours"] for t in t_list) > 8.0])
+        overload_dates = sorted([d for d, t_list in dates_map.items() if d >= today and sum(t["daily_hours"] for t in t_list) > day_capacity(worker_name, d)])
         if not overload_dates:
             continue
 

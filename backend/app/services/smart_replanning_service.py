@@ -16,6 +16,7 @@ from app.models.task import Task, TaskType
 from app.models.link import Link, LinkType
 from app.models.project import Project, ProjectStatus
 from app.models.vacation import Vacation
+from app.utils.vacations import full_day_dates_by_uid
 from app.models.user import User, UserRole
 from app.models.replan_log import ReplanLog, ReplanActionType
 from app.utils.working_days import is_working_day
@@ -198,15 +199,7 @@ async def build_global_schedule_context(db: AsyncSession) -> Dict[str, Any]:
     # 3. Ferie per utente
     vac_res = await db.execute(select(Vacation))
     vacations = vac_res.scalars().all()
-    vacation_days_by_uid: Dict[str, Set[date]] = {}
-    for v in vacations:
-        uid = str(v.user_id)
-        if uid not in vacation_days_by_uid:
-            vacation_days_by_uid[uid] = set()
-        c = v.start_date
-        while c <= v.end_date:
-            vacation_days_by_uid[uid].add(c)
-            c += timedelta(days=1)
+    vacation_days_by_uid: Dict[str, Set[date]] = full_day_dates_by_uid(vacations)
 
     # 4. Tutti i task di tutte le commesse attive
     task_res = await db.execute(

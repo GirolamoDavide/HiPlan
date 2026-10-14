@@ -57,6 +57,15 @@ function AppIcon({ name, size = 19 }) {
   };
 
   const icons = {
+    plane: (
+      <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2Z" />
+    ),
+    grid: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M3 9h18M8 4v16M13 4v16" />
+      </>
+    ),
     dashboard: (
       <>
         <rect x="3" y="3" width="7" height="7" rx="2" />
@@ -225,6 +234,22 @@ export default function MainLayout() {
   const [notifications, setNotifications] = useState([]);
   const [activeNotifTab, setActiveNotifTab] = useState('all');
   const [rcEnabled, setRcEnabled] = useState(() => user?.role === 'admin');
+  const [tripsEnabled, setTripsEnabled] = useState(() => user?.role === 'admin');
+
+  // Il calendario viaggi compare solo a chi l'admin ha dato accesso
+  useEffect(() => {
+    if (!user) {
+      setTripsEnabled(false);
+      return;
+    }
+    if (user.role === 'admin') {
+      setTripsEnabled(true);
+      return;
+    }
+    api.get('/trips/access')
+      .then(({ data }) => setTripsEnabled(Boolean(data?.can_view)))
+      .catch(() => setTripsEnabled(false));
+  }, [user]);
 
   useEffect(() => {
     if (user?.role === 'admin') {
@@ -490,7 +515,9 @@ export default function MainLayout() {
       '/dashboard': { title: 'Dashboard', subtitle: 'Il tuo spazio di lavoro' },
       '/projects': { title: 'Commesse', subtitle: 'Pianificazione e avanzamento' },
       '/calendar': { title: 'Calendario Commesse', subtitle: 'Attività e disponibilità' },
-      '/personal-calendar': { title: 'Calendario personale', subtitle: 'I tuoi impegni e attività assegnate' },
+      '/personal-calendar': { title: 'Calendario', subtitle: 'I tuoi impegni, gli eventi condivisi e le attività assegnate' },
+      '/trips': { title: 'Calendario viaggi', subtitle: 'Trasferte e viaggi del team' },
+      '/attendance': { title: 'Griglia presenze', subtitle: 'Addetti e giorni del mese: fasi, ferie, permessi, viaggi e note' },
       '/notes': { title: 'Blocchi Note', subtitle: 'Appunti e documenti condivisi' },
       '/todo': { title: 'TODO', subtitle: 'Priorità personali e di team' },
       '/conflicts': { title: 'Panoramica addetti', subtitle: 'Carichi e sovrapposizioni' },
@@ -562,6 +589,10 @@ export default function MainLayout() {
             <span className="sidebar-link-icon"><AppIcon name="timeline" /></span>
             {showSidebarText && <span>Calendario Commesse</span>}
           </NavLink>
+          <NavLink to="/attendance" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="sidebar-link-icon"><AppIcon name="grid" /></span>
+            {showSidebarText && <span>Griglia presenze</span>}
+          </NavLink>
 
           {rcEnabled && (
             <>
@@ -576,8 +607,14 @@ export default function MainLayout() {
           <span className="sidebar-section-label">Produttività</span>
           <NavLink to="/personal-calendar" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="sidebar-link-icon"><AppIcon name="calendar" /></span>
-            {showSidebarText && <span>Calendario Personale</span>}
+            {showSidebarText && <span>Calendario</span>}
           </NavLink>
+          {tripsEnabled && (
+            <NavLink to="/trips" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <span className="sidebar-link-icon"><AppIcon name="plane" /></span>
+              {showSidebarText && <span>Calendario viaggi</span>}
+            </NavLink>
+          )}
           <NavLink to="/todo" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="sidebar-link-icon"><AppIcon name="todo" /></span>
             {showSidebarText && <span>TODO</span>}

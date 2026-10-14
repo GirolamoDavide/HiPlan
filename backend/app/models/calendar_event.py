@@ -17,6 +17,8 @@ class CalendarEvent(Base, TimestampMixin):
     is_all_day = Column(Boolean, default=False, nullable=False)
     color = Column(String(50), default="#3b82f6", nullable=False)
     shared_with = Column(Text, default="[]", nullable=False)
+    # Visibilità come nel blocco note: "private" (solo io), "selected" (utenti in shared_with), "team" (tutti)
+    visibility = Column(String(20), nullable=True, default="private")
     
     reminder_type = Column(String(50), default="none", nullable=False)
     reminder_time = Column(DateTime, nullable=True)

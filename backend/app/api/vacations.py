@@ -16,6 +16,7 @@ from app.models.notification import Notification, NotificationType
 from pydantic import BaseModel
 from datetime import date
 from app.utils.working_days import get_working_days_in_range
+from app.utils.vacations import FULL_DAY_HOURS, is_full_day, describe_vacation, serialize_vacation_fields
 
 router = APIRouter(prefix="/api/vacations", tags=["vacations"])
 
@@ -27,6 +28,25 @@ class VacationCreate(BaseModel):
     start_date: date
     end_date: date
     reason: Optional[str] = None
+    hours: Optional[float] = None  # None = giornata intera
+    part_of_day: Optional[str] = None  # "morning" | "afternoon"
+
+
+def _validate_vacation(data: VacationCreate) -> None:
+    """Normalizza e valida il periodo: i permessi a ore valgono per un solo giorno."""
+    if data.end_date < data.start_date:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="end_date must be >= start_date")
+    if data.hours is not None and data.hours >= FULL_DAY_HOURS:
+        data.hours = None
+    if data.hours is None:
+        data.part_of_day = None
+        return
+    if data.hours <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Le ore di permesso devono essere maggiori di zero")
+    if data.start_date != data.end_date:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Il permesso a ore vale per un solo giorno")
+    if data.part_of_day not in (None, "morning", "afternoon"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="part_of_day deve essere 'morning' o 'afternoon'")
 
 
 def _parse_json_list(val: Any) -> list:
@@ -117,7 +137,11 @@ async def _compute_recovery_for_user(db: AsyncSession, user: User, vacation: Vac
             assigned_h = float(task.planned_hours or 8.0) / n_workers
 
         daily_h = assigned_h / len(task_working_days)
-        hours_to_recover = round(daily_h * len(overlap_days), 1)
+        if is_full_day(vacation):
+            hours_to_recover = round(daily_h * len(overlap_days), 1)
+        else:
+            # Permesso a ore: si perde solo la quota di giornata corrispondente
+            hours_to_recover = round(daily_h * float(vacation.hours) / FULL_DAY_HOURS, 1)
 
         if hours_to_recover <= 0:
             continue
@@ -136,6 +160,7 @@ async def _compute_recovery_for_user(db: AsyncSession, user: User, vacation: Vac
             "vacation_days": [str(d) for d in overlap_days],
             "vacation_start": str(vac_start),
             "vacation_end": str(vac_end),
+            "vacation_hours": vacation.hours,
         })
 
     return recovery_items
@@ -149,10 +174,7 @@ async def list_my_vacations(db: AsyncSession = Depends(get_db), current_user: Us
         {
             "id": v.id,
             "user_id": v.user_id,
-            "start_date": str(v.start_date),
-            "end_date": str(v.end_date),
-            "reason": v.reason,
-            "created_at": v.created_at.isoformat() if v.created_at else None,
+            **serialize_vacation_fields(v),
             "updated_at": v.updated_at.isoformat() if v.updated_at else None,
         }
         for v in vacations
@@ -161,9 +183,8 @@ async def list_my_vacations(db: AsyncSession = Depends(get_db), current_user: Us
 
 @router.post("/me", status_code=201)
 async def create_my_vacation(data: VacationCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if data.end_date < data.start_date:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="end_date must be >= start_date")
-    vac = Vacation(user_id=current_user.id, start_date=data.start_date, end_date=data.end_date, reason=data.reason)
+    _validate_vacation(data)
+    vac = Vacation(user_id=current_user.id, start_date=data.start_date, end_date=data.end_date, reason=data.reason, hours=data.hours, part_of_day=data.part_of_day)
     db.add(vac)
     await db.commit()
     await db.refresh(vac)
@@ -175,7 +196,7 @@ async def create_my_vacation(data: VacationCreate, db: AsyncSession = Depends(ge
     note = Notification(
         user_id=current_user.id,
         title="Ferie inserite",
-        message=f"Ferie dal {data.start_date} al {data.end_date} registrate.",
+        message=f"Ferie {describe_vacation(vac)} registrate.",
         type=NotificationType.UPDATE,
     )
     db.add(note)
@@ -194,7 +215,7 @@ async def create_my_vacation(data: VacationCreate, db: AsyncSession = Depends(ge
             note_admin = Notification(
                 user_id=admin_user.id,
                 title=f"⚠️ Conflitti ferie: {current_user.username}",
-                message=f"L'addetto {current_user.username} ha inserito ferie dal {data.start_date} al {data.end_date}. Ci sono {len(recovery_items)} possibili conflitti da controllare.",
+                message=f"L'addetto {current_user.username} ha inserito ferie {describe_vacation(vac)}. Ci sono {len(recovery_items)} possibili conflitti da controllare.",
                 type=NotificationType.UPDATE,
             )
             db.add(note_admin)
@@ -207,15 +228,14 @@ async def create_my_vacation(data: VacationCreate, db: AsyncSession = Depends(ge
 async def create_admin_vacation(user_id: str, data: VacationCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in [UserRole.ADMIN, UserRole.EDITOR]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo admin/editor possono inserire ferie per altri")
-    if data.end_date < data.start_date:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="end_date must be >= start_date")
+    _validate_vacation(data)
     
     target_res = await db.execute(select(User).where(User.id == user_id))
     target_user = target_res.scalar_one_or_none()
     if not target_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Utente non trovato")
 
-    vac = Vacation(user_id=target_user.id, start_date=data.start_date, end_date=data.end_date, reason=data.reason)
+    vac = Vacation(user_id=target_user.id, start_date=data.start_date, end_date=data.end_date, reason=data.reason, hours=data.hours, part_of_day=data.part_of_day)
     db.add(vac)
     await db.commit()
     await db.refresh(vac)
@@ -227,7 +247,7 @@ async def create_admin_vacation(user_id: str, data: VacationCreate, db: AsyncSes
     note = Notification(
         user_id=target_user.id,
         title="Ferie inserite da Admin",
-        message=f"{current_user.full_name or current_user.username} ti ha inserito ferie dal {data.start_date} al {data.end_date}.",
+        message=f"{current_user.full_name or current_user.username} ti ha inserito ferie {describe_vacation(vac)}.",
         type=NotificationType.UPDATE,
     )
     db.add(note)
@@ -246,7 +266,7 @@ async def create_admin_vacation(user_id: str, data: VacationCreate, db: AsyncSes
             note_admin = Notification(
                 user_id=admin_user.id,
                 title=f"⚠️ Conflitti ferie: {target_user.username}",
-                message=f"L'addetto {target_user.username} ha ferie dal {data.start_date} al {data.end_date} (inserite da {current_user.username}). Ci sono {len(recovery_items)} possibili conflitti da controllare nella Panoramica Addetti.",
+                message=f"L'addetto {target_user.username} ha ferie {describe_vacation(vac)} (inserite da {current_user.username}). Ci sono {len(recovery_items)} possibili conflitti da controllare nella Panoramica Addetti.",
                 type=NotificationType.UPDATE,
             )
             db.add(note_admin)
@@ -259,8 +279,7 @@ async def create_admin_vacation(user_id: str, data: VacationCreate, db: AsyncSes
 async def create_company_closure(data: VacationCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role not in [UserRole.ADMIN, UserRole.EDITOR]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo admin/editor possono inserire chiusure aziendali")
-    if data.end_date < data.start_date:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="end_date must be >= start_date")
+    _validate_vacation(data)
     
     users_res = await db.execute(select(User))
     all_users = users_res.scalars().all()
@@ -269,7 +288,7 @@ async def create_company_closure(data: VacationCreate, db: AsyncSession = Depend
     all_recovery_items = []
     
     for user in all_users:
-        vac = Vacation(user_id=user.id, start_date=data.start_date, end_date=data.end_date, reason=data.reason or "Chiusura Aziendale")
+        vac = Vacation(user_id=user.id, start_date=data.start_date, end_date=data.end_date, reason=data.reason or "Chiusura Aziendale", hours=data.hours, part_of_day=data.part_of_day)
         db.add(vac)
         await db.commit()
         await db.refresh(vac)
@@ -281,7 +300,7 @@ async def create_company_closure(data: VacationCreate, db: AsyncSession = Depend
         note = Notification(
             user_id=user.id,
             title="Chiusura Aziendale",
-            message=f"È stata inserita una chiusura aziendale dal {data.start_date} al {data.end_date}.",
+            message=f"È stata inserita una chiusura aziendale {describe_vacation(vac)}.",
             type=NotificationType.UPDATE,
         )
         db.add(note)
@@ -366,9 +385,7 @@ async def list_all_vacations(db: AsyncSession = Depends(get_db), current_user: U
             "id": v.id,
             "username": u.username,
             "full_name": u.full_name,
-            "start_date": str(v.start_date),
-            "end_date": str(v.end_date),
-            "reason": v.reason,
+            **serialize_vacation_fields(v),
             "department": u.department
         }
         for v, u in rows
@@ -413,6 +430,7 @@ async def update_admin_vacation(vacation_id: str, data: VacationCreate, db: Asyn
     target_res = await db.execute(select(User).where(User.id == vac.user_id))
     target_user = target_res.scalar_one_or_none()
 
+    _validate_vacation(data)
     old_recovery = await _compute_recovery_for_user(db, target_user, vac)
     for item in old_recovery:
         task_res = await db.execute(select(Task).where(Task.id == item["task_id"]))
@@ -423,6 +441,8 @@ async def update_admin_vacation(vacation_id: str, data: VacationCreate, db: Asyn
     vac.start_date = data.start_date
     vac.end_date = data.end_date
     vac.reason = data.reason
+    vac.hours = data.hours
+    vac.part_of_day = data.part_of_day
     
     new_recovery = await _compute_recovery_for_user(db, target_user, vac)
     for item in new_recovery:

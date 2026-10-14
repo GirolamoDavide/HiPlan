@@ -4,6 +4,9 @@ import api from '../api/client';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import AppIcon from '../components/ui/AppIcon';
+import { getApiErrorMessage } from '../utils/apiErrors';
+import LeaveDurationSelect from '../components/ui/LeaveDurationSelect';
+import { formatLeaveHours, leaveDurationPayload, leaveDurationValue } from '../utils/vacations';
 import './ConflictMonitoringPage.css';
 import { isWeekendOrHoliday } from '../utils/workingDays';
 
@@ -63,7 +66,7 @@ export default function ConflictMonitoringPage() {
 
   const [usersList, setUsersList] = useState([]);
   const [addingVacation, setAddingVacation] = useState(false);
-  const [newVacation, setNewVacation] = useState({ user_id: '', start_date: '', end_date: '', reason: '' });
+  const [newVacation, setNewVacation] = useState({ user_id: '', start_date: '', end_date: '', reason: '', duration: 'full' });
   
   const [addingClosure, setAddingClosure] = useState(false);
   const [newClosure, setNewClosure] = useState({ start_date: '', end_date: '', reason: 'Chiusura Aziendale' });
@@ -127,17 +130,19 @@ export default function ConflictMonitoringPage() {
   async function handleEditVacation(e) {
     e.preventDefault();
     try {
+      const duration = editingVacation.duration || leaveDurationValue(editingVacation);
       await api.put(`/vacations/admin/${editingVacation.id}`, {
         start_date: editingVacation.start_date,
-        end_date: editingVacation.end_date,
-        reason: editingVacation.reason
+        end_date: duration !== 'full' ? editingVacation.start_date : editingVacation.end_date,
+        reason: editingVacation.reason,
+        ...leaveDurationPayload(duration),
       });
       toast.success('Ferie modificate con successo');
       setEditingVacation(null);
       loadVacations();
       loadConflicts();
     } catch (err) {
-      toast.error('Errore durante la modifica');
+      toast.error(getApiErrorMessage(err, 'Errore durante la modifica'));
     }
   }
 
@@ -155,7 +160,10 @@ export default function ConflictMonitoringPage() {
 
   async function handleAddVacation(e) {
     e.preventDefault();
-    if (!newVacation.user_id || !newVacation.start_date || !newVacation.end_date) {
+    // Il permesso a ore vale per un solo giorno: la fine coincide con l'inizio
+    const isHourly = newVacation.duration !== 'full';
+    const endDate = isHourly ? newVacation.start_date : newVacation.end_date;
+    if (!newVacation.user_id || !newVacation.start_date || !endDate) {
       toast.error('Compila tutti i campi obbligatori.');
       return;
     }
@@ -163,21 +171,22 @@ export default function ConflictMonitoringPage() {
     try {
       const res = await api.post(`/vacations/admin/user/${newVacation.user_id}`, {
         start_date: newVacation.start_date,
-        end_date: newVacation.end_date,
-        reason: newVacation.reason
+        end_date: endDate,
+        reason: newVacation.reason,
+        ...leaveDurationPayload(newVacation.duration),
       });
       toast.success('Ferie aggiunte con successo.');
       if (res.data.recovery_items?.length > 0) {
         toast.warning(`⚠️ ${res.data.recovery_items.length} fase/i con ore da recuperare rilevate.`);
       }
       setAddingVacation(false);
-      setNewVacation({ user_id: '', start_date: '', end_date: '', reason: '' });
+      setNewVacation({ user_id: '', start_date: '', end_date: '', reason: '', duration: 'full' });
       loadVacations();
       loadConflicts();
       // Reload heatmap is handled by page refresh or could be handled by context/events. For now it's okay.
       window.dispatchEvent(new Event('vacationsUpdated'));
     } catch (err) {
-      toast.error('Errore durante l\'aggiunta delle ferie');
+      toast.error(getApiErrorMessage(err, 'Errore durante l\'aggiunta delle ferie'));
     } finally {
       setSubmittingVacation(false);
     }
@@ -777,11 +786,13 @@ export default function ConflictMonitoringPage() {
                         <tr key={v.id} style={{ borderTop: '1px solid var(--border-default)' }}>
                           <td style={{ padding: '12px', fontWeight: 600 }}>{v.full_name || v.username}</td>
                           <td style={{ padding: '12px' }}>{formatDate(v.start_date)}</td>
-                          <td style={{ padding: '12px' }}>{formatDate(v.end_date)}</td>
+                          <td style={{ padding: '12px' }}>
+                            {formatLeaveHours(v) ? <span title="Permesso a ore">Permesso {formatLeaveHours(v)}</span> : formatDate(v.end_date)}
+                          </td>
                           <td style={{ padding: '12px', color: 'var(--text-secondary)' }}>{v.reason || '—'}</td>
                           {(user?.role === 'admin' || user?.role === 'editor') && (
                             <td style={{ padding: '12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                              <button className="btn btn-secondary btn-sm" style={{ marginRight: '8px' }} onClick={() => setEditingVacation(v)}><AppIcon name='edit' /> Modifica</button>
+                              <button className="btn btn-secondary btn-sm" style={{ marginRight: '8px' }} onClick={() => setEditingVacation({ ...v, duration: leaveDurationValue(v) })}><AppIcon name='edit' /> Modifica</button>
                               <button className="btn btn-secondary btn-sm" style={{ color: 'var(--error-500)', borderColor: 'var(--error-500)' }} onClick={() => setDeletingVacation(v)}><AppIcon name='trash' /> Elimina</button>
                             </td>
                           )}
@@ -820,7 +831,16 @@ export default function ConflictMonitoringPage() {
             <div className="modal-content">
               <form onSubmit={handleEditVacation} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 <div className="form-group">
-                  <label>Dal giorno</label>
+                  <label htmlFor="edit-vac-duration">Durata</label>
+                  <LeaveDurationSelect
+                    id="edit-vac-duration"
+                    className="input"
+                    value={editingVacation.duration || 'full'}
+                    onChange={(duration) => setEditingVacation({ ...editingVacation, duration })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>{editingVacation.duration && editingVacation.duration !== 'full' ? 'Giorno' : 'Dal giorno'}</label>
                   <input
                     type="date"
                     className="input"
@@ -829,16 +849,18 @@ export default function ConflictMonitoringPage() {
                     required
                   />
                 </div>
-                <div className="form-group">
-                  <label>Al giorno (compreso)</label>
-                  <input
-                    type="date"
-                    className="input"
-                    value={editingVacation.end_date}
-                    onChange={(e) => setEditingVacation({ ...editingVacation, end_date: e.target.value })}
-                    required
-                  />
-                </div>
+                {(!editingVacation.duration || editingVacation.duration === 'full') && (
+                  <div className="form-group">
+                    <label>Al giorno (compreso)</label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={editingVacation.end_date}
+                      onChange={(e) => setEditingVacation({ ...editingVacation, end_date: e.target.value })}
+                      required
+                    />
+                  </div>
+                )}
                 <div className="form-group">
                   <label>Motivo (opzionale)</label>
                   <input
@@ -915,7 +937,16 @@ export default function ConflictMonitoringPage() {
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Data di Inizio *</label>
+                  <label htmlFor="new-vac-duration">Durata</label>
+                  <LeaveDurationSelect
+                    id="new-vac-duration"
+                    className="input"
+                    value={newVacation.duration}
+                    onChange={(duration) => setNewVacation({ ...newVacation, duration })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>{newVacation.duration !== 'full' ? 'Giorno *' : 'Data di Inizio *'}</label>
                   <input
                     type="date"
                     className="input"
@@ -924,16 +955,18 @@ export default function ConflictMonitoringPage() {
                     required
                   />
                 </div>
-                <div className="form-group">
-                  <label>Data di Fine *</label>
-                  <input
-                    type="date"
-                    className="input"
-                    value={newVacation.end_date}
-                    onChange={(e) => setNewVacation({ ...newVacation, end_date: e.target.value })}
-                    required
-                  />
-                </div>
+                {newVacation.duration === 'full' && (
+                  <div className="form-group">
+                    <label>Data di Fine *</label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={newVacation.end_date}
+                      onChange={(e) => setNewVacation({ ...newVacation, end_date: e.target.value })}
+                      required
+                    />
+                  </div>
+                )}
                 <div className="form-group">
                   <label>Descrizione (Opzionale)</label>
                   <input

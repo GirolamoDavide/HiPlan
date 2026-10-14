@@ -6,6 +6,7 @@ import { isWeekendOrHoliday } from '../../utils/workingDays';
 import { taskMatchesWorker, taskMatchesDepartment, vacationMatchesFilters } from '../../utils/calendarFilters';
 import { getCustomDatesList, clusterCustomDates } from '../../utils/customDates';
 import AppIcon from '../ui/AppIcon';
+import { formatLeaveHours } from '../../utils/vacations';
 
 const STATUS_LABELS_IT = {
   planning: 'In pianificazione',
@@ -809,7 +810,7 @@ export default function TimelineView({
                   return (
                     <div
                       key={`parent-vac-${v.id || vStart + vEnd}`}
-                      className="timeline-bar timeline-vacation-bar"
+                      className={`timeline-bar timeline-vacation-bar${formatLeaveHours(v) ? ' timeline-vacation-bar--partial' : ''}`}
                       style={{
                         left: `${startIdx * TIMELINE_DAY_WIDTH + 3}px`,
                         width: `${spanDays * TIMELINE_DAY_WIDTH - 6}px`,
@@ -817,7 +818,7 @@ export default function TimelineView({
                         opacity: 0.5,
                         zIndex: 1
                       }}
-                      title={`Ferie: ${v.username} (${vStart} → ${vEnd})`}
+                      title={formatLeaveHours(v) ? `Permesso ${formatLeaveHours(v)}: ${v.username} (${vStart})` : `Ferie: ${v.username} (${vStart} → ${vEnd})`}
                     />
                   );
                 })}
@@ -865,14 +866,16 @@ export default function TimelineView({
                       return (
                         <div
                           key={v.id || `vac-${vStart}-${vEnd}`}
-                          className="timeline-bar timeline-vacation-bar"
+                          className={`timeline-bar timeline-vacation-bar${formatLeaveHours(v) ? ' timeline-vacation-bar--partial' : ''}`}
                           style={{
                             left: `${startIdx * TIMELINE_DAY_WIDTH + 3}px`,
                             width: `${spanDays * TIMELINE_DAY_WIDTH - 6}px`,
                             cursor: onDoubleClickVacation ? 'pointer' : 'default',
                             position: 'absolute'
                           }}
-                          title={`Ferie: ${vStart} → ${vEnd}${v.reason ? ` (${v.reason})` : ''}`}
+                          title={formatLeaveHours(v)
+                            ? `Permesso ${formatLeaveHours(v)}: ${vStart}${v.reason ? ` (${v.reason})` : ''}`
+                            : `Ferie: ${vStart} → ${vEnd}${v.reason ? ` (${v.reason})` : ''}`}
                           onDoubleClick={(e) => {
                             e.stopPropagation();
                             if (onDoubleClickVacation) {
@@ -880,7 +883,9 @@ export default function TimelineView({
                             }
                           }}
                         >
-                          {vStart === vEnd ? vStart.substring(8, 10) + '/' + vStart.substring(5, 7) : `${vStart.substring(8, 10)}/${vStart.substring(5, 7)} → ${vEnd.substring(8, 10)}/${vEnd.substring(5, 7)}`}
+                          {formatLeaveHours(v)
+                            ? formatLeaveHours(v)
+                            : vStart === vEnd ? vStart.substring(8, 10) + '/' + vStart.substring(5, 7) : `${vStart.substring(8, 10)}/${vStart.substring(5, 7)} → ${vEnd.substring(8, 10)}/${vEnd.substring(5, 7)}`}
                         </div>
                       );
                     })}

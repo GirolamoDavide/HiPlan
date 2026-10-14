@@ -1,7 +1,7 @@
 # pyrefly: ignore [missing-import]
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 
 class CalendarEventBase(BaseModel):
@@ -12,6 +12,7 @@ class CalendarEventBase(BaseModel):
     is_all_day: bool = False
     color: str = "#3b82f6"
     shared_with: Optional[list[str]] = []
+    visibility: Optional[Literal["private", "selected", "team"]] = None
     reminder_type: str = "none"
     reminder_time: Optional[datetime] = None
 
@@ -28,6 +29,7 @@ class CalendarEventUpdate(BaseModel):
     is_all_day: Optional[bool] = None
     color: Optional[str] = None
     shared_with: Optional[list[str]] = None
+    visibility: Optional[Literal["private", "selected", "team"]] = None
     reminder_type: Optional[str] = None
     reminder_time: Optional[datetime] = None
 

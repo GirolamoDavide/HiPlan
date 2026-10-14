@@ -22,6 +22,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Sparkles, Bot, RefreshCw, AlertTriangle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import useWebSocket from '../hooks/useWebSocket';
+import { isProjectWorkerSelected, toggleProjectWorker } from '../utils/projectWorkers';
+import { getApiErrorMessage } from '../utils/apiErrors';
+import { isFullDayVacation } from '../utils/vacations';
 
 const departmentOptions = [
   { value: 'ufficio_tecnico', label: 'Ufficio Tecnico', color: '#3b82f6' },
@@ -1597,10 +1600,8 @@ export default function ProjectDetailPage() {
     setShowEditProjectModal(true);
   }
 
-  function toggleProjectWorkerSelection(username) {
-    const current = projectForm.assigned_workers || [];
-    const updated = current.includes(username) ? current.filter(w => w !== username) : [...current, username];
-    setProjectForm({ ...projectForm, assigned_workers: updated });
+  function toggleProjectWorkerSelection(user) {
+    setProjectForm({ ...projectForm, assigned_workers: toggleProjectWorker(projectForm.assigned_workers, user) });
   }
 
   async function handleSaveProject(e) {
@@ -1609,12 +1610,19 @@ export default function ProjectDetailPage() {
       toast.error('Codice, Cliente e Titolo Commessa sono campi obbligatori');
       return;
     }
+    if (projectForm.start_date && projectForm.end_date && projectForm.end_date < projectForm.start_date) {
+      toast.error('La data di fine non può precedere la data di inizio');
+      return;
+    }
     try {
       const payload = {
         ...projectForm,
         code: projectForm.code.trim(),
         client: projectForm.client.trim(),
         name: projectForm.name.trim(),
+        start_date: projectForm.start_date || null,
+        end_date: projectForm.end_date || null,
+        responsible_id: projectForm.responsible_id || null,
         is_atex: Boolean(projectForm.is_atex),
         is_alimentare: Boolean(projectForm.is_alimentare),
       };
@@ -1624,7 +1632,7 @@ export default function ProjectDetailPage() {
       toast.success('Dati commessa aggiornati con successo!');
       loadProject();
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Errore durante la modifica della commessa');
+      toast.error(getApiErrorMessage(err, 'Errore durante la modifica della commessa'));
     }
   }
 
@@ -4042,7 +4050,7 @@ export default function ProjectDetailPage() {
 
                           const activeDates = dates.filter(d => {
                             if (!plannedSet.has(d)) return false;
-                            if (allVacations.some(v => v.username === w && d >= v.start_date && d <= v.end_date)) return false;
+                            if (allVacations.some(v => v.username === w && isFullDayVacation(v) && d >= v.start_date && d <= v.end_date)) return false;
                             return true;
                           });
 
@@ -4057,7 +4065,7 @@ export default function ProjectDetailPage() {
                               {dates.map(d => {
                                 const val = (actualHoursMap[w] && actualHoursMap[w][d]) || '';
                                 totW += Number(val) || 0;
-                                const isHoliday = allVacations.some(v => v.username === w && d >= v.start_date && d <= v.end_date);
+                                const isHoliday = allVacations.some(v => v.username === w && isFullDayVacation(v) && d >= v.start_date && d <= v.end_date);
                                 const isExtra = !plannedSet.has(d);
                                 const isActiveDay = !isExtra && !isHoliday;
 
@@ -4461,14 +4469,14 @@ export default function ProjectDetailPage() {
                       overflowY: 'auto'
                     }}>
                       {usersList.map(u => {
-                        const selected = (projectForm.assigned_workers || []).includes(u.username);
+                        const selected = isProjectWorkerSelected(projectForm.assigned_workers, u);
                         const wDept = u.department;
                         const deptColor = wDept ? (DEPT_OPTIONS.find(d => d.value === wDept)?.color || '#3b82f6') : '#3b82f6';
                         return (
                           <button
                             key={u.id}
                             type="button"
-                            onClick={() => toggleProjectWorkerSelection(u.username)}
+                            onClick={() => toggleProjectWorkerSelection(u)}
                             style={{
                               padding: '6px 12px',
                               borderRadius: 20,

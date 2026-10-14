@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import AppIcon from './AppIcon';
 import { isWeekendOrHoliday } from '../../utils/workingDays';
 import './CustomDatesCalendarPicker.css';
+import { formatLeaveHours } from '../../utils/vacations';
 
 const MONTH_NAMES = [
   'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
@@ -58,7 +59,8 @@ export default function CustomDatesCalendarPicker({
     );
 
     assignedVacations.forEach(v => {
-      const wName = v.username || v.full_name || 'Addetto';
+      const leave = formatLeaveHours(v);
+      const wName = (v.username || v.full_name || 'Addetto') + (leave ? ` (${leave})` : '');
       let cur = new Date(v.start_date + 'T00:00:00');
       const vEnd = new Date(v.end_date + 'T00:00:00');
       while (cur <= vEnd) {

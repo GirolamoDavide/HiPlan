@@ -14,6 +14,9 @@ import {
 import TimelineView, { TIMELINE_COLUMNS, getProjectResponsible } from '../components/calendar/TimelineView';
 import { getCustomDatesList } from '../utils/customDates';
 import AppIcon from '../components/ui/AppIcon';
+import LeaveDurationSelect from '../components/ui/LeaveDurationSelect';
+import { formatLeaveHours, leaveDurationPayload, leaveDurationValue } from '../utils/vacations';
+import { getApiErrorMessage } from '../utils/apiErrors';
 import './CalendarPage.css';
 
 
@@ -44,6 +47,8 @@ const MONTH_NAMES_IT = [
   'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
   'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'
 ];
+
+const WEEKDAYS_IT = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
 
 export const CALENDAR_FILTERS_STORAGE_KEY = 'hiplan-commesse-cal-filters';
 
@@ -169,7 +174,12 @@ export default function CalendarPage() {
 
   // Controlli e filtri (con persistenza in cache / localStorage)
   const [viewMode, setViewMode] = useState(() => {
-    return localStorage.getItem('hiplan-commesse-cal-view') || 'timeline';
+    try {
+      const saved = localStorage.getItem('hiplan-commesse-cal-view');
+      return saved === 'grid' || saved === 'timeline' ? saved : 'timeline';
+    } catch {
+      return 'timeline';
+    }
   });
   const savedFilters = useMemo(() => loadSavedFilters(), []);
   const [filterStatuses, setFilterStatuses] = useState(savedFilters.statuses || DEFAULT_STATUSES);
@@ -286,10 +296,12 @@ export default function CalendarPage() {
   const handleEditVacation = async (e) => {
     e.preventDefault();
     try {
+      const duration = editingVacation.duration || leaveDurationValue(editingVacation);
       await api.put(`/vacations/admin/${editingVacation.id}`, {
         start_date: editingVacation.start_date,
-        end_date: editingVacation.end_date,
-        reason: editingVacation.reason
+        end_date: duration !== 'full' ? editingVacation.start_date : editingVacation.end_date,
+        reason: editingVacation.reason,
+        ...leaveDurationPayload(duration),
       });
       toast.success('Ferie modificate con successo');
       setEditingVacation(null);
@@ -298,7 +310,7 @@ export default function CalendarPage() {
       const vacRes = await api.get('/vacations/all');
       setVacations(vacRes.data);
     } catch (err) {
-      toast.error('Errore durante la modifica delle ferie');
+      toast.error(getApiErrorMessage(err, 'Errore durante la modifica delle ferie'));
     }
   };
 
@@ -492,11 +504,13 @@ export default function CalendarPage() {
       activeVacations.forEach(v => {
         const u = systemUsers.find(user => user.username === v.username);
         const displayName = u?.full_name || v.username;
+        const leave = formatLeaveHours(v);
+        const label = leave ? `Permesso ${leave}: ${displayName}` : `Ferie: ${displayName}`;
         activeList.push({
           id: `vac-${v.id}`,
           isVacation: true,
-          name: `Ferie: ${displayName}`,
-          displayTitle: `Ferie: ${displayName}`,
+          name: label,
+          displayTitle: label,
           color: '#f59e0b',
           status: 'planning'
         });
@@ -1023,7 +1037,7 @@ export default function CalendarPage() {
                                   const originalVacId = proj.id.replace('vac-', '');
                                   const originalVacation = vacations.find(v => v.id.toString() === originalVacId);
                                   if (originalVacation) {
-                                    setEditingVacation(originalVacation);
+                                    setEditingVacation({ ...originalVacation, duration: leaveDurationValue(originalVacation) });
                                   }
                                 }
                               }}
@@ -1089,7 +1103,7 @@ export default function CalendarPage() {
           }}
           onDoubleClickVacation={(vac) => {
             if (user?.role === 'admin' || user?.role === 'editor') {
-              setEditingVacation(vac);
+              setEditingVacation({ ...vac, duration: leaveDurationValue(vac) });
             }
           }}
         />
@@ -1279,7 +1293,7 @@ export default function CalendarPage() {
                         const originalVacation = vacations.find(v => v.id.toString() === originalVacId);
                         if (originalVacation) {
                           setSelectedDayProjects(null);
-                          setEditingVacation(originalVacation);
+                          setEditingVacation({ ...originalVacation, duration: leaveDurationValue(originalVacation) });
                         }
                       }
                     }}
@@ -1331,7 +1345,16 @@ export default function CalendarPage() {
             <div className="modal-content">
               <form onSubmit={handleEditVacation} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 <div className="form-group">
-                  <label>Dal giorno</label>
+                  <label htmlFor="cal-edit-vac-duration">Durata</label>
+                  <LeaveDurationSelect
+                    id="cal-edit-vac-duration"
+                    className="input"
+                    value={editingVacation.duration || 'full'}
+                    onChange={(duration) => setEditingVacation({ ...editingVacation, duration })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>{editingVacation.duration && editingVacation.duration !== 'full' ? 'Giorno' : 'Dal giorno'}</label>
                   <input
                     type="date"
                     className="input"
@@ -1340,16 +1363,18 @@ export default function CalendarPage() {
                     required
                   />
                 </div>
-                <div className="form-group">
-                  <label>Al giorno (compreso)</label>
-                  <input
-                    type="date"
-                    className="input"
-                    value={editingVacation.end_date}
-                    onChange={(e) => setEditingVacation({ ...editingVacation, end_date: e.target.value })}
-                    required
-                  />
-                </div>
+                {(!editingVacation.duration || editingVacation.duration === 'full') && (
+                  <div className="form-group">
+                    <label>Al giorno (compreso)</label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={editingVacation.end_date}
+                      onChange={(e) => setEditingVacation({ ...editingVacation, end_date: e.target.value })}
+                      required
+                    />
+                  </div>
+                )}
                 <div className="form-group">
                   <label>Motivo (opzionale)</label>
                   <input

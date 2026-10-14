@@ -23,6 +23,8 @@ import {
   FolderKanban
 } from 'lucide-react';
 import './ProfilePage.css';
+import LeaveDurationSelect from '../components/ui/LeaveDurationSelect';
+import { isFullDayVacation, formatLeaveHours, leaveDurationPayload } from '../utils/vacations';
 
 const DEPARTMENT_LABELS = {
   ufficio_tecnico: 'Ufficio Tecnico',
@@ -73,7 +75,8 @@ export default function ProfilePage() {
   const [dismissedKeys, setDismissedKeys] = useState(
     () => new Set(JSON.parse(localStorage.getItem('recovery_dismissed') || '[]'))
   );
-  const [form, setForm] = useState({ start_date: '', end_date: '', reason: '' });
+  const [form, setForm] = useState({ start_date: '', end_date: '', reason: '', duration: 'full' });
+  const isHourlyLeave = form.duration !== 'full';
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: '', username: '', email: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -144,13 +147,15 @@ export default function ProfilePage() {
   async function handleCreate(e) {
     e.preventDefault();
 
-    if (!form.start_date || !form.end_date) {
-      toast.error('Inserisci sia la data di inizio che di fine');
+    // Il permesso a ore vale per un solo giorno: la fine coincide con l'inizio
+    const endDate = isHourlyLeave ? form.start_date : form.end_date;
+    if (!form.start_date || !endDate) {
+      toast.error(isHourlyLeave ? 'Inserisci il giorno del permesso' : 'Inserisci sia la data di inizio che di fine');
       return;
     }
 
     const start = new Date(form.start_date);
-    const end = new Date(form.end_date);
+    const end = new Date(endDate);
 
     if (start > end) {
       toast.error('La data di inizio deve essere prima della data di fine');
@@ -159,12 +164,17 @@ export default function ProfilePage() {
 
     try {
       setIsSubmitting(true);
-      const response = await api.post('/vacations/me', form);
-      toast.success('Ferie registrate con successo!');
+      const response = await api.post('/vacations/me', {
+        start_date: form.start_date,
+        end_date: endDate,
+        reason: form.reason,
+        ...leaveDurationPayload(form.duration),
+      });
+      toast.success(isHourlyLeave ? 'Permesso registrato con successo!' : 'Ferie registrate con successo!');
       if (response.data.recovery_items?.length > 0) {
         toast.warning(`⚠️ ${response.data.recovery_items.length} fase/i con ore da recuperare rilevate.`);
       }
-      setForm({ start_date: '', end_date: '', reason: '' });
+      setForm({ start_date: '', end_date: '', reason: '', duration: 'full' });
       await new Promise(resolve => setTimeout(resolve, 300));
       await loadVacations();
       await loadRecovery();
@@ -190,15 +200,19 @@ export default function ProfilePage() {
   }
 
   const totalVacationDays = useMemo(() => {
-    return vacations.reduce((acc, v) => {
+    return vacations.filter(isFullDayVacation).reduce((acc, v) => {
       return acc + getVacationDays(v.start_date, v.end_date);
     }, 0);
   }, [vacations]);
 
+  const totalLeaveHours = useMemo(() => {
+    return vacations.filter(v => !isFullDayVacation(v)).reduce((acc, v) => acc + Number(v.hours), 0);
+  }, [vacations]);
+
   const previewDays = useMemo(() => {
-    if (!form.start_date || !form.end_date) return null;
+    if (isHourlyLeave || !form.start_date || !form.end_date) return null;
     return getVacationDays(form.start_date, form.end_date);
-  }, [form.start_date, form.end_date]);
+  }, [form.start_date, form.end_date, isHourlyLeave]);
 
   const departmentText = DEPARTMENT_LABELS[user?.department] || user?.department || 'Nessuno';
 
@@ -299,19 +313,29 @@ export default function ProfilePage() {
                 <CalendarPlus size={20} />
               </div>
               <div>
-                <h3 className="profile-card-title">Aggiungi ferie</h3>
-                <p className="profile-card-sub">Pianifica un periodo di assenza o riposo</p>
+                <h3 className="profile-card-title">Aggiungi ferie o permesso</h3>
+                <p className="profile-card-sub">Pianifica uno o più giorni di assenza, oppure alcune ore</p>
               </div>
             </div>
           </div>
 
           <div className="profile-card-body">
             <form onSubmit={handleCreate} className="profile-form">
-              {/* Riga Date: Inizio e Fine affiancate */}
+              <div className="profile-form-group">
+                <label className="profile-form-label" htmlFor="profile-leave-duration">Durata</label>
+                <LeaveDurationSelect
+                  id="profile-leave-duration"
+                  className="profile-input"
+                  value={form.duration}
+                  onChange={duration => setForm({ ...form, duration })}
+                />
+              </div>
+
+              {/* Riga Date: Inizio e Fine affiancate (un solo giorno per i permessi a ore) */}
               <div className="profile-form-dates-row">
                 <div className="profile-form-group">
                   <label className="profile-form-label">
-                    Inizio <span className="profile-required-mark">*</span>
+                    {isHourlyLeave ? 'Giorno' : 'Inizio'} <span className="profile-required-mark">*</span>
                   </label>
                   <input
                     type="date"
@@ -321,18 +345,20 @@ export default function ProfilePage() {
                     required
                   />
                 </div>
-                <div className="profile-form-group">
-                  <label className="profile-form-label">
-                    Fine <span className="profile-required-mark">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    className="profile-input"
-                    value={form.end_date}
-                    onChange={e => setForm({ ...form, end_date: e.target.value })}
-                    required
-                  />
-                </div>
+                {!isHourlyLeave && (
+                  <div className="profile-form-group">
+                    <label className="profile-form-label">
+                      Fine <span className="profile-required-mark">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      className="profile-input"
+                      value={form.end_date}
+                      onChange={e => setForm({ ...form, end_date: e.target.value })}
+                      required
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Banner anteprima durata se date valide */}
@@ -363,7 +389,7 @@ export default function ProfilePage() {
                 disabled={isSubmitting}
               >
                 <Plus size={16} />
-                <span>{isSubmitting ? 'Registrazione...' : 'Aggiungi ferie'}</span>
+                <span>{isSubmitting ? 'Registrazione...' : (isHourlyLeave ? 'Aggiungi permesso' : 'Aggiungi ferie')}</span>
               </button>
             </form>
           </div>
@@ -384,7 +410,7 @@ export default function ProfilePage() {
             {vacations.length > 0 && (
               <span className="profile-card-count-badge">
                 <Clock size={12} />
-                {vacations.length} {vacations.length === 1 ? 'periodo' : 'periodi'} ({totalVacationDays} gg)
+                {vacations.length} {vacations.length === 1 ? 'periodo' : 'periodi'} ({totalVacationDays} gg{totalLeaveHours > 0 ? ` + ${totalLeaveHours}h` : ''})
               </span>
             )}
           </div>
@@ -404,7 +430,8 @@ export default function ProfilePage() {
               ) : (
                 vacations.map(v => {
                   const days = getVacationDays(v.start_date, v.end_date);
-                  const durationLabel = days === 1 ? '1 giorno' : `${days} giorni`;
+                  const leaveHours = formatLeaveHours(v);
+                  const durationLabel = leaveHours ? `Permesso ${leaveHours}` : (days === 1 ? '1 giorno' : `${days} giorni`);
                   const isClosure = (v.reason || '').toLowerCase().includes('chiusura');
 
                   return (
@@ -416,8 +443,12 @@ export default function ProfilePage() {
                         <div className="vacation-item-info">
                           <div className="vacation-item-dates">
                             <span>{v.start_date}</span>
-                            <ArrowRight size={13} className="vacation-date-arrow" />
-                            <span>{v.end_date}</span>
+                            {v.end_date !== v.start_date && (
+                              <>
+                                <ArrowRight size={13} className="vacation-date-arrow" />
+                                <span>{v.end_date}</span>
+                              </>
+                            )}
                           </div>
                           {v.reason && (
                             <span
@@ -477,7 +508,9 @@ export default function ProfilePage() {
                     Progetto: {item.project_code && item.project_code !== "—" ? `${item.project_code}${item.project_name && item.project_name !== item.project_code && item.project_name !== "—" ? ` - ${item.project_name}` : ''}` : item.project_name}
                   </span>
                   <span style={{ color: 'var(--text-tertiary)', fontSize: '0.78rem' }}>
-                    {item.vacation_days?.length || 0} giorni lavorativi sovrapposti
+                    {item.vacation_hours != null
+                      ? `Permesso di ${item.vacation_hours}h il ${item.vacation_start}`
+                      : `${item.vacation_days?.length || 0} giorni lavorativi sovrapposti`}
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

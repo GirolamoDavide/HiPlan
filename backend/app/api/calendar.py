@@ -20,8 +20,44 @@ from app.schemas.calendar_event import CalendarEventCreate, CalendarEventUpdate,
 router = APIRouter()
 
 
+def _shared_list(ev: CalendarEvent) -> list:
+    try:
+        shared = json.loads(ev.shared_with) if ev.shared_with else []
+        return shared if isinstance(shared, list) else []
+    except Exception:
+        return []
+
+
+def event_visibility(ev: CalendarEvent) -> str:
+    """Eventi precedenti alla visibilità (colonna aggiunta come "private"): condivisi se hanno destinatari.
+    Dalla UI un evento "Solo io" viene sempre salvato con shared_with vuoto."""
+    if ev.visibility in ("selected", "team"):
+        return ev.visibility
+    return "selected" if _shared_list(ev) else "private"
+
+
+def can_view_event(ev: CalendarEvent, user: User) -> bool:
+    visibility = event_visibility(ev)
+    return (
+        ev.user_id == user.id
+        or visibility == "team"
+        or (visibility == "selected" and user.username in _shared_list(ev))
+    )
+
+
+def can_edit_event(ev: CalendarEvent, user: User) -> bool:
+    # Chi ha creato l'evento, gli admin e i destinatari espliciti possono modificarlo;
+    # gli eventi visibili a tutti sono in sola lettura per gli altri utenti.
+    return (
+        ev.user_id == user.id
+        or user.role == "admin"
+        or (event_visibility(ev) == "selected" and user.username in _shared_list(ev))
+    )
+
+
 # pyrefly: ignore [missing-import]
 from sqlalchemy import or_
+from sqlalchemy.orm import selectinload
 
 @router.get("/events")
 async def get_all_events(
@@ -37,21 +73,11 @@ async def get_all_events(
     """
     events: List[Any] = []
 
-    # 1. Eventi Personali
-    res = await db.execute(
-        select(CalendarEvent).where(
-            or_(
-                CalendarEvent.user_id == current_user.id,
-                CalendarEvent.shared_with.like(f'%"{current_user.username}"%')
-            )
-        )
-    )
-    personal_events = res.scalars().all()
+    # 1. Eventi Personali (propri, condivisi con l'utente o visibili a tutti)
+    res = await db.execute(select(CalendarEvent).options(selectinload(CalendarEvent.user)))
+    personal_events = [ev for ev in res.scalars().all() if can_view_event(ev, current_user)]
     for ev in personal_events:
-        try:
-            shared = json.loads(ev.shared_with) if ev.shared_with else []
-        except:
-            shared = []
+        shared = _shared_list(ev)
             
         is_ticket = ev.title.startswith("[Ticket] ") or ev.title.startswith("Ticket: ")
         display_title = ev.title
@@ -68,7 +94,13 @@ async def get_all_events(
             "allDay": ev.is_all_day,
             "color": ev.color,
             "type": "ticket" if is_ticket else "personal",
-            "shared_with": shared
+            "shared_with": shared,
+            "visibility": event_visibility(ev),
+            "is_owner": ev.user_id == current_user.id,
+            "can_edit": can_edit_event(ev, current_user),
+            "owner_name": (ev.user.full_name or ev.user.username) if ev.user else None,
+            "reminder_type": ev.reminder_type,
+            "reminder_time": ev.reminder_time.isoformat() if ev.reminder_time else None,
         })
 
     # 2. Fasi / Milestone (Gantt)
@@ -126,13 +158,22 @@ async def get_all_events(
 
     # 4. Ferie
     from app.models.vacation import Vacation
+    from app.utils.vacations import is_full_day, PART_OF_DAY_LABELS
+
+    def vacation_event_title(vac):
+        label = "Ferie"
+        if not is_full_day(vac):
+            part = PART_OF_DAY_LABELS.get(vac.part_of_day or "")
+            label = f"Permesso {vac.hours:g}h" + (f" ({part})" if part else "")
+        return f"{label}: {vac.reason}" if vac.reason else label
+
     res_vac = await db.execute(select(Vacation).where(Vacation.user_id == current_user.id))
     vacations = res_vac.scalars().all()
     for vac in vacations:
         events.append({
             "id": f"vac_{vac.id}",
             "real_id": vac.id,
-            "title": f"Ferie: {vac.reason}" if vac.reason else "Ferie",
+            "title": vacation_event_title(vac),
             "start": vac.start_date.isoformat(),
             "end": (vac.end_date + timedelta(days=1)).isoformat(),
             "allDay": True,
@@ -179,6 +220,7 @@ async def create_calendar_event(
         is_all_day=event_in.is_all_day,
         color=event_in.color,
         shared_with=json.dumps(event_in.shared_with) if event_in.shared_with else "[]",
+        visibility=event_in.visibility or ("selected" if event_in.shared_with else "private"),
         reminder_type=event_in.reminder_type,
         reminder_time=event_in.reminder_time,
         reminder_sent=False
@@ -202,15 +244,16 @@ async def update_calendar_event(
     if not ev:
         raise HTTPException(status_code=404, detail="Evento non trovato")
         
-    try:
-        shared = json.loads(ev.shared_with) if ev.shared_with else []
-    except:
-        shared = []
-        
-    if ev.user_id != current_user.id and current_user.role != "admin" and current_user.username not in shared:
+    if not can_edit_event(ev, current_user):
         raise HTTPException(status_code=403, detail="Non puoi modificare questo evento")
-        
-    for field, value in event_in.model_dump(exclude_unset=True).items():
+
+    changes = event_in.model_dump(exclude_unset=True)
+    # Solo chi ha creato l'evento (o un admin) può cambiarne la visibilità
+    if ev.user_id != current_user.id and current_user.role != "admin":
+        changes.pop("visibility", None)
+        changes.pop("shared_with", None)
+
+    for field, value in changes.items():
         if field == "shared_with":
             ev.shared_with = json.dumps(value) if value else "[]"
         else:

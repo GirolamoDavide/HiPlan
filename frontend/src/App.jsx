@@ -9,6 +9,8 @@ import ProjectsPage from './pages/ProjectsPage';
 import ProjectDetailPage from './pages/ProjectDetailPage';
 import CalendarPage from './pages/CalendarPage';
 import PersonalCalendarPage from './pages/PersonalCalendarPage';
+import TripsCalendarPage from './pages/TripsCalendarPage';
+import AttendancePage from './pages/AttendancePage';
 import NotesPage from './pages/NotesPage';
 import AdminPage from './pages/AdminPage';
 import ConflictMonitoringPage from './pages/ConflictMonitoringPage';
@@ -68,6 +70,8 @@ function AppRoutes() {
         <Route path="/me" element={<ProfilePage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/personal-calendar" element={<PersonalCalendarPage />} />
+        <Route path="/trips" element={<TripsCalendarPage />} />
+        <Route path="/attendance" element={<AttendancePage />} />
         <Route path="/notes" element={<NotesPage />} />
         <Route path="/todo" element={<TodoPage />} />
         <Route path="/tickets" element={<TicketsPage />} />

@@ -1277,8 +1277,9 @@ async def export_ticket_pdf(db: AsyncSession, ticket_id: str) -> io.BytesIO:
     return output
 
 def _is_vacation(date_str, user_dict):
+    from app.utils.vacations import is_full_day
     for v in user_dict.get("vacations", []):
-        if v.get("start_date") and v.get("end_date"):
+        if is_full_day(v) and v.get("start_date") and v.get("end_date"):
             if v["start_date"] <= date_str <= v["end_date"]:
                 return True
     return False

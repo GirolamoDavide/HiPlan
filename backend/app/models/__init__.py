@@ -15,6 +15,8 @@ from app.models.todo import Todo
 from app.models.email_log import EmailLog
 from app.models.replan_log import ReplanLog, ReplanActionType
 from app.models.calendar_event import CalendarEvent
+from app.models.trip import Trip
+from app.models.attendance_note import AttendanceNote
 from app.models.richiesta_commerciale import RichiestaCommerciale, ArticoloRichiesta, RichiestaStatus, TipoFornitura
 from app.models.automation import AutomationRule, AutomationLog, AutomationTriggerType, AutomationActionType
 
@@ -35,6 +37,8 @@ __all__ = [
     "Todo",
     "ReplanLog", "ReplanActionType",
     "CalendarEvent",
+    "Trip",
+    "AttendanceNote",
     "RichiestaCommerciale", "ArticoloRichiesta", "RichiestaStatus", "TipoFornitura",
     "AutomationRule", "AutomationLog", "AutomationTriggerType", "AutomationActionType",
 ]

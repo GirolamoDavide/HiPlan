@@ -6,6 +6,8 @@ import { useToast } from '../context/ToastContext';
 import AppIcon from '../components/ui/AppIcon';
 import './ProjectsPage.css';
 import { STATUS_LABELS_IT, STATUS_OPTIONS } from '../utils/statusLabels';
+import { isProjectWorkerSelected, toggleProjectWorker } from '../utils/projectWorkers';
+import { getApiErrorMessage } from '../utils/apiErrors';
 
 const PROJECT_COLOR_PALETTE = [
   '#185FA5', // Blu HiWay
@@ -31,6 +33,28 @@ function getNextProjectColor() {
   return PROJECT_COLOR_PALETTE[lastColorIndex];
 }
 
+const PROJECT_FILTERS = ['my_projects', 'all', 'planning', 'active', 'completed', 'archived'];
+
+// Filtro iniziale per ruolo: gli admin partono dalle commesse in corso
+function getDefaultFilter(role) {
+  if (role === 'admin') return 'active';
+  if (role === 'editor') return 'all';
+  return 'my_projects';
+}
+
+// Il filtro scelto viene ricordato per utente, così tornando sulla pagina si ritrova la stessa vista
+function filterStorageKey(user) {
+  return `projects_status_filter_${user?.id}`;
+}
+
+function getInitialFilter(user) {
+  try {
+    const saved = user?.id ? localStorage.getItem(filterStorageKey(user)) : null;
+    if (PROJECT_FILTERS.includes(saved)) return saved;
+  } catch { }
+  return getDefaultFilter(user?.role);
+}
+
 export default function ProjectsPage() {
   const { user } = useAuth();
   const toast = useToast();
@@ -43,9 +67,12 @@ export default function ProjectsPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
   const [editForm, setEditForm] = useState({ name: '', code: '', client: '', color: '#185FA5', description: '', start_date: '', end_date: '', responsible_id: '', assigned_workers: [], status: 'planning', is_atex: false, is_alimentare: false });
-  const [filter, setFilter] = useState(() => {
-    return (user?.role === 'admin' || user?.role === 'editor') ? 'all' : 'my_projects';
-  });
+  const [filter, setFilter] = useState(() => getInitialFilter(user));
+
+  function selectFilter(next) {
+    setFilter(next);
+    try { localStorage.setItem(filterStorageKey(user), next); } catch { }
+  }
   const [searchQuery, setSearchQuery] = useState('');
   const [form, setForm] = useState({ name: '', code: '', client: '', color: '#185FA5', status: 'planning', description: '', start_date: '', end_date: '', responsible_id: '', assigned_workers: [], is_atex: false, is_alimentare: false });
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -77,10 +104,10 @@ export default function ProjectsPage() {
   const [trashLoading, setTrashLoading] = useState(false);
 
   useEffect(() => {
-    if (user?.role === 'admin' || user?.role === 'editor') {
-      setFilter('all');
+    if (user?.id) {
+      setFilter(getInitialFilter(user));
     }
-  }, [user?.role]);
+  }, [user?.id, user?.role]);
 
   function openCreateModal() {
     setForm({
@@ -176,7 +203,7 @@ export default function ProjectsPage() {
       setShowModal(false);
       loadProjects();
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Errore nella creazione');
+      toast.error(getApiErrorMessage(err, 'Errore nella creazione'));
     }
   }
 
@@ -252,6 +279,10 @@ export default function ProjectsPage() {
       toast.error('Codice, Cliente e Titolo Commessa sono campi obbligatori');
       return;
     }
+    if (editForm.start_date && editForm.end_date && editForm.end_date < editForm.start_date) {
+      toast.error('La data di fine non può precedere la data di inizio');
+      return;
+    }
     try {
       const payload = {
         ...editForm,
@@ -270,7 +301,7 @@ export default function ProjectsPage() {
       setShowEditModal(false);
       loadProjects();
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Errore durante la modifica');
+      toast.error(getApiErrorMessage(err, 'Errore durante la modifica'));
     }
   }
 
@@ -381,15 +412,11 @@ export default function ProjectsPage() {
     }
   }
 
-  function toggleWorkerSelection(username, isEdit = false) {
+  function toggleWorkerSelection(user, isEdit = false) {
     if (isEdit) {
-      const current = editForm.assigned_workers || [];
-      const updated = current.includes(username) ? current.filter(w => w !== username) : [...current, username];
-      setEditForm({ ...editForm, assigned_workers: updated });
+      setEditForm({ ...editForm, assigned_workers: toggleProjectWorker(editForm.assigned_workers, user) });
     } else {
-      const current = form.assigned_workers || [];
-      const updated = current.includes(username) ? current.filter(w => w !== username) : [...current, username];
-      setForm({ ...form, assigned_workers: updated });
+      setForm({ ...form, assigned_workers: toggleProjectWorker(form.assigned_workers, user) });
     }
   }
 
@@ -585,11 +612,11 @@ export default function ProjectsPage() {
 
         {/* FILTRI DI STATO (Riga 2 - Sinistra) */}
         <div className="projects-filters" style={{ marginBottom: 0 }}>
-          {['my_projects', 'all', 'planning', 'active', 'completed', 'archived'].map((f) => (
+          {PROJECT_FILTERS.map((f) => (
             <button
               key={f}
               className={`filter-chip ${filter === f ? 'active' : ''}`}
-              onClick={() => setFilter(f)}
+              onClick={() => selectFilter(f)}
             >
               <span>{STATUS_LABELS_IT[f] || f}</span>
               <span className="filter-chip-count">{statusCounts[f] || 0}</span>
@@ -609,7 +636,7 @@ export default function ProjectsPage() {
           <h3>{filter === 'my_projects' ? 'Nessuna commessa assegnata a te' : 'Nessuna commessa trovata'}</h3>
           <p>{filter === 'my_projects' ? 'Non risulti ancora Responsabile o Addetto di alcuna commessa o fase.' : (filter !== 'all' ? 'Prova a cambiare filtro' : 'Aggiungi la tua prima commessa per iniziare')}</p>
           {filter === 'my_projects' && (
-            <button className="btn btn-secondary" style={{ marginTop: 16 }} onClick={() => setFilter('all')}>
+            <button className="btn btn-secondary" style={{ marginTop: 16 }} onClick={() => selectFilter('all')}>
               <AppIcon name="list" />
               Vedi tutte le commesse
             </button>
@@ -1114,12 +1141,12 @@ export default function ProjectsPage() {
                       overflowY: 'auto'
                     }}>
                       {usersList.map(u => {
-                        const selected = (form.assigned_workers || []).includes(u.username);
+                        const selected = isProjectWorkerSelected(form.assigned_workers, u);
                         return (
                           <button
                             key={u.id}
                             type="button"
-                            onClick={() => toggleWorkerSelection(u.username, false)}
+                            onClick={() => toggleWorkerSelection(u, false)}
                             style={{
                               padding: '6px 12px',
                               borderRadius: 20,
@@ -1411,12 +1438,12 @@ export default function ProjectsPage() {
                       overflowY: 'auto'
                     }}>
                       {usersList.map(u => {
-                        const selected = (editForm.assigned_workers || []).includes(u.username);
+                        const selected = isProjectWorkerSelected(editForm.assigned_workers, u);
                         return (
                           <button
                             key={u.id}
                             type="button"
-                            onClick={() => toggleWorkerSelection(u.username, true)}
+                            onClick={() => toggleWorkerSelection(u, true)}
                             style={{
                               padding: '6px 12px',
                               borderRadius: 20,

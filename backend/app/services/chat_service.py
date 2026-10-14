@@ -855,7 +855,8 @@ class ChatService:
                 st = v.start_date.date() if hasattr(v.start_date, 'date') else v.start_date
                 en = v.end_date.date() if hasattr(v.end_date, 'date') else v.end_date
                 if st and en and st <= today <= en:
-                    today_vacation_workers.append(u_full or u_uname or "Addetto")
+                    name = u_full or u_uname or "Addetto"
+                    today_vacation_workers.append(name if v.hours is None else f"{name} (permesso {v.hours:g}h)")
                     
             lines = [
                 f"### ☀️ Buongiorno, **{display_name}**! Ecco il tuo Briefing Operativo del giorno ({today.strftime('%d/%m/%Y')}):\n"
@@ -913,7 +914,10 @@ class ChatService:
             for v, u_full, u_uname in vacations[:20]:
                 st = v.start_date.strftime("%d/%m/%Y") if v.start_date else ""
                 en = v.end_date.strftime("%d/%m/%Y") if v.end_date else ""
-                v_summary.append(f"- {u_full or u_uname}: dal {st} al {en}")
+                if v.hours is None:
+                    v_summary.append(f"- {u_full or u_uname}: dal {st} al {en}")
+                else:
+                    v_summary.append(f"- {u_full or u_uname}: permesso di {v.hours:g}h il {st}")
                 
             prompt = PromptTemplate.from_template(
                 "Sei il motore di simulazione predittiva 'What-If' di HiPlan per diagrammi di Gantt e gestione commesse.\n"

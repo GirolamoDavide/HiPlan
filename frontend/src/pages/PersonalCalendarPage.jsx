@@ -10,6 +10,13 @@ import { useToast } from '../context/ToastContext';
 import AppIcon from '../components/ui/AppIcon';
 import './PersonalCalendarPage.css';
 
+// Visibilità degli eventi, con gli stessi valori del blocco note
+const VISIBILITY_OPTIONS = [
+  { value: 'private', label: 'Solo io', icon: 'lock', color: '#64748b' },
+  { value: 'selected', label: 'Utenti selezionati', icon: 'user', color: '#8b5cf6' },
+  { value: 'team', label: 'Tutti', icon: 'users', color: '#10b981' },
+];
+
 export default function PersonalCalendarPage() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -61,6 +68,7 @@ export default function PersonalCalendarPage() {
     is_all_day: false,
     color: '#3b82f6',
     shared_with: [],
+    visibility: 'private',
     reminder_type: 'none',
     reminder_time: ''
   });
@@ -94,7 +102,8 @@ export default function PersonalCalendarPage() {
     setLoading(true);
     try {
       const { data } = await api.get('/calendar/events');
-      setEvents(data);
+      // Gli eventi di altri utenti visibili a tutti sono in sola lettura
+      setEvents(data.map(ev => (ev.type === 'personal' ? { ...ev, editable: ev.can_edit !== false } : ev)));
     } catch (err) {
       toast.error('Errore nel caricamento del calendario');
     } finally {
@@ -138,6 +147,7 @@ export default function PersonalCalendarPage() {
       is_all_day: false,
       color: '#3b82f6',
       shared_with: [],
+      visibility: 'private',
       reminder_type: 'none',
       reminder_time: ''
     });
@@ -150,7 +160,7 @@ export default function PersonalCalendarPage() {
     const ev = clickInfo.event;
     const type = ev.extendedProps.type;
 
-    if (type === 'personal') {
+    if (type === 'personal' && ev.extendedProps.can_edit !== false) {
       setModalMode('edit');
       setSelectedEvent(ev);
 
@@ -170,6 +180,7 @@ export default function PersonalCalendarPage() {
         is_all_day: ev.allDay,
         color: ev.backgroundColor,
         shared_with: ev.extendedProps.shared_with || [],
+        visibility: ev.extendedProps.visibility || ((ev.extendedProps.shared_with || []).length ? 'selected' : 'private'),
         reminder_type: ev.extendedProps.reminder_type || 'none',
         reminder_time: ev.extendedProps.reminder_time ? ev.extendedProps.reminder_time.slice(0, 16) : ''
       });
@@ -183,9 +194,9 @@ export default function PersonalCalendarPage() {
 
   async function handleEventDrop(dropInfo) {
     const ev = dropInfo.event;
-    if (ev.extendedProps.type !== 'personal') {
+    if (ev.extendedProps.type !== 'personal' || ev.extendedProps.can_edit === false) {
       dropInfo.revert();
-      toast.error('Puoi spostare solo gli eventi personali');
+      toast.error('Puoi spostare solo i tuoi eventi o quelli condivisi con te');
       return;
     }
 
@@ -236,9 +247,20 @@ export default function PersonalCalendarPage() {
         computedReminderTime = form.reminder_time ? new Date(form.reminder_time).toISOString() : null;
       }
 
+      const visibilityPayload = {
+        visibility: form.visibility,
+        shared_with: form.visibility === 'selected' ? form.shared_with : [],
+      };
+
+      if (form.visibility === 'selected' && form.shared_with.length === 0) {
+        toast.error('Seleziona almeno una persona con cui condividere l\'evento');
+        return;
+      }
+
       if (modalMode === 'create') {
         await api.post('/calendar/events', {
           ...form,
+          ...visibilityPayload,
           start_date: finalStart,
           end_date: finalEnd,
           reminder_time: computedReminderTime
@@ -247,6 +269,7 @@ export default function PersonalCalendarPage() {
       } else if (modalMode === 'edit') {
         await api.put(`/calendar/events/${selectedEvent.extendedProps.real_id}`, {
           ...form,
+          ...visibilityPayload,
           start_date: finalStart,
           end_date: finalEnd,
           reminder_time: computedReminderTime
@@ -314,7 +337,7 @@ export default function PersonalCalendarPage() {
             fontSize: '0.75rem',
             fontWeight: 700
           }}>
-            {type === 'personal' && 'Evento Personale'}
+            {type === 'personal' && 'Evento'}
             {type === 'phase' && 'Fase Commessa'}
             {type === 'todo' && 'Da Fare (TODO)'}
             {type === 'ticket' && 'Ticket Supporto'}
@@ -322,6 +345,17 @@ export default function PersonalCalendarPage() {
             {type === 'holiday' && 'Festività Nazionale'}
           </span>
         </div>
+
+        {type === 'personal' && selectedEvent.extendedProps?.owner_name && (
+          <div className="calendar-modal-row">
+            <span className="calendar-modal-label">Creato da</span>
+            <span className="calendar-modal-val">
+              {selectedEvent.extendedProps.owner_name}
+              {' · '}
+              {VISIBILITY_OPTIONS.find(o => o.value === selectedEvent.extendedProps.visibility)?.label || 'Solo io'}
+            </span>
+          </div>
+        )}
 
         <div className="calendar-modal-row">
           <span className="calendar-modal-label">Titolo</span>
@@ -389,6 +423,7 @@ export default function PersonalCalendarPage() {
   }
 
   function renderEditCreateModal() {
+    const canChangeVisibility = modalMode === 'create' || selectedEvent?.extendedProps?.is_owner !== false;
     return (
       <form onSubmit={saveEvent} className="calendar-modal-content">
         <div className="input-group">
@@ -482,7 +517,32 @@ export default function PersonalCalendarPage() {
         </div>
 
         <div className="input-group">
-          <label>Condividi con (Opzionale)</label>
+          <label>Chi può vedere l'evento</label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {VISIBILITY_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                className={`filter-chip ${form.visibility === opt.value ? 'active' : ''}`}
+                style={{ '--chip-color': opt.color, margin: 0 }}
+                disabled={!canChangeVisibility}
+                onClick={() => setForm({ ...form, visibility: opt.value })}
+              >
+                <AppIcon name={opt.icon} size={13} />
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {!canChangeVisibility && (
+            <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+              Solo chi ha creato l'evento può cambiarne la visibilità.
+            </span>
+          )}
+        </div>
+
+        {form.visibility === 'selected' && (
+        <div className="input-group">
+          <label>Condividi con *</label>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxHeight: 110, overflowY: 'auto', paddingBottom: 4 }}>
             {users.map(u => {
               const isSelected = form.shared_with.includes(u.username);
@@ -508,6 +568,7 @@ export default function PersonalCalendarPage() {
             {users.length === 0 && <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Nessun utente caricato</span>}
           </div>
         </div>
+        )}
 
         <div className="input-group">
           <label>Promemoria (Notifica Email)</label>
@@ -585,7 +646,7 @@ export default function PersonalCalendarPage() {
             <div className="calendar-filters-section" style={{ display: 'flex', gap: '8px', marginRight: '8px' }}>
               <label className={`filter-chip ${visibleTypes.personal ? 'active' : ''}`} style={{ '--chip-color': '#3b82f6', margin: 0 }}>
                 <input type="checkbox" checked={visibleTypes.personal} onChange={() => toggleFilter('personal')} />
-                Eventi Personali
+                Eventi
               </label>
               <label className={`filter-chip ${visibleTypes.phase ? 'active' : ''}`} style={{ '--chip-color': '#f59e0b', margin: 0 }}>
                 <input type="checkbox" checked={visibleTypes.phase} onChange={() => toggleFilter('phase')} />
@@ -656,8 +717,8 @@ export default function PersonalCalendarPage() {
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 950, width: '100%', padding: 28, maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="modal-header">
               <h2>
-                {modalMode === 'create' && 'Nuovo Evento Personale'}
-                {modalMode === 'edit' && 'Modifica Evento Personale'}
+                {modalMode === 'create' && 'Nuovo Evento'}
+                {modalMode === 'edit' && 'Modifica Evento'}
                 {modalMode === 'view' && 'Dettaglio'}
               </h2>
               <button className="btn-ghost btn-icon" onClick={() => setShowModal(false)}>

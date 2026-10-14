@@ -11,6 +11,7 @@ from app.core.dependencies import get_db, get_current_user
 from app.models.user import User
 from app.models.task import Task
 from app.models.vacation import Vacation
+from app.utils.vacations import serialize_vacation_fields
 
 router = APIRouter(prefix="/api/workload", tags=["workload"])
 
@@ -38,8 +39,7 @@ async def get_workload_heatmap(
         if uid not in vac_by_user:
             vac_by_user[uid] = []
         vac_by_user[uid].append({
-            "start_date": str(v.start_date),
-            "end_date": str(v.end_date),
+            **serialize_vacation_fields(v),
             "reason": v.reason or ""
         })
     

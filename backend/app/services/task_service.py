@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.models.task import Task
 from app.models.link import Link
 from app.models.vacation import Vacation
+from app.utils.vacations import is_full_day
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from datetime import timedelta, date, datetime
@@ -304,7 +305,7 @@ async def create_task(db: AsyncSession, project_id: str, data: TaskCreate, user=
             continue
         vac_res = await db.execute(select(Vacation).where(Vacation.user_id == worker_user.id))
         vacs = vac_res.scalars().all()
-        vacation_payloads = [{"start_date": v.start_date, "end_date": v.end_date} for v in vacs]
+        vacation_payloads = [{"start_date": v.start_date, "end_date": v.end_date} for v in vacs if is_full_day(v)]
         conflicts = find_vacation_conflicts(task.start_date, task.end_date or task.start_date, vacation_payloads, data.excluded_dates, active_custom_dates)
         shift_days: int = int(conflicts[0]["workdays"]) if conflicts else 0
         total_shift_days = max(total_shift_days, shift_days)
@@ -442,7 +443,7 @@ async def update_task(db: AsyncSession, task_id: str, data: TaskUpdate, user=Non
             continue
         vac_res = await db.execute(select(Vacation).where(Vacation.user_id == worker_user.id))
         vacs = vac_res.scalars().all()
-        vacation_payloads = [{"start_date": v.start_date, "end_date": v.end_date} for v in vacs]
+        vacation_payloads = [{"start_date": v.start_date, "end_date": v.end_date} for v in vacs if is_full_day(v)]
         try:
             excluded_dates_list = json.loads(task.excluded_dates) if getattr(task, 'excluded_dates', None) else []
         except Exception:
@@ -519,7 +520,7 @@ async def update_task(db: AsyncSession, task_id: str, data: TaskUpdate, user=Non
                     continue
                 vac_res = await db.execute(select(Vacation).where(Vacation.user_id == worker_user.id))
                 for v in vac_res.scalars().all():
-                    if v.start_date <= d_date <= v.end_date:
+                    if is_full_day(v) and v.start_date <= d_date <= v.end_date:
                         had_hours_in_vac = True
                         break
                 if had_hours_in_vac:

@@ -165,6 +165,11 @@ async def update_project(db: AsyncSession, project_id: str, data: ProjectUpdate,
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo owner/manager/responsabile possono modificare")
 
     update_data = data.model_dump(exclude_unset=True)
+    new_start = update_data.get("start_date", project.start_date)
+    new_end = update_data.get("end_date", project.end_date)
+    if new_start and new_end and new_end < new_start:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La data di fine non può precedere la data di inizio")
+
     import json
     for key, value in update_data.items():
         if key == "assigned_workers":

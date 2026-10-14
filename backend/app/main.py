@@ -12,7 +12,7 @@ from app.api import (
     auth, users, projects, tasks, notes, export, 
     notifications, phase_templates, workload, vacations, 
     tickets, task_collaboration, websockets, settings as api_settings, activity_logs, todos, email_logs, search, replanning, chat, calendar, richieste_commerciali,
-    automations
+    automations, trips, attendance
 )
 
 @asynccontextmanager
@@ -414,6 +414,8 @@ app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(calendar.router, prefix="/api/calendar", tags=["Calendar"])
 app.include_router(richieste_commerciali.router)
 app.include_router(automations.router)
+app.include_router(trips.router)
+app.include_router(attendance.router)
 
 @app.get("/api/health")
 async def health_check():

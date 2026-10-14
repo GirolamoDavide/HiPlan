@@ -1048,7 +1048,9 @@ export default function DashboardPage() {
                       </span>
                       <small>
                         <AppIcon name="calendar" size={13} />
-                        {item.vacation_days?.length || 0} giorni lavorativi sovrapposti
+                        {item.vacation_hours != null
+                          ? `Permesso di ${item.vacation_hours}h il ${item.vacation_start}`
+                          : `${item.vacation_days?.length || 0} giorni lavorativi sovrapposti`}
                       </small>
                     </div>
                     <div className="recovery-actions">

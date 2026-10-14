@@ -9,6 +9,7 @@ import useDragScroll from '../../hooks/useDragScroll';
 import AppIcon from '../ui/AppIcon';
 import { getTaskColor } from '../../utils/phaseColors';
 import { getCustomDatesList, clusterCustomDates } from '../../utils/customDates';
+import { isFullDayVacation, formatLeaveHours } from '../../utils/vacations';
 
 export default function WorkloadHeatmap() {
   const navigate = useNavigate();
@@ -206,12 +207,32 @@ export default function WorkloadHeatmap() {
     return false;
   };
 
+  // Solo le ferie a giornata intera rendono il giorno indisponibile
   const isUserOnVacation = (userId, dateStr) => {
     const userData = heatmapData[userId];
     if (!userData || !userData.vacations) return false;
     return userData.vacations.some(v => {
-      return dateStr >= v.start_date && dateStr <= v.end_date;
+      return isFullDayVacation(v) && dateStr >= v.start_date && dateStr <= v.end_date;
     });
+  };
+
+  // Ore di permesso che cadono nella colonna (giorno, settimana o mese): riducono la capacità
+  const getUserLeaveHours = (userId, colKey) => {
+    const userData = heatmapData[userId];
+    if (!userData || !userData.vacations) return 0;
+    return userData.vacations
+      .filter(v => !isFullDayVacation(v))
+      .filter(v => {
+        if (viewMode === 'day') return v.start_date === colKey;
+        if (viewMode === 'week') {
+          const weekEndObj = new Date(colKey);
+          weekEndObj.setDate(weekEndObj.getDate() + 6);
+          return v.start_date >= colKey && v.start_date <= weekEndObj.toISOString().substring(0, 10);
+        }
+        if (viewMode === 'month') return v.start_date.substring(0, 7) === colKey;
+        return false;
+      })
+      .reduce((sum, v) => sum + Number(v.hours), 0);
   };
 
   const formatDateStr = (key) => {
@@ -579,12 +600,14 @@ export default function WorkloadHeatmap() {
                 const data = aggregatedWorkload[colKey];
                 const isVacation = isUserOnVacation(userId, colKey);
                 const isWeekendCol = isColumnWeekend(colKey);
+                const leaveHours = getUserLeaveHours(userId, colKey);
+                const cellCapacity = Math.max(0, currentCapacity - leaveHours);
                 let colorClass = '';
 
                 if (!isVacation && !isWeekendCol && data.hours > 0) {
-                  if (data.hours > currentCapacity) {
+                  if (data.hours > cellCapacity) {
                     colorClass = 'over-capacity';
-                  } else if (data.hours === currentCapacity) {
+                  } else if (data.hours === cellCapacity) {
                     colorClass = 'at-capacity';
                   } else {
                     colorClass = 'under-capacity';
@@ -612,6 +635,9 @@ export default function WorkloadHeatmap() {
                   tooltipText = combinedTasks.map(t => formatTaskTooltip(t, colKey, data)).join('\n\n────────────────────────\n\n');
                 } else {
                   tooltipText = 'Nessuna ora assegnata (' + formatDateStr(colKey) + ')';
+                }
+                if (!isVacation && leaveHours > 0) {
+                  tooltipText = `🕐 Permesso ${leaveHours}h: capacità ${cellCapacity}h\n\n` + tooltipText;
                 }
 
                 const getCellText = () => {
@@ -1019,9 +1045,11 @@ export default function WorkloadHeatmap() {
                                 boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
                                 zIndex: 11
                               }}
-                                title={`${v.vacation.reason || 'Ferie'} (${v.vacation.start_date} → ${v.vacation.end_date})`}
+                                title={formatLeaveHours(v.vacation)
+                                  ? `Permesso ${formatLeaveHours(v.vacation)}${v.vacation.reason ? ` – ${v.vacation.reason}` : ''} (${v.vacation.start_date})`
+                                  : `${v.vacation.reason || 'Ferie'} (${v.vacation.start_date} → ${v.vacation.end_date})`}
                               >
-                                {v.vacation.reason || 'Ferie'}
+                                {formatLeaveHours(v.vacation) ? `Permesso ${formatLeaveHours(v.vacation)}` : (v.vacation.reason || 'Ferie')}
                               </div>
                             ))}
                           </div>
