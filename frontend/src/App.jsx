@@ -71,7 +71,14 @@ function AppRoutes() {
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/personal-calendar" element={<PersonalCalendarPage />} />
         <Route path="/trips" element={<TripsCalendarPage />} />
-        <Route path="/attendance" element={<AttendancePage />} />
+        <Route
+          path="/attendance"
+          element={
+            <ProtectedRoute adminOnly>
+              <AttendancePage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/notes" element={<NotesPage />} />
         <Route path="/todo" element={<TodoPage />} />
         <Route path="/tickets" element={<TicketsPage />} />

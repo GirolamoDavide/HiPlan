@@ -1,7 +1,7 @@
 """Griglia presenze: addetti in riga e giorni del mese in colonna, come il foglio Excel di pianificazione.
 
-Le celle si compilano da sole con ferie, permessi a ore, viaggi e fasi assegnate; admin ed editor
-possono aggiungere una nota libera colorata per cella.
+Le celle si compilano da sole con ferie, permessi a ore, viaggi e fasi assegnate; solo gli admin
+vedono la griglia e possono aggiungere una nota libera colorata per cella.
 """
 import calendar
 import json
@@ -63,8 +63,9 @@ def _days(first: date, last: date) -> List[date]:
     return [first + timedelta(days=i) for i in range((last - first).days + 1)]
 
 
-def _can_edit_notes(user: User) -> bool:
-    return user.role in (UserRole.ADMIN, UserRole.EDITOR)
+def _require_admin(user: User) -> None:
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="La griglia presenze è riservata agli amministratori")
 
 
 def _task_dates(task: Task, first: date, last: date) -> List[date]:
@@ -92,6 +93,7 @@ async def get_attendance_grid(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    _require_admin(current_user)
     first, last = _month_bounds(month)
 
     users_res = await db.execute(select(User).where(User.is_active == True))  # noqa: E712
@@ -164,7 +166,7 @@ async def get_attendance_grid(
     holidays = {h["date"]: h["name"] for h in get_italian_holidays(first.year)}
     return {
         "month": month,
-        "can_edit": _can_edit_notes(current_user),
+        "can_edit": True,
         "days": [
             {"date": d.isoformat(), "weekday": d.weekday(), "holiday": holidays.get(d)}
             for d in _days(first, last)
@@ -183,8 +185,7 @@ async def upsert_attendance_note(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not _can_edit_notes(current_user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo admin ed editor possono modificare la griglia")
+    _require_admin(current_user)
 
     res = await db.execute(
         select(AttendanceNote).where(AttendanceNote.user_id == data.user_id, AttendanceNote.date == data.date)

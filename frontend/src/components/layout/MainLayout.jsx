@@ -219,6 +219,7 @@ function AppIcon({ name, size = 19 }) {
 
 export default function MainLayout() {
   const { user, logout } = useAuth();
+  const toast = useToast();
   const { theme, cycleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -589,10 +590,24 @@ export default function MainLayout() {
             <span className="sidebar-link-icon"><AppIcon name="timeline" /></span>
             {showSidebarText && <span>Calendario Commesse</span>}
           </NavLink>
-          <NavLink to="/attendance" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="sidebar-link-icon"><AppIcon name="grid" /></span>
-            {showSidebarText && <span>Griglia presenze</span>}
+
+          <span className="sidebar-section-label">Calendari</span>
+          <NavLink to="/personal-calendar" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+            <span className="sidebar-link-icon"><AppIcon name="calendar" /></span>
+            {showSidebarText && <span>Calendario</span>}
           </NavLink>
+          {tripsEnabled && (
+            <NavLink to="/trips" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <span className="sidebar-link-icon"><AppIcon name="plane" /></span>
+              {showSidebarText && <span>Calendario viaggi</span>}
+            </NavLink>
+          )}
+          {user?.role === 'admin' && (
+            <NavLink to="/attendance" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+              <span className="sidebar-link-icon"><AppIcon name="grid" /></span>
+              {showSidebarText && <span>Griglia presenze</span>}
+            </NavLink>
+          )}
 
           {rcEnabled && (
             <>
@@ -605,16 +620,6 @@ export default function MainLayout() {
           )}
 
           <span className="sidebar-section-label">Produttività</span>
-          <NavLink to="/personal-calendar" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-            <span className="sidebar-link-icon"><AppIcon name="calendar" /></span>
-            {showSidebarText && <span>Calendario</span>}
-          </NavLink>
-          {tripsEnabled && (
-            <NavLink to="/trips" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
-              <span className="sidebar-link-icon"><AppIcon name="plane" /></span>
-              {showSidebarText && <span>Calendario viaggi</span>}
-            </NavLink>
-          )}
           <NavLink to="/todo" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
             <span className="sidebar-link-icon"><AppIcon name="todo" /></span>
             {showSidebarText && <span>TODO</span>}

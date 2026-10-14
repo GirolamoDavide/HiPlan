@@ -206,10 +206,6 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      {grid?.can_edit === false && (
-        <p className="att-hint">Visualizzazione in sola lettura: solo admin ed editor possono scrivere note nelle celle.</p>
-      )}
-
       <div className="att-table-wrap">
         {loading && !grid ? (
           <div className="att-loading">Caricamento...</div>

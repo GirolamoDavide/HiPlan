@@ -37,7 +37,7 @@ async def test_attendance_grid_collects_vacations_leave_trips_phases(client: Asy
 
 
 @pytest.mark.asyncio
-async def test_attendance_notes_only_for_admin_and_editor(client: AsyncClient, auth_headers: dict, test_user, db_session):
+async def test_attendance_grid_only_for_admin(client: AsyncClient, auth_headers: dict, test_user, db_session):
     note = {"user_id": str(test_user.id), "date": "2026-10-08", "text": "M", "color": "#f9a8d4"}
     assert (await client.put("/api/attendance/notes", headers=auth_headers, json=note)).status_code == 200
 
@@ -55,4 +55,12 @@ async def test_attendance_notes_only_for_admin_and_editor(client: AsyncClient, a
     token = (await client.post("/api/auth/login", json={"email": "v@example.com", "password": "pass1234"})).json()["access_token"]
     viewer = {"Authorization": f"Bearer {token}"}
     assert (await client.put("/api/attendance/notes", headers=viewer, json=note)).status_code == 403
-    assert (await client.get("/api/attendance?month=2026-10", headers=viewer)).json()["can_edit"] is False
+    assert (await client.get("/api/attendance?month=2026-10", headers=viewer)).status_code == 403
+
+    db_session.add(User(email="e@example.com", username="editor1", hashed_password=hash_password("pass1234"),
+                        full_name="Editor", role=UserRole.EDITOR, is_active=True))
+    await db_session.commit()
+    token = (await client.post("/api/auth/login", json={"email": "e@example.com", "password": "pass1234"})).json()["access_token"]
+    editor = {"Authorization": f"Bearer {token}"}
+    assert (await client.get("/api/attendance?month=2026-10", headers=editor)).status_code == 403
+    assert (await client.put("/api/attendance/notes", headers=editor, json=note)).status_code == 403

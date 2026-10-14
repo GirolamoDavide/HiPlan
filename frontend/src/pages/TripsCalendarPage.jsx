@@ -67,7 +67,12 @@ function TripAccessModal({ users, onClose }) {
 
   return (
     <div className="modal-overlay animate-fadeIn">
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560, width: '100%', padding: 28 }}>
+      {/* Alto abbastanza da contenere l'elenco persone aperto senza tagliarlo */}
+      <div
+        className="modal"
+        onClick={e => e.stopPropagation()}
+        style={{ maxWidth: 760, width: '100%', minHeight: 'min(640px, 88vh)', padding: 32, display: 'flex', flexDirection: 'column' }}
+      >
         <div className="modal-header">
           <h2>Permessi calendario viaggi</h2>
           <button className="btn-ghost btn-icon" onClick={onClose} aria-label="Chiudi"><AppIcon name="close" /></button>
@@ -83,7 +88,7 @@ function TripAccessModal({ users, onClose }) {
           <label>Possono compilare (inserire, modificare ed eliminare viaggi)</label>
           <AssigneeInput selected={editors} onChange={setEditors} users={users} placeholder="Aggiungi persone..." />
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 'auto', paddingTop: 20 }}>
           <button type="button" className="btn btn-secondary" onClick={onClose}>Annulla</button>
           <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
             {saving ? 'Salvataggio...' : 'Salva permessi'}
