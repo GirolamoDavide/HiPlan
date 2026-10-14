@@ -15,6 +15,17 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     CORS_ORIGINS: str = '["http://localhost:5173"]'
+    # Origini ammesse oltre a CORS_ORIGINS: localhost e rete locale (IP privati, nomi .local o senza dominio),
+    # così HiPlan resta raggiungibile dai PC dell'ufficio ma non da siti esterni. Stringa vuota = disattivato.
+    CORS_ORIGIN_REGEX: str = (
+        r"^https?://("
+        r"localhost|127\.0\.0\.1|\[::1\]"
+        r"|10(\.\d{1,3}){3}"
+        r"|192\.168(\.\d{1,3}){2}"
+        r"|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}"
+        r"|[a-zA-Z0-9-]+(\.local)?"
+        r")(:\d+)?$"
+    )
     APP_NAME: str = "HiPlan"
     DEBUG: bool = True
 

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from sqlalchemy.orm import selectinload
 
+from app.services.project_service import require_project_access
 from app.core.dependencies import get_db, get_current_user
 from app.models.user import User, UserRole
 from app.models.replan_log import ReplanLog
@@ -53,7 +54,7 @@ async def get_zero_hours(
     return await get_zero_hours_alerts(db, current_user)
 
 
-@router.get("/project/{project_id}/suggestions")
+@router.get("/project/{project_id}/suggestions", dependencies=[Depends(require_project_access)])
 async def get_project_smart_suggestions(
     project_id: str,
     preference: Optional[str] = None,
@@ -76,7 +77,7 @@ async def get_project_smart_suggestions(
     return result
 
 
-@router.post("/project/{project_id}/apply")
+@router.post("/project/{project_id}/apply", dependencies=[Depends(require_project_access)])
 async def apply_project_suggestion(
     project_id: str,
     request: ApplyReplanningRequest,
@@ -109,7 +110,7 @@ class ApplyReplanningBatchRequest(BaseModel):
     proposals: List[Dict[str, Any]]
 
 
-@router.post("/project/{project_id}/apply-batch")
+@router.post("/project/{project_id}/apply-batch", dependencies=[Depends(require_project_access)])
 async def apply_project_batch_suggestions(
     project_id: str,
     request: ApplyReplanningBatchRequest,
@@ -137,7 +138,7 @@ async def apply_project_batch_suggestions(
         )
 
 
-@router.post("/project/{project_id}/revert/{log_id}")
+@router.post("/project/{project_id}/revert/{log_id}", dependencies=[Depends(require_project_access)])
 async def revert_project_suggestion(
     project_id: str,
     log_id: str,

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from typing import List
 from datetime import datetime
 
+from app.services.project_service import require_project_access
 from app.core.dependencies import get_db, get_current_user
 from app.models.user import User
 from app.models.task import Task
@@ -23,7 +24,18 @@ from app.schemas.task_collaboration import (
     TaskChecklistItemCreate, TaskChecklistItemUpdate, TaskChecklistItemOut
 )
 
-router = APIRouter(prefix="/api/projects/{project_id}/tasks/{task_id}", tags=["task-collaboration"])
+async def require_task_in_project(project_id: str, task_id: str, db: AsyncSession = Depends(get_db)) -> None:
+    """La fase indicata nell'URL deve appartenere alla commessa (a cui l'utente ha già accesso)."""
+    res = await db.execute(select(Task.id).where(Task.id == task_id, Task.project_id == project_id))
+    if res.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Fase non trovata in questa commessa")
+
+
+router = APIRouter(
+    prefix="/api/projects/{project_id}/tasks/{task_id}",
+    tags=["task-collaboration"],
+    dependencies=[Depends(require_project_access), Depends(require_task_in_project)],
+)
 
 # --- COMMENTS ---
 @router.get("/comments", response_model=List[TaskCommentOut])
@@ -81,7 +93,7 @@ async def delete_comment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    res = await db.execute(select(TaskComment).where(TaskComment.id == comment_id))
+    res = await db.execute(select(TaskComment).where(TaskComment.id == comment_id, TaskComment.task_id == task_id))
     comment = res.scalar_one_or_none()
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
@@ -118,12 +130,13 @@ async def add_checklist_item(
 @router.put("/checklists/{item_id}", response_model=TaskChecklistItemOut)
 async def update_checklist_item(
     project_id: str,
+    task_id: str,
     item_id: str,
     data: TaskChecklistItemUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    res = await db.execute(select(TaskChecklistItem).where(TaskChecklistItem.id == item_id))
+    res = await db.execute(select(TaskChecklistItem).where(TaskChecklistItem.id == item_id, TaskChecklistItem.task_id == task_id))
     item = res.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Checklist item not found")
@@ -136,11 +149,12 @@ async def update_checklist_item(
 @router.delete("/checklists/{item_id}", status_code=204)
 async def delete_checklist_item(
     project_id: str,
+    task_id: str,
     item_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    res = await db.execute(select(TaskChecklistItem).where(TaskChecklistItem.id == item_id))
+    res = await db.execute(select(TaskChecklistItem).where(TaskChecklistItem.id == item_id, TaskChecklistItem.task_id == task_id))
     item = res.scalar_one_or_none()
     if item:
         await db.delete(item)

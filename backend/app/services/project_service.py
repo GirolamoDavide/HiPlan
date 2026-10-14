@@ -14,16 +14,65 @@ from app.models.notification import Notification, NotificationType
 # pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
 from app.core.websocket_manager import manager
+from app.core.dependencies import get_db, get_current_user
+# pyrefly: ignore [missing-import]
+from fastapi import Depends
+
+
+def _json_list(value) -> list:
+    import json
+    try:
+        parsed = json.loads(value) if value else []
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+
+def _user_names(user: User) -> set:
+    return {n for n in (user.username, user.full_name) if n}
+
+
+async def can_access_project(db: AsyncSession, project: Project, user: User) -> bool:
+    """Admin ed editor vedono tutte le commesse; gli altri solo quelle in cui sono coinvolti
+    (owner, responsabile, membro, addetto della commessa o di una sua fase)."""
+    if user.role in (UserRole.ADMIN, UserRole.EDITOR):
+        return True
+    if user.id in (project.owner_id, project.responsible_id):
+        return True
+    if any(m.user_id == user.id for m in (project.members or [])):
+        return True
+    names = _user_names(user)
+    if names & set(_json_list(project.assigned_workers)):
+        return True
+    res = await db.execute(select(Task.workers).where(Task.project_id == project.id))
+    return any(names & set(_json_list(workers)) for (workers,) in res.all())
+
+
+def can_edit_project(project: Project, user: User) -> bool:
+    """Stessa regola della modifica commessa: admin, editor, owner, responsabile o membro manager."""
+    if user.role in (UserRole.ADMIN, UserRole.EDITOR) or user.id in (project.owner_id, project.responsible_id):
+        return True
+    return any(m.user_id == user.id and m.role == MemberRole.MANAGER for m in (project.members or []))
+
+
+async def require_project_access(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    """Dipendenza FastAPI per le rotte /projects/{project_id}/...: 404 se non esiste, 403 se non è visibile."""
+    await get_project(db, project_id, current_user)
 
 
 async def get_user_projects(db: AsyncSession, user: User) -> List[ProjectOut]:
     result = await db.execute(
         select(Project)
-        .options(selectinload(Project.responsible))
+        .options(selectinload(Project.responsible), selectinload(Project.members))
         .where(Project.deleted_at.is_(None))
         .order_by(Project.created_at.desc())
     )
     projects = result.scalars().all()
+    sees_all = user.role in (UserRole.ADMIN, UserRole.EDITOR)
 
     output = []
     import json
@@ -69,6 +118,9 @@ async def get_user_projects(db: AsyncSession, user: User) -> List[ProjectOut]:
             or (user.username in unique_workers)
             or (user.full_name and user.full_name in unique_workers)
         )
+        is_member = any(m.user_id == user.id for m in (p.members or []))
+        if not sees_all and not is_assigned and not is_member:
+            continue
 
         attachments_list = []
         if p.attachments:
@@ -153,6 +205,8 @@ async def get_project(db: AsyncSession, project_id: str, user: User, allow_delet
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Progetto non trovato")
+    if user is not None and not await can_access_project(db, project, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Non hai accesso a questa commessa")
 
     return project
 

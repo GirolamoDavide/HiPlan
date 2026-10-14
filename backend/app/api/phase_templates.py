@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 # pyrefly: ignore [missing-import]
 from sqlalchemy import select
-from app.core.dependencies import get_db, get_current_user
+from app.core.dependencies import get_db, get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.phase_template import PhaseTemplate
 # pyrefly: ignore [missing-import]
@@ -66,7 +66,7 @@ async def list_phase_templates(
 async def create_phase_template(
     data: PhaseTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.EDITOR)),
 ):
     if not data.name or not data.name.strip():
         raise HTTPException(status_code=400, detail="Il nome della fase è obbligatorio")
@@ -130,7 +130,7 @@ async def update_phase_template(
     template_id: str,
     data: PhaseTemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.EDITOR)),
 ):
     result = await db.execute(select(PhaseTemplate).where(PhaseTemplate.id == template_id))
     template = result.scalar_one_or_none()
@@ -168,7 +168,7 @@ async def update_phase_template(
 async def delete_phase_template(
     template_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.ADMIN, UserRole.EDITOR)),
 ):
     result = await db.execute(select(PhaseTemplate).where(PhaseTemplate.id == template_id))
     template = result.scalar_one_or_none()

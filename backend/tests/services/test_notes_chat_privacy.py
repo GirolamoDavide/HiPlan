@@ -121,10 +121,11 @@ async def test_sql_guard_blocks_all_notes_queries():
         "SELECT n.title FROM notes n JOIN users u ON n.owner_id = u.id",
     ]
 
+    from app.services.chat_service import validate_readonly_sql
+
     for q in forbidden_queries:
-        # Regex check utilizzata in execute_and_log
-        has_forbidden_notes = bool(re.search(r'\bnotes\b', q, re.IGNORECASE))
-        assert has_forbidden_notes, f"La query '{q}' doveva essere intercettata come violazione su 'notes'"
+        error = validate_readonly_sql(q)
+        assert error and error.startswith("ACCESSO_NEGATO_NOTE"), f"La query '{q}' doveva essere bloccata"
 
 
 @pytest.mark.asyncio

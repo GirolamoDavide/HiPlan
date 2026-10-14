@@ -6,8 +6,9 @@ from app.core.dependencies import get_db, get_current_user
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskUpdate, TaskOut, LinkCreate, LinkOut, GanttData
 from app.services import task_service
+from app.services.project_service import require_project_access
 
-router = APIRouter(prefix="/api/projects/{project_id}", tags=["tasks"])
+router = APIRouter(prefix="/api/projects/{project_id}", tags=["tasks"], dependencies=[Depends(require_project_access)])
 
 
 @router.get("/gantt", response_model=GanttData)

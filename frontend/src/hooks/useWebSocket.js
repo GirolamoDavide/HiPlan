@@ -20,7 +20,10 @@ export default function useWebSocket(url, onMessage) {
     const connect = () => {
       if (isUnmounted) return;
       
-      const ws = new WebSocket(url);
+      // Il token viene riletto a ogni (ri)connessione, così dopo un refresh si usa quello aggiornato
+      let token = '';
+      try { token = localStorage.getItem('access_token') || ''; } catch { }
+      const ws = new WebSocket(`${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`);
 
       ws.onopen = () => {
         if (!isUnmounted) setIsConnected(true);

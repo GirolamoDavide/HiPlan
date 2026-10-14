@@ -16,8 +16,9 @@ from app.models.base import AsyncSessionLocal
 from app.models.activity_log import ActivityLog
 from app.models.user import User, UserRole
 from app.core.dependencies import get_current_user
+from app.services.project_service import require_project_access
 
-router = APIRouter(prefix="/api/projects/{project_id}/activity_logs", tags=["Activity Logs"])
+router = APIRouter(prefix="/api/projects/{project_id}/activity_logs", tags=["Activity Logs"], dependencies=[Depends(require_project_access)])
 
 async def get_db():
     async with AsyncSessionLocal() as session:

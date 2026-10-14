@@ -30,6 +30,71 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def create_readonly_engine(sync_url: str):
+    """Motore SQLAlchemy usato dal Text-to-SQL: qualsiasi scrittura viene rifiutata dal database stesso."""
+    # pyrefly: ignore [missing-import]
+    from sqlalchemy import event
+
+    if sync_url.startswith("postgresql"):
+        return create_engine(sync_url, connect_args={"options": "-c default_transaction_read_only=on"})
+
+    engine = create_engine(sync_url)
+    if sync_url.startswith("sqlite"):
+        @event.listens_for(engine, "connect")
+        def _sqlite_query_only(dbapi_conn, _record):
+            dbapi_conn.execute("PRAGMA query_only = ON")
+    return engine
+
+
+# Tabelle escluse dal Text-to-SQL (dati personali, riservati o con credenziali)
+SQL_RESERVED_TABLES = {
+    "notes": "ACCESSO_NEGATO_NOTE: La tabella delle note personali è strettamente riservata ed esclusa dal chatbot per motivi di privacy.",
+    "todos": "ACCESSO_NEGATO_TODO: La tabella dei TODO è strettamente riservata ed esclusa dal chatbot per motivi di privacy.",
+    "tickets": "ACCESSO_NEGATO_TICKETS: La gestione dei ticket di assistenza è riservata ed esclusa dal chatbot.",
+    "ticket_replies": "ACCESSO_NEGATO_TICKETS: La gestione dei ticket di assistenza è riservata ed esclusa dal chatbot.",
+    "calendar_events": "ACCESSO_NEGATO_CALENDARIO: La tabella degli eventi di calendario personale è strettamente riservata ed esclusa dal chatbot.",
+    "richieste_commerciali": "ACCESSO_NEGATO_PREVENTIVAZIONE: I dati della pagina Preventivazione sono riservati ed esclusi dal chatbot.",
+    "articoli_richiesta": "ACCESSO_NEGATO_PREVENTIVAZIONE: I dati della pagina Preventivazione sono riservati ed esclusi dal chatbot.",
+    "settings": "ACCESSO_NEGATO_IMPOSTAZIONI: Le impostazioni di sistema sono riservate ed escluse dal chatbot.",
+    "trips": "ACCESSO_NEGATO_VIAGGI: Il calendario viaggi ha permessi dedicati ed è escluso dal chatbot.",
+    "email_logs": "ACCESSO_NEGATO_LOG: I log email sono riservati ed esclusi dal chatbot.",
+}
+
+_SQL_WRITE_KEYWORDS = re.compile(
+    r"\b(insert|update|delete|drop|alter|create|replace|truncate|attach|detach|pragma|vacuum|reindex|"
+    r"grant|revoke|copy|merge|call|exec|execute|lock|load_extension)\b",
+    re.IGNORECASE,
+)
+
+
+def validate_readonly_sql(query: str) -> Optional[str]:
+    """Ritorna un messaggio di rifiuto se la query generata dall'LLM non è una singola lettura consentita."""
+    if not query or not query.strip():
+        return "QUERY_NON_VALIDA: Nessuna query SQL generata."
+
+    # Commenti rimossi prima dei controlli, per non nascondere istruzioni
+    q = re.sub(r"--[^\n]*|/\*.*?\*/", " ", query, flags=re.DOTALL).strip().rstrip(";").strip()
+
+    if ";" in q:
+        return "QUERY_NON_CONSENTITA: È consentita una sola istruzione di lettura."
+    if not re.match(r"^(select|with)\b", q, re.IGNORECASE):
+        return "QUERY_NON_CONSENTITA: Il chatbot può solo leggere i dati (SELECT)."
+    # Le parole dentro i testi tra apici (es. WHERE status = 'update') non sono comandi
+    if _SQL_WRITE_KEYWORDS.search(re.sub(r"'(?:[^']|'')*'", "''", q)):
+        return "QUERY_NON_CONSENTITA: Il chatbot può solo leggere i dati, non modificarli."
+
+    for table, message in SQL_RESERVED_TABLES.items():
+        if re.search(rf"\b{table}\b", q, re.IGNORECASE):
+            return message
+
+    if re.search(r"\bhashed_password\b", q, re.IGNORECASE):
+        return "ACCESSO_NEGATO_CREDENZIALI: Le password degli utenti non sono accessibili."
+    # SELECT * su users esporrebbe anche l'hash della password
+    if re.search(r"\busers\b", q, re.IGNORECASE) and re.search(r"(^|[\s,])(\w+\.)?\*", q):
+        return "ACCESSO_NEGATO_CREDENZIALI: Sulla tabella utenti indica le colonne da leggere (niente SELECT *)."
+    return None
+
+
 def get_sync_db_url(async_url: str) -> str:
     if async_url.startswith("sqlite+aiosqlite:///"):
         return async_url.replace("sqlite+aiosqlite:///", "sqlite:///")
@@ -107,7 +172,7 @@ def get_task_total_actual_hours(t) -> float:
 class ChatService:
     def __init__(self):
         self.sync_db_url = get_sync_db_url(settings.DATABASE_URL)
-        self.engine = create_engine(self.sync_db_url)
+        self.engine = create_readonly_engine(self.sync_db_url)
         self._db = None
         
         # Temperatura differenziata:
@@ -375,16 +440,23 @@ class ChatService:
             existing_tables = set(inspector.get_table_names())
             
             to_ignore = [
-                "activity_logs", "agent_logs", "email_logs", "replan_logs", "planning_runs",
-                "notes", "todos", "calendar_events", "tickets", "ticket_replies",
-                "richieste_commerciali", "articoli_richiesta"
+                "activity_logs", "agent_logs", "replan_logs", "planning_runs", *SQL_RESERVED_TABLES.keys()
             ]
             ignore_existing = [t for t in to_ignore if t in existing_tables]
 
             self._db = SQLDatabase(
-                self.engine, 
+                self.engine,
                 sample_rows_in_table_info=0,
-                ignore_tables=ignore_existing
+                ignore_tables=ignore_existing,
+                # Lo schema mostrato all'LLM non include l'hash della password
+                custom_table_info={
+                    "users": (
+                        "CREATE TABLE users (\n\tid VARCHAR(36) NOT NULL, \n\temail VARCHAR(255) NOT NULL, "
+                        "\n\tusername VARCHAR(100) NOT NULL, \n\tfull_name VARCHAR(200), \n\trole VARCHAR(6) NOT NULL, "
+                        "\n\tis_active BOOLEAN NOT NULL, \n\tdepartment VARCHAR(50), \n\tcreated_at DATETIME, "
+                        "\n\tupdated_at DATETIME, \n\tPRIMARY KEY (id)\n)"
+                    )
+                } if "users" in existing_tables else None,
             )
         return self._db
 
@@ -1492,34 +1564,12 @@ SQLQuery:"""
             clean_sql_runnable = RunnableLambda(clean_sql)
 
             def check_sql_security(query: str) -> Optional[str]:
-                """Valida la query SQL per bloccare accessi non autorizzati a sezioni riservate."""
-                # Blocco di sicurezza rigoroso su dati di preventivazione
-                if re.search(r'\b(richieste_commerciali|articoli_richiesta)\b', query, re.IGNORECASE):
-                    logger.warning(f"Bloccato tentativo di query su tabelle di preventivazione: {query}")
-                    return "ACCESSO_NEGATO_PREVENTIVAZIONE: I dati della pagina Preventivazione sono riservati ed esclusi dal chatbot."
+                """Valida la query SQL: solo letture, niente tabelle riservate né credenziali."""
+                error = validate_readonly_sql(query)
+                if error:
+                    logger.warning(f"Query SQL bloccata ({error.split(':')[0]}): {query}")
+                return error
 
-                # Blocco di sicurezza rigoroso su dati di note personali
-                if re.search(r'\bnotes\b', query, re.IGNORECASE):
-                    logger.warning(f"Bloccato tentativo di query su tabella notes: {query}")
-                    return "ACCESSO_NEGATO_NOTE: La tabella delle note personali è strettamente riservata ed esclusa dal chatbot per motivi di privacy."
-
-                # Blocco di sicurezza rigoroso su TODO
-                if re.search(r'\btodos\b', query, re.IGNORECASE):
-                    logger.warning(f"Bloccato tentativo di query su tabella todos: {query}")
-                    return "ACCESSO_NEGATO_TODO: La tabella dei TODO è strettamente riservata ed esclusa dal chatbot per motivi di privacy."
-
-                # Blocco di sicurezza rigoroso su Ticket
-                if re.search(r'\b(tickets|ticket_replies)\b', query, re.IGNORECASE):
-                    logger.warning(f"Bloccato tentativo di query su tabella tickets: {query}")
-                    return "ACCESSO_NEGATO_TICKETS: La gestione dei ticket di assistenza è riservata ed esclusa dal chatbot."
-
-                # Blocco di sicurezza rigoroso su Calendario Personale
-                if re.search(r'\bcalendar_events\b', query, re.IGNORECASE):
-                    logger.warning(f"Bloccato tentativo di query su tabella calendar_events: {query}")
-                    return "ACCESSO_NEGATO_CALENDARIO: La tabella degli eventi di calendario personale è strettamente riservata ed esclusa dal chatbot."
-
-                return None
-            
             def execute_and_log(sql_query: str) -> str:
                 """Esegue la query SQL e, in caso di errore, esegue il Self-Correction Loop automatico."""
                 sec_err = check_sql_security(sql_query)
