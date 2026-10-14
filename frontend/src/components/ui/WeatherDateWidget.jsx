@@ -369,6 +369,9 @@ function getRainBadgeClass(prob, type) {
 }
 
 export function WeatherModal({ isOpen, onClose, weatherState }) {
+  // Gli hook vanno chiamati prima di qualsiasi return anticipato
+  const hourlyScrollRef = useRef(null);
+
   if (!isOpen || !weatherState) return null;
 
   const {
@@ -390,8 +393,6 @@ export function WeatherModal({ isOpen, onClose, weatherState }) {
     handleSelectCity,
     handleDetectLocation,
   } = weatherState;
-
-  const hourlyScrollRef = useRef(null);
 
   const scrollHourly = (direction) => {
     if (hourlyScrollRef.current) {

@@ -275,18 +275,19 @@ export default function SmartReplanningSection({
     }
   };
 
-  if (!canManage) {
-    return null;
-  }
-
   const suggestions = replanData?.suggestions || [];
   const history = replanData?.history || [];
 
+  // Gli hook vanno chiamati prima di qualsiasi return anticipato
   const primaryHistory = useMemo(() => {
     if (!Array.isArray(history)) return [];
     const filtered = history.filter((log) => !log.parent_log_id);
     return filtered.length > 0 ? filtered : history;
   }, [history]);
+
+  if (!canManage) {
+    return null;
+  }
 
   return (
     <div style={{ marginTop: 24 }}>

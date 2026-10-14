@@ -380,11 +380,11 @@ export default function ProjectDetailPage() {
         } catch (e) {
           console.error('Errore salvataggio cache analisi AI:', e);
         }
-        addToast('Analisi HiPlan AI completata con successo', 'success');
+        toast.success('Analisi HiPlan AI completata con successo');
       }
     } catch (err) {
       console.error('Errore analisi AI:', err);
-      addToast(err?.response?.data?.detail || 'Errore durante l\'analisi AI della commessa', 'error');
+      toast.error(getApiErrorMessage(err, 'Errore durante l\'analisi AI della commessa'));
     } finally {
       setIsAiAnalyzing(false);
     }
