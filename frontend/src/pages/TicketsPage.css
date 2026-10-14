@@ -11,8 +11,6 @@
   min-height: 0;
   gap: 0;
   overflow: hidden;
-  max-width: 1380px;
-  margin: 0 auto;
   width: 100%;
   animation: profileFadeIn 0.22s ease-out;
 }
@@ -1325,4 +1323,125 @@
 .assignee-item-username {
   font-size: 0.72rem;
   color: var(--text-muted);
+}
+/* ---- Layout responsive ----
+   Desktop: filtri | elenco | dettaglio a tutta larghezza.
+   ≤1100px: i filtri diventano una barra sopra, per lasciare spazio a elenco e dettaglio.
+   ≤760px: elenco e dettaglio si alternano (master-detail) con il pulsante "Elenco ticket". */
+.tickets-page-wrapper .tickets-list-panel {
+  width: clamp(270px, 26%, 400px);
+}
+
+.tickets-sidebar-footer {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ticket-detail-back {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 4px 8px 4px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent-500);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ticket-detail-back:hover {
+  background: var(--bg-hover);
+}
+
+@media (max-width: 1100px) {
+  .tickets-page-wrapper .tickets-body {
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .tickets-page-wrapper .tickets-sidebar {
+    width: 100%;
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 12px;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .tickets-page-wrapper .tickets-sidebar .sidebar-create-btn {
+    width: auto;
+    margin: 0 !important;
+  }
+
+  .tickets-page-wrapper .tickets-sidebar-section-title {
+    width: auto;
+    margin: 0 2px 0 10px;
+    padding: 0;
+  }
+
+  .tickets-page-wrapper .tickets-filter-btn {
+    width: auto;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+
+  .tickets-page-wrapper .tickets-sidebar-footer {
+    margin: 0 0 0 auto;
+    padding: 0;
+    border-top: 0;
+  }
+
+  .tickets-page-wrapper .tickets-workspace {
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .tickets-page-wrapper .tickets-sidebar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .tickets-page-wrapper .tickets-sidebar > * {
+    flex-shrink: 0;
+  }
+
+  .tickets-page-wrapper .tickets-workspace-body {
+    flex-direction: row;
+    overflow: hidden;
+  }
+
+  .tickets-page-wrapper .tickets-list-panel {
+    width: 100%;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  .tickets-page-wrapper .tickets-detail {
+    display: none;
+  }
+
+  .tickets-page-wrapper .has-selection .tickets-list-panel {
+    display: none;
+  }
+
+  .tickets-page-wrapper .has-selection .tickets-detail {
+    display: flex;
+  }
+
+  .tickets-page-wrapper .ticket-detail-back {
+    display: inline-flex;
+  }
 }

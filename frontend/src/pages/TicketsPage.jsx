@@ -754,7 +754,7 @@ function EditTicketModal({ ticket, onClose, onUpdated, projects, users, currentU
 }
 
 /* ─── Ticket Detail Panel ─── */
-function TicketDetail({ ticket, currentUser, onRefresh, users, projects, phases }) {
+function TicketDetail({ ticket, currentUser, onRefresh, users, projects, phases, onBack }) {
   const [replyText, setReplyText] = useState('');
   const [replyActionType, setReplyActionType] = useState(phases?.[0] || '📝 Nota Interna');
   const [replyFiles, setReplyFiles] = useState([]);
@@ -949,6 +949,10 @@ function TicketDetail({ ticket, currentUser, onRefresh, users, projects, phases 
 
       {/* Header */}
       <div className="ticket-detail-header">
+        {/* Visibile solo su schermi piccoli, dove elenco e dettaglio si alternano */}
+        <button type="button" className="ticket-detail-back" onClick={onBack}>
+          <AppIcon name="chevronLeft" size={15} /> Elenco ticket
+        </button>
         <div className="ticket-detail-header-top">
           <h2 className="ticket-detail-title">{ticket.title}</h2>
           <div className="ticket-detail-actions">
@@ -1562,7 +1566,7 @@ export default function TicketsPage() {
           )}
 
           {canAccessTrash && (
-            <div style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
+            <div className="tickets-sidebar-footer">
               <button
                 className="tickets-filter-btn"
                 onClick={() => { setShowTrashModal(true); loadTrash(); }}
@@ -1610,7 +1614,7 @@ export default function TicketsPage() {
             </span>
           </div>
 
-          <div className="tickets-workspace-body">
+          <div className={`tickets-workspace-body${selectedTicket ? ' has-selection' : ''}`}>
             {/* Ticket list */}
             <div className="tickets-list-panel">
               <div className="tickets-list">
@@ -1663,6 +1667,7 @@ export default function TicketsPage() {
                 users={users}
                 projects={projects}
                 phases={phases}
+                onBack={() => setSelectedId(null)}
               />
             ) : (
               <div className="tickets-detail">
