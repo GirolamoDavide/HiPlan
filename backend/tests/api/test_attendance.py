@@ -64,3 +64,37 @@ async def test_attendance_grid_only_for_admin(client: AsyncClient, auth_headers:
     editor = {"Authorization": f"Bearer {token}"}
     assert (await client.get("/api/attendance?month=2026-10", headers=editor)).status_code == 403
     assert (await client.put("/api/attendance/notes", headers=editor, json=note)).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_attendance_access_managed_by_admin(client: AsyncClient, auth_headers: dict, test_user, db_session):
+    async def login(username, role):
+        db_session.add(User(email=f"{username}@example.com", username=username, hashed_password=hash_password("pass1234"),
+                            full_name=username.title(), role=role, is_active=True))
+        await db_session.commit()
+        res = await client.post("/api/auth/login", json={"email": f"{username}@example.com", "password": "pass1234"})
+        return {"Authorization": f"Bearer {res.json()['access_token']}"}
+
+    reader = await login("lettore", UserRole.VIEWER)
+    writer = await login("compilatore", UserRole.VIEWER)
+    note = {"user_id": str(test_user.id), "date": "2026-10-08", "text": "M", "color": None}
+
+    # Senza permessi: nessun accesso
+    assert (await client.get("/api/attendance/access", headers=reader)).json() == {"can_view": False, "can_edit": False}
+    assert (await client.get("/api/attendance?month=2026-10", headers=reader)).status_code == 403
+
+    # Solo l'admin gestisce gli elenchi
+    assert (await client.put("/api/attendance/settings/access", headers=reader, json={"viewers": ["lettore"], "editors": []})).status_code == 403
+    res = await client.put("/api/attendance/settings/access", headers=auth_headers,
+                           json={"viewers": ["lettore"], "editors": ["compilatore"]})
+    assert res.status_code == 200
+    assert (await client.get("/api/attendance/settings/access", headers=auth_headers)).json() == {"viewers": ["lettore"], "editors": ["compilatore"]}
+
+    # Chi può vedere legge ma non scrive
+    grid = await client.get("/api/attendance?month=2026-10", headers=reader)
+    assert grid.status_code == 200 and grid.json()["can_edit"] is False
+    assert (await client.put("/api/attendance/notes", headers=reader, json=note)).status_code == 403
+
+    # Chi può compilare legge e scrive
+    assert (await client.get("/api/attendance/access", headers=writer)).json() == {"can_view": True, "can_edit": True}
+    assert (await client.put("/api/attendance/notes", headers=writer, json=note)).status_code == 200

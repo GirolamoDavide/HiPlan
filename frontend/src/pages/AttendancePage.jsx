@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import api from '../api/client';
 import { useToast } from '../context/ToastContext';
 import AppIcon from '../components/ui/AppIcon';
+import AccessListsModal from '../components/ui/AccessListsModal';
+import { useAuth } from '../context/AuthContext';
 import { getApiErrorMessage } from '../utils/apiErrors';
 import './AttendancePage.css';
 
@@ -58,6 +60,11 @@ function loadVisibleKinds() {
 
 export default function AttendancePage() {
   const toast = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const [access, setAccess] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [showAccess, setShowAccess] = useState(false);
   const today = new Date();
   const todayStr = today.toLocaleDateString('sv-SE');
   const [year, setYear] = useState(today.getFullYear());
@@ -81,7 +88,22 @@ export default function AttendancePage() {
     }
   }, [year, month, toast]);
 
-  useEffect(() => { loadGrid(); }, [loadGrid]);
+  // L'accesso alla griglia lo decide l'admin (come per il calendario viaggi)
+  useEffect(() => {
+    api.get('/attendance/access')
+      .then(({ data }) => setAccess(data))
+      .catch(() => setAccess({ can_view: false, can_edit: false }));
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin) {
+      api.get('/users').then(({ data }) => setUsers(Array.isArray(data) ? data : [])).catch(() => {});
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (access?.can_view) loadGrid();
+  }, [access?.can_view, loadGrid]);
 
   function shiftMonth(delta) {
     const d = new Date(year, month + delta, 1);
@@ -179,6 +201,22 @@ export default function AttendancePage() {
     );
   }
 
+  if (access === null) {
+    return <div className="attendance-page" />;
+  }
+
+  if (!access.can_view) {
+    return (
+      <div className="attendance-page">
+        <div className="empty-state" style={{ marginTop: 60 }}>
+          <div className="empty-state-icon"><AppIcon name="lock" size={26} /></div>
+          <h3>Non hai accesso alla griglia presenze</h3>
+          <p>Chiedi a un amministratore di aggiungerti tra le persone che possono vederla.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="attendance-page">
       <div className="att-toolbar">
@@ -203,8 +241,17 @@ export default function AttendancePage() {
             <option value="all">Tutti i reparti</option>
             {departments.map(d => <option key={d} value={d}>{DEPARTMENT_LABELS[d] || d}</option>)}
           </select>
+          {isAdmin && (
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowAccess(true)}>
+              <AppIcon name="users" size={14} /> Permessi
+            </button>
+          )}
         </div>
       </div>
+
+      {grid?.can_edit === false && (
+        <p className="att-hint">Visualizzazione in sola lettura: puoi vedere la griglia ma non scrivere note nelle celle.</p>
+      )}
 
       <div className="att-table-wrap">
         {loading && !grid ? (
@@ -234,6 +281,17 @@ export default function AttendancePage() {
           </table>
         )}
       </div>
+
+      {showAccess && (
+        <AccessListsModal
+          title="Permessi griglia presenze"
+          endpoint="/attendance/settings/access"
+          sectionName="la griglia presenze"
+          editorsLabel="Possono compilare (scrivere e colorare le note nelle celle)"
+          users={users}
+          onClose={() => setShowAccess(false)}
+        />
+      )}
 
       {editing && (
         <div className="modal-overlay animate-fadeIn">

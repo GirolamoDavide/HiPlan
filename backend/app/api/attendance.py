@@ -1,7 +1,7 @@
 """Griglia presenze: addetti in riga e giorni del mese in colonna, come il foglio Excel di pianificazione.
 
-Le celle si compilano da sole con ferie, permessi a ore, viaggi e fasi assegnate; solo gli admin
-vedono la griglia e possono aggiungere una nota libera colorata per cella.
+Le celle si compilano da sole con ferie, permessi a ore, viaggi e fasi assegnate. Gli admin decidono
+chi può vedere la griglia e chi può compilarne le note (come per il calendario viaggi).
 """
 import calendar
 import json
@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.trips import get_trip_access
+from app.services.access_lists import get_list_setting, set_list_setting, get_section_access
 from app.core.dependencies import get_db, get_current_user
 from app.models.attendance_note import AttendanceNote
 from app.models.task import Task, TaskType
@@ -63,9 +64,52 @@ def _days(first: date, last: date) -> List[date]:
     return [first + timedelta(days=i) for i in range((last - first).days + 1)]
 
 
+VIEWERS_KEY = "attendance_viewers"
+EDITORS_KEY = "attendance_editors"
+
+
+class AttendanceAccessIn(BaseModel):
+    viewers: List[str] = []
+    editors: List[str] = []
+
+
+async def get_attendance_access(db: AsyncSession, user: User) -> dict:
+    return await get_section_access(db, user, VIEWERS_KEY, EDITORS_KEY)
+
+
+async def _require(db: AsyncSession, user: User, permission: str) -> dict:
+    access = await get_attendance_access(db, user)
+    if not access[permission]:
+        detail = "Non hai i permessi per compilare la griglia presenze" if permission == "can_edit" else "Non hai accesso alla griglia presenze"
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+    return access
+
+
 def _require_admin(user: User) -> None:
     if user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="La griglia presenze è riservata agli amministratori")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo gli admin")
+
+
+@router.get("/access")
+async def my_attendance_access(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return await get_attendance_access(db, current_user)
+
+
+@router.get("/settings/access")
+async def get_attendance_access_settings(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_admin(current_user)
+    return {"viewers": await get_list_setting(db, VIEWERS_KEY), "editors": await get_list_setting(db, EDITORS_KEY)}
+
+
+@router.put("/settings/access")
+async def update_attendance_access_settings(
+    data: AttendanceAccessIn, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    await set_list_setting(db, VIEWERS_KEY, data.viewers)
+    await set_list_setting(db, EDITORS_KEY, data.editors)
+    await db.commit()
+    return {"viewers": data.viewers, "editors": data.editors}
 
 
 def _task_dates(task: Task, first: date, last: date) -> List[date]:
@@ -93,7 +137,7 @@ async def get_attendance_grid(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _require_admin(current_user)
+    access = await _require(db, current_user, "can_view")
     first, last = _month_bounds(month)
 
     users_res = await db.execute(select(User).where(User.is_active == True))  # noqa: E712
@@ -130,7 +174,15 @@ async def get_attendance_grid(
                 if not uid:
                     continue
                 for day in _days(max(trip.start_date, first), min(trip.end_date, last)):
-                    cell(uid, day)["items"].append({"kind": "trip", "label": trip.destination or trip.title, "detail": trip.title, "color": trip.color})
+                    label = trip.destination or trip.title
+                    times = []
+                    if day == trip.start_date and trip.start_time:
+                        times.append(f"dalle {trip.start_time}")
+                    if day == trip.end_date and trip.end_time:
+                        times.append(f"fino alle {trip.end_time}")
+                    if times:
+                        label = f"{label} ({', '.join(times)})"
+                    cell(uid, day)["items"].append({"kind": "trip", "label": label, "detail": trip.title, "color": trip.color})
 
     # Fasi assegnate nelle commesse attive
     task_res = await db.execute(
@@ -166,7 +218,7 @@ async def get_attendance_grid(
     holidays = {h["date"]: h["name"] for h in get_italian_holidays(first.year)}
     return {
         "month": month,
-        "can_edit": True,
+        "can_edit": access["can_edit"],
         "days": [
             {"date": d.isoformat(), "weekday": d.weekday(), "holiday": holidays.get(d)}
             for d in _days(first, last)
@@ -185,7 +237,7 @@ async def upsert_attendance_note(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _require_admin(current_user)
+    await _require(db, current_user, "can_edit")
 
     res = await db.execute(
         select(AttendanceNote).where(AttendanceNote.user_id == data.user_id, AttendanceNote.date == data.date)

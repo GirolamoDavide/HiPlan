@@ -55,3 +55,27 @@ async def test_trip_access_viewers_and_editors(client: AsyncClient, auth_headers
 async def test_trip_dates_validated(client: AsyncClient, auth_headers: dict):
     res = await client.post("/api/trips", headers=auth_headers, json={**TRIP, "end_date": "2026-10-19"})
     assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_trip_times(client: AsyncClient, auth_headers: dict, test_user):
+    trip = {**TRIP, "travelers": ["testuser"], "start_time": "14:00", "end_time": "11:30"}
+    res = await client.post("/api/trips", headers=auth_headers, json=trip)
+    assert res.status_code == 201
+    assert (res.json()["start_time"], res.json()["end_time"]) == ("14:00", "11:30")
+
+    # Formato non valido e ritorno prima della partenza nello stesso giorno
+    assert (await client.post("/api/trips", headers=auth_headers, json={**trip, "start_time": "25:00"})).status_code == 422
+    same_day = {**trip, "end_date": TRIP["start_date"], "start_time": "15:00", "end_time": "09:00"}
+    assert (await client.post("/api/trips", headers=auth_headers, json=same_day)).status_code == 400
+
+    # Orari facoltativi
+    assert (await client.post("/api/trips", headers=auth_headers, json={**TRIP, "start_time": None})).status_code == 201
+
+    # In griglia il giorno di partenza/ritorno riporta l'orario
+    grid = (await client.get("/api/attendance?month=2026-10", headers=auth_headers)).json()
+    row = grid["cells"][str(test_user.id)]
+    labels = lambda d: [i["label"] for i in row[d]["items"] if i["kind"] == "trip"]
+    assert labels("2026-10-20") == ["Torino (dalle 14:00)"]
+    assert labels("2026-10-21") == ["Torino"]
+    assert labels("2026-10-22") == ["Torino (fino alle 11:30)"]

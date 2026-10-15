@@ -236,6 +236,7 @@ export default function MainLayout() {
   const [activeNotifTab, setActiveNotifTab] = useState('all');
   const [rcEnabled, setRcEnabled] = useState(() => user?.role === 'admin');
   const [tripsEnabled, setTripsEnabled] = useState(() => user?.role === 'admin');
+  const [attendanceEnabled, setAttendanceEnabled] = useState(() => user?.role === 'admin');
 
   // Il calendario viaggi compare solo a chi l'admin ha dato accesso
   useEffect(() => {
@@ -250,6 +251,21 @@ export default function MainLayout() {
     api.get('/trips/access')
       .then(({ data }) => setTripsEnabled(Boolean(data?.can_view)))
       .catch(() => setTripsEnabled(false));
+  }, [user]);
+
+  // Anche la griglia presenze compare solo a chi l'admin ha dato accesso
+  useEffect(() => {
+    if (!user) {
+      setAttendanceEnabled(false);
+      return;
+    }
+    if (user.role === 'admin') {
+      setAttendanceEnabled(true);
+      return;
+    }
+    api.get('/attendance/access')
+      .then(({ data }) => setAttendanceEnabled(Boolean(data?.can_view)))
+      .catch(() => setAttendanceEnabled(false));
   }, [user]);
 
   useEffect(() => {
@@ -602,7 +618,7 @@ export default function MainLayout() {
               {showSidebarText && <span>Calendario viaggi</span>}
             </NavLink>
           )}
-          {user?.role === 'admin' && (
+          {attendanceEnabled && (
             <NavLink to="/attendance" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
               <span className="sidebar-link-icon"><AppIcon name="grid" /></span>
               {showSidebarText && <span>Griglia presenze</span>}

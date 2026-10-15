@@ -12,6 +12,9 @@ class Trip(Base, TimestampMixin):
     destination = Column(String(255), nullable=True)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
+    # Orari facoltativi "HH:MM" di partenza e ritorno (per distinguere mattina e pomeriggio)
+    start_time = Column(String(5), nullable=True)
+    end_time = Column(String(5), nullable=True)
     travelers = Column(Text, nullable=False, default="[]")  # JSON list di username
     project_id = Column(uuid_fk(), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
     notes = Column(Text, nullable=True)

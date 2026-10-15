@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import itLocale from '@fullcalendar/core/locales/it';
 import api from '../api/client';
@@ -8,6 +9,8 @@ import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import AppIcon from '../components/ui/AppIcon';
 import AssigneeInput from '../components/ui/AssigneeInput';
+import AccessListsModal from '../components/ui/AccessListsModal';
+import SearchableCombobox from '../components/ui/SearchableCombobox';
 import { getApiErrorMessage } from '../utils/apiErrors';
 import './PersonalCalendarPage.css';
 
@@ -18,6 +21,8 @@ const EMPTY_FORM = {
   destination: '',
   start_date: '',
   end_date: '',
+  start_time: '',
+  end_time: '',
   travelers: [],
   project_id: '',
   notes: '',
@@ -36,67 +41,11 @@ function formatDateIt(dateStr) {
   return dateStr ? dateStr.split('-').reverse().join('/') : '';
 }
 
-/* Permessi del calendario viaggi, gestiti dagli admin come gli osservatori ticket */
-function TripAccessModal({ users, onClose }) {
-  const toast = useToast();
-  const [viewers, setViewers] = useState([]);
-  const [editors, setEditors] = useState([]);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api.get('/trips/settings/access')
-      .then(({ data }) => {
-        setViewers(data.viewers || []);
-        setEditors(data.editors || []);
-      })
-      .catch(() => toast.error('Impossibile caricare i permessi del calendario viaggi'));
-  }, [toast]);
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      await api.put('/trips/settings/access', { viewers, editors });
-      toast.success('Permessi del calendario viaggi aggiornati');
-      onClose();
-    } catch (err) {
-      toast.error(getApiErrorMessage(err, 'Errore durante il salvataggio'));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="modal-overlay animate-fadeIn">
-      {/* Alto abbastanza da contenere l'elenco persone aperto senza tagliarlo */}
-      <div
-        className="modal"
-        onClick={e => e.stopPropagation()}
-        style={{ maxWidth: 760, width: '100%', minHeight: 'min(640px, 88vh)', padding: 32, display: 'flex', flexDirection: 'column' }}
-      >
-        <div className="modal-header">
-          <h2>Permessi calendario viaggi</h2>
-          <button className="btn-ghost btn-icon" onClick={onClose} aria-label="Chiudi"><AppIcon name="close" /></button>
-        </div>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0 0 16px' }}>
-          Gli amministratori possono sempre vedere e compilare il calendario. Chi può compilare può anche vedere.
-        </p>
-        <div className="input-group">
-          <label>Possono vedere</label>
-          <AssigneeInput selected={viewers} onChange={setViewers} users={users} placeholder="Aggiungi persone..." />
-        </div>
-        <div className="input-group">
-          <label>Possono compilare (inserire, modificare ed eliminare viaggi)</label>
-          <AssigneeInput selected={editors} onChange={setEditors} users={users} placeholder="Aggiungi persone..." />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 'auto', paddingTop: 20 }}>
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Annulla</button>
-          <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? 'Salvataggio...' : 'Salva permessi'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+// Es. "20/10/2026 14:00 – 22/10/2026 11:30" (orari facoltativi)
+function formatTripPeriod(trip) {
+  const start = [formatDateIt(trip.start_date), trip.start_time].filter(Boolean).join(' ');
+  const end = [trip.end_date !== trip.start_date ? formatDateIt(trip.end_date) : '', trip.end_time].filter(Boolean).join(' ');
+  return end ? `${start} – ${end}` : start;
 }
 
 export default function TripsCalendarPage() {
@@ -140,26 +89,36 @@ export default function TripsCalendarPage() {
     }
   }
 
+  // Commesse esistenti cercabili per codice, nome o cliente
+  const projectOptions = useMemo(() => projects.map(p => ({
+    value: p.id,
+    label: [p.code, p.name].filter(Boolean).join(' – ') + (p.client ? ` (${p.client})` : ''),
+  })), [projects]);
+
   const userLabel = useMemo(() => {
     const map = new Map(users.map(u => [u.username, u.full_name || u.username]));
     return username => map.get(username) || username;
   }, [users]);
 
-  const events = useMemo(() => trips.map(t => ({
-    id: t.id,
-    title: [t.destination || t.title, t.travelers.map(userLabel).join(', ')].filter(Boolean).join(' · '),
-    start: t.start_date,
-    end: shiftDate(t.end_date, 1), // FullCalendar: fine esclusiva per gli eventi di giornata intera
-    allDay: true,
-    backgroundColor: t.color,
-    borderColor: t.color,
-    editable: canEdit,
-    extendedProps: { trip: t },
-  })), [trips, userLabel, canEdit]);
+  const events = useMemo(() => trips.map(t => {
+    const hasTimes = Boolean(t.start_time || t.end_time);
+    return {
+      id: t.id,
+      title: [t.start_time, t.destination || t.title, t.travelers.map(userLabel).join(', ')].filter(Boolean).join(' · '),
+      // Con un orario il viaggio occupa la sua fascia nella vista Giorno; senza orario è "tutto il giorno"
+      start: hasTimes ? `${t.start_date}T${t.start_time || '00:00'}` : t.start_date,
+      end: hasTimes ? `${t.end_date}T${t.end_time || '23:59'}` : shiftDate(t.end_date, 1), // fine esclusiva per la giornata intera
+      allDay: !hasTimes,
+      backgroundColor: t.color,
+      borderColor: t.color,
+      editable: canEdit,
+      extendedProps: { trip: t },
+    };
+  }), [trips, userLabel, canEdit]);
 
-  function openCreate(startDate, endDate) {
+  function openCreate(startDate, endDate, startTime = '', endTime = '') {
     setSelectedTrip(null);
-    setForm({ ...EMPTY_FORM, start_date: startDate, end_date: endDate || startDate });
+    setForm({ ...EMPTY_FORM, start_date: startDate, end_date: endDate || startDate, start_time: startTime, end_time: endTime });
     setModalMode('create');
   }
 
@@ -170,6 +129,8 @@ export default function TripsCalendarPage() {
       destination: trip.destination || '',
       start_date: trip.start_date,
       end_date: trip.end_date,
+      start_time: trip.start_time || '',
+      end_time: trip.end_time || '',
       travelers: trip.travelers,
       project_id: trip.project_id || '',
       notes: trip.notes || '',
@@ -181,15 +142,30 @@ export default function TripsCalendarPage() {
   function handleSelect(info) {
     info.view.calendar.unselect();
     if (!canEdit) return;
-    openCreate(info.startStr, shiftDate(info.endStr, -1));
+    if (info.allDay) {
+      openCreate(info.startStr, shiftDate(info.endStr, -1));
+    } else {
+      // Selezione di una fascia oraria nella vista Giorno: date e orari già compilati
+      openCreate(info.startStr.slice(0, 10), info.endStr.slice(0, 10), info.startStr.slice(11, 16), info.endStr.slice(11, 16));
+    }
   }
 
   async function handleDrop(info) {
     const trip = info.event.extendedProps.trip;
-    const start = info.event.startStr;
-    const end = info.event.endStr ? shiftDate(info.event.endStr, -1) : start;
+    const { startStr, endStr, allDay } = info.event;
+    let dates;
+    if (allDay) {
+      dates = { start_date: startStr, end_date: endStr ? shiftDate(endStr, -1) : startStr };
+    } else {
+      // Evento con orario: lo spostamento cambia anche gli orari di partenza e ritorno
+      const end = endStr || startStr;
+      dates = {
+        start_date: startStr.slice(0, 10), start_time: startStr.slice(11, 16),
+        end_date: end.slice(0, 10), end_time: end.slice(11, 16),
+      };
+    }
     try {
-      await api.put(`/trips/${trip.id}`, { ...trip, start_date: start, end_date: end, project_id: trip.project_id || null });
+      await api.put(`/trips/${trip.id}`, { ...trip, ...dates, project_id: trip.project_id || null });
       loadTrips();
     } catch (err) {
       info.revert();
@@ -199,7 +175,16 @@ export default function TripsCalendarPage() {
 
   async function handleSave(e) {
     e.preventDefault();
-    const payload = { ...form, project_id: form.project_id || null };
+    if (form.start_date === form.end_date && form.start_time && form.end_time && form.end_time < form.start_time) {
+      toast.error("L'orario di ritorno non può precedere la partenza");
+      return;
+    }
+    const payload = {
+      ...form,
+      project_id: form.project_id || null,
+      start_time: form.start_time || null,
+      end_time: form.end_time || null,
+    };
     try {
       if (modalMode === 'create') {
         await api.post('/trips', payload);
@@ -290,6 +275,9 @@ export default function TripsCalendarPage() {
               <button className={`calendar-view-btn ${currentView === 'dayGridWeek' ? 'active' : ''}`} onClick={() => changeView('dayGridWeek')}>
                 Settimana
               </button>
+              <button className={`calendar-view-btn ${currentView === 'timeGridDay' ? 'active' : ''}`} onClick={() => changeView('timeGridDay')}>
+                Giorno
+              </button>
             </div>
           </div>
         </div>
@@ -298,7 +286,7 @@ export default function TripsCalendarPage() {
       <div className="calendar-wrapper">
         <FullCalendar
           ref={calendarRef}
-          plugins={[dayGridPlugin, interactionPlugin]}
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
           initialView={currentView}
           locales={[itLocale]}
           locale="it"
@@ -313,6 +301,9 @@ export default function TripsCalendarPage() {
           dayMaxEvents={true}
           firstDay={1}
           eventDisplay="block"
+          displayEventTime={false} // l'orario di partenza è già nel titolo
+          scrollTime="07:00:00"
+          allDayText="Tutto il giorno"
           height="100%"
         />
       </div>
@@ -337,10 +328,7 @@ export default function TripsCalendarPage() {
                 )}
                 <div className="calendar-modal-row">
                   <span className="calendar-modal-label">Periodo</span>
-                  <span className="calendar-modal-val">
-                    {formatDateIt(selectedTrip.start_date)}
-                    {selectedTrip.end_date !== selectedTrip.start_date && ` – ${formatDateIt(selectedTrip.end_date)}`}
-                  </span>
+                  <span className="calendar-modal-val">{formatTripPeriod(selectedTrip)}</span>
                 </div>
                 <div className="calendar-modal-row"><span className="calendar-modal-label">Partecipanti</span><span className="calendar-modal-val">{selectedTrip.travelers.map(userLabel).join(', ') || '—'}</span></div>
                 {selectedTrip.project_code && (
@@ -365,28 +353,45 @@ export default function TripsCalendarPage() {
                   <input id="trip-destination" className="input" value={form.destination} placeholder="Città, cliente o stabilimento"
                     onChange={e => setForm({ ...form, destination: e.target.value })} />
                 </div>
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <div className="input-group" style={{ flex: 1 }}>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <div className="input-group" style={{ flex: '1 1 240px' }}>
                     <label htmlFor="trip-start">Partenza *</label>
-                    <input id="trip-start" type="date" className="input" value={form.start_date} required
-                      onChange={e => setForm({ ...form, start_date: e.target.value, end_date: form.end_date < e.target.value ? e.target.value : form.end_date })} />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input id="trip-start" type="date" className="input" style={{ flex: 1 }} value={form.start_date} required
+                        onChange={e => setForm({ ...form, start_date: e.target.value, end_date: form.end_date < e.target.value ? e.target.value : form.end_date })} />
+                      <input type="time" className="input" style={{ width: 110 }} value={form.start_time} aria-label="Orario di partenza"
+                        onChange={e => setForm({ ...form, start_time: e.target.value })} />
+                    </div>
                   </div>
-                  <div className="input-group" style={{ flex: 1 }}>
+                  <div className="input-group" style={{ flex: '1 1 240px' }}>
                     <label htmlFor="trip-end">Ritorno *</label>
-                    <input id="trip-end" type="date" className="input" value={form.end_date} min={form.start_date} required
-                      onChange={e => setForm({ ...form, end_date: e.target.value })} />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input id="trip-end" type="date" className="input" style={{ flex: 1 }} value={form.end_date} min={form.start_date} required
+                        onChange={e => setForm({ ...form, end_date: e.target.value })} />
+                      <input type="time" className="input" style={{ width: 110 }} value={form.end_time} aria-label="Orario di ritorno"
+                        onChange={e => setForm({ ...form, end_time: e.target.value })} />
+                    </div>
                   </div>
                 </div>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: -8 }}>
+                  Gli orari sono facoltativi: servono a capire se si parte o si rientra al mattino o al pomeriggio.
+                </span>
                 <div className="input-group">
                   <label>Partecipanti</label>
                   <AssigneeInput selected={form.travelers} onChange={travelers => setForm({ ...form, travelers })} users={users} placeholder="Aggiungi partecipanti..." />
                 </div>
                 <div className="input-group">
-                  <label htmlFor="trip-project">Commessa collegata</label>
-                  <select id="trip-project" className="input" value={form.project_id} onChange={e => setForm({ ...form, project_id: e.target.value })}>
-                    <option value="">— Nessuna —</option>
-                    {projects.map(p => <option key={p.id} value={p.id}>{p.code ? `${p.code} – ` : ''}{p.name}</option>)}
-                  </select>
+                  <label>Commessa collegata</label>
+                  <SearchableCombobox
+                    value={form.project_id}
+                    onChange={(val, opt) => {
+                      // Solo commesse esistenti: si sceglie dai suggerimenti, svuotando il campo si toglie il collegamento
+                      if (opt) setForm(f => ({ ...f, project_id: opt.value }));
+                      else if (!String(val || '').trim()) setForm(f => ({ ...f, project_id: '' }));
+                    }}
+                    options={projectOptions}
+                    placeholder="Scrivi codice, nome o cliente della commessa…"
+                  />
                 </div>
                 <div className="input-group">
                   <label>Colore</label>
@@ -415,7 +420,16 @@ export default function TripsCalendarPage() {
         </div>
       )}
 
-      {showAccess && <TripAccessModal users={users} onClose={() => setShowAccess(false)} />}
+      {showAccess && (
+        <AccessListsModal
+          title="Permessi calendario viaggi"
+          endpoint="/trips/settings/access"
+          sectionName="il calendario viaggi"
+          editorsLabel="Possono compilare (inserire, modificare ed eliminare viaggi)"
+          users={users}
+          onClose={() => setShowAccess(false)}
+        />
+      )}
     </div>
   );
 }

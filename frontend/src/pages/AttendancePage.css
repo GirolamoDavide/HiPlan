@@ -98,6 +98,12 @@
 .att-kind-chip--leave { --chip: #ca8a04; }
 .att-kind-chip--trip { --chip: #0ea5e9; }
 
+.att-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .att-table-wrap {
   flex: 1;
   min-height: 0;
